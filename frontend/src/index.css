@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #07090e;
+    color: #f1f5f9;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0f19;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Custom Sliders (matching the screenshot's neon lime sliders) */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #172033;
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #bef264;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(190, 242, 100, 0.7);
+  transition: transform 0.1s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+/* Glow effects */
+.glow-lime {
+  box-shadow: 0 0 25px -4px rgba(190, 242, 100, 0.35);
+}
+
+.glow-lime-sm {
+  box-shadow: 0 0 12px -2px rgba(190, 242, 100, 0.45);
+}
+
+/* Butter-Smooth Caption Phrase Transition */
+@keyframes captionPop {
+  0% {
+    opacity: 0.65;
+    transform: translateY(4px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-caption-pop {
+  animation: captionPop 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
