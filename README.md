@@ -13,7 +13,6 @@ Double-click:
 ```cmd
 setup_and_run.bat
 ```
-*(Or run `run_clipzzz.bat`)*
 
 **What this 1-click script does automatically:**
 1. Checks for Python, Node.js, and FFmpeg.
@@ -105,9 +104,8 @@ CLIPZZZ/
 │   └── vite.config.js
 ├── setup_and_run.bat               # Master 1-Click Setup & Launcher for Windows
 ├── setup_and_run.sh                # Master 1-Click Setup & Launcher for Linux/macOS
-├── run_clipzzz.bat                 # Windows quick launcher
-├── cleanup_cache.py                # Cache & temporary file cleaner
 ├── .gitignore                      # Git exclusion rules
+├── .env.example                    # Environment template
 └── README.md
 ```
 
@@ -120,13 +118,3 @@ You can set your Gemini API key in two ways:
 2. **In `.env`**: Set `GEMINI_API_KEY=your_key_here` in `backend/.env`.
 
 *(Note: If no key is configured, Clipzzz automatically uses its intelligent heuristic highlight engine so you can test cutting, styling, and rendering without being blocked).*
-
----
-
-## 🛠️ Git Preparation
-
-Before committing to a new GitHub repository, run the cache cleaner to remove any temporary build artifacts:
-```cmd
-python cleanup_cache.py
-```
-The repository includes a comprehensive `.gitignore` that prevents large video files, node_modules, virtual environments, and `.env` secrets from being committed.
