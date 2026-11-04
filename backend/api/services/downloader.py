@@ -176,13 +176,18 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None) ->
             progress_callback(pct, msg, meta)
 
     # Resilient yt-dlp configuration with Node.js challenge solving & multi-tiered format selection
+    import shutil
+    node_exe = shutil.which('node') or r'C:\Program Files\nodejs\node.exe'
+    node_config = {'path': node_exe} if (node_exe and os.path.exists(node_exe)) else {}
+
     ydl_opts = {
-        'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/bv*+ba/best[ext=mp4]/b/best',
+        'format': 'bestvideo[height<=720][protocol^=http]+bestaudio[protocol^=http]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/bv*+ba/best[ext=mp4]/b/best',
         'outtmpl': out_template,
         'merge_output_format': 'mp4',
         'progress_hooks': [hook],
         'concurrent_fragment_downloads': 8,   # 8 parallel fragment streams for max speed
         'buffersize': 1024 * 1024 * 8,        # 8 MB socket buffer
+        'http_chunk_size': 10485760,          # 10 MB chunk size resets YouTube rate limiters
         'socket_timeout': 30,
         'retries': 10,
         'fragment_retries': 10,
@@ -191,7 +196,7 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None) ->
         'no_warnings': True,
         'noplaylist': True,
         'remote_components': ['ejs:github'],
-        'js_runtimes': {'node': {}},
+        'js_runtimes': {'node': node_config},
     }
 
     # Automatically scan for cookies.txt across project roots, Downloads, and Desktop folders
