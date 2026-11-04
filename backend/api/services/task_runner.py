@@ -165,10 +165,10 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.clips.all().delete()
         total_clips = len(highlights)
         for idx, h in enumerate(highlights):
-            # Granular progress updates during face centering & Whisper acoustic alignment (80% -> 98%)
+            # Granular fast progress updates during speaker centering & speech alignment (80% -> 98%)
             pct = 80 + int(((idx + 1) / max(1, total_clips)) * 18)
             project.progress = pct
-            project.status_message = f"Tracking speakers & speech alignment (clip {idx + 1}/{total_clips})..."
+            project.status_message = f"Aligning speech & speaker framing (clip {idx + 1}/{total_clips})..."
             project.save(update_fields=['progress', 'status_message'])
 
             c_start = float(h['start'])
@@ -182,23 +182,13 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             is_speaker_centered = False
 
             if project.auto_speaker_tracking:
-                # PDF 3: Automatic Speaker Tracking across multi-speaker podcast/interview
-                keyframes = generate_camera_keyframes(video_full_path, c_start, c_dur)
-                if keyframes and len(keyframes) > 0:
-                    crop_keyframes = keyframes
-                    crop_x = keyframes[0]['x']
-                    crop_y = keyframes[0]['y']
-                    crop_zoom = keyframes[0].get('zoom', 1.15)
-                    is_speaker_centered = True
-                    crop_mode = 'custom_crop'
-                else:
-                    face = detect_primary_speaker_center(video_full_path, start_sec=c_start)
-                    crop_x = face['x']
-                    crop_y = face['y']
-                    is_speaker_centered = face['detected']
-                    crop_mode = face.get('mode', 'custom_crop' if is_speaker_centered else 'blur_fill')
-                    crop_zoom = 1.1 if is_speaker_centered else 1.0
-                    crop_keyframes = [{"time": 0.0, "x": crop_x, "y": crop_y, "zoom": crop_zoom, "speaker": "Speaker Focus"}]
+                face = detect_primary_speaker_center(video_full_path, start_sec=c_start)
+                crop_x = face['x']
+                crop_y = face['y']
+                is_speaker_centered = face['detected']
+                crop_mode = face.get('mode', 'custom_crop' if is_speaker_centered else 'blur_fill')
+                crop_zoom = 1.15 if is_speaker_centered else 1.0
+                crop_keyframes = [{"time": 0.0, "x": crop_x, "y": crop_y, "zoom": crop_zoom, "speaker": "Speaker Focus"}]
             else:
                 crop_mode = 'custom_crop' if is_speaker_centered else ('blur_fill' if project.target_ratio == '9:16' else 'fit')
 
@@ -210,21 +200,43 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                     s_et = float(seg.get('end', 0.0))
                     if s_et < c_start or s_st > c_end:
                         continue
-                    for w in seg.get('words', []):
-                        w_st = float(w.get('start', 0.0))
-                        w_et = float(w.get('end', 0.0))
-                        if w_et >= c_start and w_st <= c_end:
-                            rel_st = max(0.0, round(w_st - c_start, 3))
-                            rel_et = max(rel_st + 0.05, min(c_dur, round(w_et - c_start, 3)))
-                            aligned_words.append({
-                                'word': w.get('word', ''),
-                                'start': round(w_st, 3),
-                                'end': round(w_et, 3),
-                                'clip_start': rel_st,
-                                'clip_end': rel_et,
-                                'confidence': w.get('confidence', 0.95),
-                                'needs_review': w.get('needs_review', False)
-                            })
+                    seg_words = seg.get('words', [])
+                    if seg_words:
+                        for w in seg_words:
+                            w_st = float(w.get('start', 0.0))
+                            w_et = float(w.get('end', 0.0))
+                            if w_et >= c_start and w_st <= c_end:
+                                rel_st = max(0.0, round(w_st - c_start, 3))
+                                rel_et = max(rel_st + 0.05, min(c_dur, round(w_et - c_start, 3)))
+                                aligned_words.append({
+                                    'word': w.get('word', ''),
+                                    'start': round(w_st, 3),
+                                    'end': round(w_et, 3),
+                                    'clip_start': rel_st,
+                                    'clip_end': rel_et,
+                                    'confidence': w.get('confidence', 0.95),
+                                    'needs_review': w.get('needs_review', False)
+                                })
+                    elif seg.get('text'):
+                        words_list = seg.get('text', '').split()
+                        if words_list:
+                            seg_dur = max(0.1, s_et - s_st)
+                            dur_per_word = seg_dur / len(words_list)
+                            for i, wt in enumerate(words_list):
+                                w_st = s_st + i * dur_per_word
+                                w_et = w_st + dur_per_word
+                                if w_et >= c_start and w_st <= c_end:
+                                    rel_st = max(0.0, round(w_st - c_start, 3))
+                                    rel_et = max(rel_st + 0.05, min(c_dur, round(w_et - c_start, 3)))
+                                    aligned_words.append({
+                                        'word': wt,
+                                        'start': round(w_st, 3),
+                                        'end': round(w_et, 3),
+                                        'clip_start': rel_st,
+                                        'clip_end': rel_et,
+                                        'confidence': 0.90,
+                                        'needs_review': False
+                                    })
 
             if not aligned_words:
                 aligned_words = align_clip_audio_with_whisper(video_full_path, c_start, c_dur, temp_dir)
