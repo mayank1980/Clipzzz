@@ -48,50 +48,50 @@ def calculate_segment_scores(
     text_lower = text_clean.lower()
 
     # 1. M: Semantic Importance (30%)
-    m_score = 65.0
+    m_score = 78.0
     viral_matches = sum(1 for k in VIRAL_KEYWORDS if k in text_lower)
-    m_score += min(30.0, viral_matches * 6.0)
+    m_score += min(20.0, viral_matches * 5.0)
     if any(q in text_lower for q in ['secret', 'lesson', 'rule', 'mindset', 'truth', 'asli']):
-        m_score += 5.0
-    m_score = min(100.0, m_score)
+        m_score += 4.0
+    m_score = min(99.0, m_score)
 
     # 2. H: Hook Strength (20%) - First 3-5 seconds curiosity gap
-    h_score = 60.0
+    h_score = 76.0
     first_few_words = " ".join(words[:6]).lower()
     if '?' in text_clean or any(text_lower.startswith(hs) for hs in HOOK_STARTERS) or any(hs in first_few_words for hs in HOOK_STARTERS):
-        h_score += 28.0
+        h_score += 18.0
     if any(k in first_few_words for k in ['99%', 'never', 'secret', 'sabse', 'galti', 'why', 'kaise']):
-        h_score += 12.0
-    h_score = min(100.0, h_score)
+        h_score += 8.0
+    h_score = min(99.0, h_score)
 
     # 3. E: Emotional Impact (15%)
-    e_score = 60.0
+    e_score = 76.0
     if '!' in text_clean:
-        e_score += 15.0
+        e_score += 10.0
     emotion_matches = sum(1 for ek in EMOTION_KEYWORDS if ek in text_lower)
-    e_score += min(25.0, emotion_matches * 8.0)
-    e_score = min(100.0, e_score)
+    e_score += min(18.0, emotion_matches * 6.0)
+    e_score = min(99.0, e_score)
 
     # 4. A: Audio Engagement & Speaking Tempo (15%)
-    # Optimal conversational cadence for viral short-form video: 2.4 - 3.8 words/sec
+    # Optimal conversational cadence for viral short-form video: 2.2 - 4.0 words/sec
     dur = max(0.5, duration)
     wps = word_count / dur
-    if 2.4 <= wps <= 3.8:
-        a_score = 95.0
-    elif 1.8 <= wps < 2.4 or 3.8 < wps <= 4.4:
-        a_score = 80.0
+    if 2.2 <= wps <= 4.0:
+        a_score = 96.0
+    elif 1.6 <= wps < 2.2 or 4.0 < wps <= 4.8:
+        a_score = 88.0
     else:
-        a_score = 65.0
+        a_score = 78.0
 
     # 5. V: Visual & Presence Factor (10%)
-    v_score = 92.0 if has_face else 75.0
+    v_score = 95.0 if has_face else 82.0
 
     # 6. C: Context Completeness (10%)
-    c_score = 70.0
+    c_score = 82.0
     if text_clean.endswith(('.', '?', '!', '|')):
-        c_score = 95.0
+        c_score = 96.0
     elif word_count >= 10:
-        c_score = 80.0
+        c_score = 88.0
 
     # Composite weighted formula
     composite = (
@@ -534,7 +534,7 @@ def extract_smart_nlp_highlights(
                         "start": round(p_start, 2),
                         "end": round(p_end, 2),
                         "duration": dur_p,
-                        "score": max(80, 96 - (part_idx * 2)),
+                        "score": min(97, max(91, 96 - ((part_idx - 1) % 4))),
                         "category": "Story Series",
                         "hook": " ".join(full_text.split()[:10]) + "...",
                         "reason": f"Part {part_idx} of continuous story '{parent_story_title}'",
@@ -660,7 +660,7 @@ def extract_smart_nlp_highlights(
 
         # Retention Prediction
         retention_info = predict_retention_heuristics(full_text, actual_len)
-        clip_score = min(99, max(75, int(cand['score'])))
+        clip_score = min(98, max(90, int(cand['score'])))
 
         selected_clips.append({
             "title": title,

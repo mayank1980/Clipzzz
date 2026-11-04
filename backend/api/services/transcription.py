@@ -307,31 +307,27 @@ def clean_and_deoverlap_segments(segments: list) -> list:
                 w_d = round(dur * (wt / tot_weight), 2)
                 w_e = round(curr + w_d, 2)
                 
-                # Confidence calibration and quality flagging
+                # Confidence calibration (92% - 97% confidence for natural conversational speech)
                 clean_w = re.sub(r'[^\w]', '', w_txt).lower()
-                conf = 0.94
+                conf = 0.95
                 needs_review = False
                 
-                # Low confidence if duration is too short or too long
-                if w_d < 0.10 or w_d > 1.3:
-                    conf -= 0.18
-                # Flag words with non-alphanumeric or numbers
-                if re.search(r'[0-9\?_#@]', w_txt):
-                    conf -= 0.12
-                    needs_review = True
-                # Flag very short words with unusual letters
-                if len(clean_w) <= 2 and clean_w not in ('to', 'is', 'in', 'it', 'on', 'at', 'he', 'we', 'me', 'ke', 'se', 'ko', 'ki', 'ka', 'ye', 'wo'):
-                    conf -= 0.15
+                # Deduct minor confidence only for extreme durations (< 0.05s or > 2.0s)
+                if w_d < 0.05 or w_d > 2.0:
+                    conf -= 0.05
+                # Flag truly garbled characters or corruption symbols (#, @, _, ~), not standard punctuation (?, !, .)
+                if re.search(r'[#@_~`^{}]', w_txt):
+                    conf -= 0.10
                     needs_review = True
                 
-                if conf < 0.80:
+                if conf < 0.85:
                     needs_review = True
                 
                 new_words.append({
                     'word': w_txt,
                     'start': curr,
                     'end': w_e,
-                    'confidence': round(max(0.40, min(0.99, conf)), 2),
+                    'confidence': round(max(0.70, min(0.98, conf)), 2),
                     'needs_review': needs_review
                 })
                 curr = w_e
