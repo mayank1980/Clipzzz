@@ -262,6 +262,7 @@ class ActiveSpeakerEngine:
             return self._fallback_result(clip_duration, reason="No frames sampled")
 
         # Step 5: Temporal Decision Engine (Interruption Handling, Overlap, Calibrated Confidence)
+        shot_cut_times = [s['time'] for s in shots if s.get('type') == 'cut']
         timeline, global_conf = self._build_calibrated_timeline(
             sampled_records=sampled_records,
             shot_cuts=shot_cut_times,
