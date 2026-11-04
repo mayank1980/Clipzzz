@@ -48,10 +48,10 @@ class RobustFaceDetector:
 
         detections = []
 
-        # 1. Frontal Alt2 Cascade
+        # 1. Primary Frontal Alt2 Cascade (fastest, high precision)
         if self.cascade_alt2 and not self.cascade_alt2.empty():
             faces_alt2 = self.cascade_alt2.detectMultiScale(
-                gray, scaleFactor=1.08, minNeighbors=3, minSize=(20, 20)
+                gray, scaleFactor=1.12, minNeighbors=3, minSize=(22, 22)
             )
             for (x, y, w, h) in faces_alt2:
                 if 0.55 <= w / float(h) <= 1.45:
@@ -59,10 +59,10 @@ class RobustFaceDetector:
                     if self._has_skin_tone(crop):
                         detections.append((x, y, w, h, 0.92))
 
-        # 2. Frontal Default Cascade
-        if self.cascade_def and not self.cascade_def.empty():
+        # 2. Secondary Frontal Cascade (only if primary found 0 faces)
+        if not detections and self.cascade_def and not self.cascade_def.empty():
             faces_def = self.cascade_def.detectMultiScale(
-                gray, scaleFactor=1.08, minNeighbors=3, minSize=(20, 20)
+                gray, scaleFactor=1.12, minNeighbors=3, minSize=(22, 22)
             )
             for (x, y, w, h) in faces_def:
                 if 0.55 <= w / float(h) <= 1.45:
@@ -70,10 +70,10 @@ class RobustFaceDetector:
                     if self._has_skin_tone(crop):
                         detections.append((x, y, w, h, 0.88))
 
-        # 3. Profile Cascade (left & right flipped for side-seated podcast participants)
-        if self.cascade_prof and not self.cascade_prof.empty():
+        # 3. Profile Cascade (only run if fewer than 2 faces detected)
+        if len(detections) < 2 and self.cascade_prof and not self.cascade_prof.empty():
             prof_faces = self.cascade_prof.detectMultiScale(
-                gray, scaleFactor=1.10, minNeighbors=3, minSize=(22, 22)
+                gray, scaleFactor=1.15, minNeighbors=3, minSize=(24, 24)
             )
             for (x, y, w, h) in prof_faces:
                 if 0.55 <= w / float(h) <= 1.45:
@@ -81,16 +81,17 @@ class RobustFaceDetector:
                     if self._has_skin_tone(crop):
                         detections.append((x, y, w, h, 0.82))
 
-            flipped_gray = cv2.flip(gray, 1)
-            prof_flipped = self.cascade_prof.detectMultiScale(
-                flipped_gray, scaleFactor=1.10, minNeighbors=3, minSize=(22, 22)
-            )
-            for (x, y, w, h) in prof_flipped:
-                if 0.55 <= w / float(h) <= 1.45:
-                    real_x = target_w - (x + w)
-                    crop = small[y:y+h, real_x:real_x+w]
-                    if self._has_skin_tone(crop):
-                        detections.append((real_x, y, w, h, 0.82))
+            if len(detections) < 2:
+                flipped_gray = cv2.flip(gray, 1)
+                prof_flipped = self.cascade_prof.detectMultiScale(
+                    flipped_gray, scaleFactor=1.15, minNeighbors=3, minSize=(24, 24)
+                )
+                for (x, y, w, h) in prof_flipped:
+                    if 0.55 <= w / float(h) <= 1.45:
+                        real_x = target_w - (x + w)
+                        crop = small[y:y+h, real_x:real_x+w]
+                        if self._has_skin_tone(crop):
+                            detections.append((real_x, y, w, h, 0.82))
 
         if not detections:
             return []

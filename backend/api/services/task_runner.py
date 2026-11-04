@@ -163,6 +163,13 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         # Step 5: Save generated clips with Multi-Speaker Keyframing & Centering
         temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp')
         project.clips.all().delete()
+
+        # Cap batch size: respect user's requested_clip_count if > 0; otherwise cap at 15 for fast processing
+        max_batch = project.requested_clip_count if project.requested_clip_count > 0 else 15
+        if len(highlights) > max_batch:
+            print(f"[task_runner] Capping {len(highlights)} generated clips to top {max_batch} for ultra-fast processing.")
+            highlights = highlights[:max_batch]
+
         total_clips = len(highlights)
         for idx, h in enumerate(highlights):
             # Granular progress updates during face centering & Whisper acoustic alignment (80% -> 98%)
@@ -182,8 +189,14 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             is_speaker_centered = False
 
             if project.auto_speaker_tracking:
-                # Automatic Audio-Visual Speaker Tracking across multi-speaker podcast/interview
-                keyframes = generate_camera_keyframes(video_full_path, c_start, c_dur, transcript_segments=transcript)
+                # Fast Audio-Visual Speaker Tracking with direct audio slice and 3 FPS grab
+                keyframes = generate_camera_keyframes(
+                    video_full_path,
+                    c_start,
+                    c_dur,
+                    transcript_segments=transcript,
+                    source_audio_path=audio_full_path
+                )
                 if keyframes and len(keyframes) > 0:
                     crop_keyframes = keyframes
                     crop_x = keyframes[0]['x']

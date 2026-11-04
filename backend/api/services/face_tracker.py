@@ -351,7 +351,8 @@ class AutoCameraEngine:
         start_sec: float,
         duration: float = 30.0,
         sample_interval: float = 0.50,
-        transcript_segments: List[Dict[str, Any]] = None
+        transcript_segments: List[Dict[str, Any]] = None,
+        source_audio_path: str = None
     ) -> List[Dict[str, Any]]:
         """
         Generates responsive camera trajectory keyframes.
@@ -368,7 +369,8 @@ class AutoCameraEngine:
             video_path=video_path,
             clip_start=start_sec,
             clip_duration=duration,
-            transcript_segments=transcript_segments
+            transcript_segments=transcript_segments,
+            source_audio_path=source_audio_path
         )
 
         speaker_timeline = res.get('speaker_timeline', [])
@@ -395,9 +397,16 @@ def generate_camera_keyframes(
     video_path: str,
     start_sec: float = 0.0,
     duration: float = 30.0,
-    transcript_segments: List[Dict[str, Any]] = None
+    transcript_segments: List[Dict[str, Any]] = None,
+    source_audio_path: str = None
 ) -> List[Dict[str, Any]]:
     """Module-level helper to generate intelligent multi-speaker 9:16 keyframes."""
     engine = AutoCameraEngine()
-    return engine.generate_clip_camera_keyframes(video_path, start_sec, duration, transcript_segments=transcript_segments)
+    return engine.generate_clip_camera_keyframes(
+        video_path,
+        start_sec,
+        duration,
+        transcript_segments=transcript_segments,
+        source_audio_path=source_audio_path
+    )
 

