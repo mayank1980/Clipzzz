@@ -133,11 +133,28 @@ class RobustFaceDetector:
 
             mouth_crop = gray[my:my+mh, mx:mx+mw]
 
-            # Mouth openness estimate via vertical edge intensity & variance
+            # Mouth openness and articulatory aperture estimate (MAR proxy)
             mouth_energy = 0.0
-            if mouth_crop.size > 0:
-                sobel_y = cv2.Sobel(mouth_crop, cv2.CV_64F, 0, 1, ksize=3)
+            mouth_aperture = 0.0
+            if mouth_crop.size > 0 and mouth_crop.shape[0] >= 4 and mouth_crop.shape[1] >= 4:
+                sobel_y = cv2.Sobel(mouth_crop, cv2.CV_32F, 0, 1, ksize=3)
                 mouth_energy = float(np.mean(np.abs(sobel_y)))
+                
+                # Horizontal profile of vertical gradients (upper lip vs lower lip separation)
+                row_grads = np.mean(np.abs(sobel_y), axis=1)
+                half_mh = len(row_grads) // 2
+                top_idx = int(np.argmax(row_grads[:half_mh])) if half_mh > 0 else 0
+                bot_idx = int(half_mh + np.argmax(row_grads[half_mh:])) if half_mh > 0 else 0
+                lip_sep = max(1.0, float(bot_idx - top_idx))
+                
+                # Measure inner oral cavity darkness (phonetic mouth opening)
+                p15 = float(np.percentile(mouth_crop, 15))
+                p85 = float(np.percentile(mouth_crop, 85))
+                dark_ratio = float(np.mean(mouth_crop < (p15 + 0.35 * (p85 - p15)))) if (p85 > p15) else 0.0
+                
+                # Normalized Mouth Aperture Ratio (MAR) proxy:
+                # Vertical lip separation normalized by mouth width, scaled by inner oral opening
+                mouth_aperture = float((lip_sep / float(mw)) * (0.6 + dark_ratio))
 
             results.append({
                 "bbox": {"x": int(x), "y": int(y), "w": int(w), "h": int(h)},
@@ -148,7 +165,8 @@ class RobustFaceDetector:
                 "area": int(w * h),
                 "confidence": round(float(conf), 2),
                 "mouth_box": {"x": mx, "y": my, "w": mw, "h": mh},
-                "mouth_energy": round(mouth_energy, 2)
+                "mouth_energy": round(mouth_energy, 2),
+                "mouth_aperture": round(mouth_aperture, 4)
             })
 
         return results

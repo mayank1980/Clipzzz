@@ -19,10 +19,19 @@ class FaceTrack:
         self.last_seen = timestamp
         self.first_seen = timestamp
         self.detection_history: List[Tuple[float, Dict[str, Any]]] = [(timestamp, init_detection)]
+        self.last_aperture = float(init_detection.get('mouth_aperture', 0.0))
+        self.aperture_history: List[Tuple[float, float]] = [(timestamp, self.last_aperture)]
         self.mouth_motion_history: List[Tuple[float, float]] = [] # (time, motion_val)
         self.active_score = 0.0
 
-    def update(self, detection: Dict[str, Any], timestamp: float, mouth_delta: float = 0.0):
+    def update(
+        self,
+        detection: Dict[str, Any],
+        timestamp: float,
+        mouth_delta: float = 0.0,
+        mouth_aperture: float = 0.0,
+        head_displacement: float = 0.0
+    ):
         # Exponential moving average for smooth visual tracking
         alpha = 0.35
         self.cx = round((1.0 - alpha) * self.cx + alpha * detection['cx'], 2)
@@ -35,10 +44,24 @@ class FaceTrack:
         if len(self.detection_history) > 60:
             self.detection_history.pop(0)
 
-        self.mouth_motion_history.append((timestamp, mouth_delta))
+        # Articulatory aperture dynamics (delta MAR normalized to delta time)
+        dt = max(0.01, timestamp - (self.aperture_history[-1][0] if self.aperture_history else timestamp))
+        delta_mar = abs(mouth_aperture - self.last_aperture) / dt if self.aperture_history else 0.0
+        self.last_aperture = mouth_aperture
+        self.aperture_history.append((timestamp, mouth_aperture))
+        if len(self.aperture_history) > 60:
+            self.aperture_history.pop(0)
+
+        # Head-motion-stabilized articulatory velocity:
+        # Rigid head movements (nodding, laughing, swaying) produce large head displacement.
+        # Dampen raw pixel diff when head displacement is high, prioritizing genuine lip aperture dynamics (MAR)
+        head_damping = max(0.15, 1.0 - min(0.85, head_displacement * 0.12))
+        stabilized_velocity = 0.70 * (delta_mar * 12.0) + 0.30 * (mouth_delta * head_damping)
+
+        self.mouth_motion_history.append((timestamp, stabilized_velocity))
         if len(self.mouth_motion_history) > 60:
             self.mouth_motion_history.pop(0)
-        self.instant_mouth_velocity = float(mouth_delta)
+        self.instant_mouth_velocity = float(stabilized_velocity)
 
     def get_recent_mouth_energy(self, window_sec: float = 0.25) -> float:
         """Returns mean mouth motion variance over responsive recent time window (250ms)."""
@@ -146,7 +169,13 @@ class PersistentFaceTracker:
                     best_track_id = track_id
 
             if best_track_id is not None:
-                self.tracks[best_track_id].update(det, timestamp, det.get('mouth_delta', 0.0))
+                self.tracks[best_track_id].update(
+                    detection=det,
+                    timestamp=timestamp,
+                    mouth_delta=det.get('mouth_delta', 0.0),
+                    mouth_aperture=det.get('mouth_aperture', 0.0),
+                    head_displacement=min_dist
+                )
                 matched_track_ids.add(best_track_id)
                 matched_det_indices.add(det_idx)
 

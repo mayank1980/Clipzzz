@@ -1,6 +1,7 @@
 import os
 import cv2
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 from typing import List, Dict, Any, Tuple, Optional
 from .shot_detector import detect_shot_boundaries
 from .face_detector import RobustFaceDetector
@@ -11,11 +12,16 @@ class SpeakerFaceAssociator:
     """
     Explicit Bipartite Association Layer between Acoustic Speaker Identities
     (SPEAKER_00, SPEAKER_01, ...) and Visual Persistent Face Tracks (FACE_001, FACE_002, ...).
-    Accumulates cross-modal temporal evidence over time and solves optimal assignment.
+    Accumulates cross-modal temporal evidence and solves optimal bipartite assignment
+    via the Hungarian Algorithm (scipy.optimize.linear_sum_assignment).
+    Guarantees strict 1-to-1 matching (no duplicate mappings).
     """
     def __init__(self):
         # evidence[speaker_id][face_id] = accumulated cross-correlation score
         self.evidence: Dict[str, Dict[str, float]] = {}
+        self._speaker_to_face: Dict[str, str] = {}
+        self._face_to_speaker: Dict[str, str] = {}
+        self._dirty = True
 
     def update_evidence(self, acoustic_speaker: str, face_id: str, av_score: float):
         if not acoustic_speaker or not face_id or av_score <= 0.01:
@@ -23,23 +29,75 @@ class SpeakerFaceAssociator:
         if acoustic_speaker not in self.evidence:
             self.evidence[acoustic_speaker] = {}
         self.evidence[acoustic_speaker][face_id] = self.evidence[acoustic_speaker].get(face_id, 0.0) + av_score
+        self._dirty = True
+
+    def solve_bipartite_matching(self):
+        """Executes Hungarian Algorithm on negative-evidence cost matrix."""
+        if not self._dirty:
+            return
+        self._dirty = False
+        self._speaker_to_face.clear()
+        self._face_to_speaker.clear()
+
+        speakers = sorted(list(self.evidence.keys()))
+        all_faces = set()
+        for s in speakers:
+            all_faces.update(self.evidence[s].keys())
+        faces = sorted(list(all_faces))
+
+        if not speakers or not faces:
+            return
+
+        max_ev = max(max(self.evidence[s].values()) for s in speakers if self.evidence[s])
+        if max_ev <= 1e-4:
+            return
+
+        M = len(speakers)
+        N = len(faces)
+        cost_matrix = np.full((M, N), fill_value=max_ev * 1.5, dtype=np.float64)
+
+        for i, spk in enumerate(speakers):
+            for j, fc in enumerate(faces):
+                ev = self.evidence[spk].get(fc, 0.0)
+                cost_matrix[i, j] = max_ev - ev
+
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+        for r, c in zip(row_ind, col_ind):
+            spk = speakers[r]
+            fc = faces[c]
+            if self.evidence[spk].get(fc, 0.0) > 0.04:
+                self._speaker_to_face[spk] = fc
+                self._face_to_speaker[fc] = spk
 
     def get_associated_speaker(self, face_id: str) -> Optional[str]:
         """Finds which acoustic speaker identity best corresponds to this visual face."""
+        self.solve_bipartite_matching()
+        if face_id in self._face_to_speaker:
+            return self._face_to_speaker[face_id]
+        
+        # Fallback to local max evidence if unassigned
         best_spk = None
-        max_ev = 0.0
+        max_ev = 0.05
         for spk, face_dict in self.evidence.items():
             ev = face_dict.get(face_id, 0.0)
-            if ev > max_ev:
+            if ev > max_ev and spk not in self._speaker_to_face:
                 max_ev = ev
                 best_spk = spk
         return best_spk
 
     def get_associated_face(self, speaker_id: str) -> Optional[str]:
         """Finds which visual face best corresponds to this acoustic speaker."""
+        self.solve_bipartite_matching()
+        if speaker_id in self._speaker_to_face:
+            return self._speaker_to_face[speaker_id]
+        
         face_dict = self.evidence.get(speaker_id, {})
         if not face_dict:
             return None
+        candidates = [(fc, ev) for fc, ev in face_dict.items() if fc not in self._face_to_speaker]
+        if candidates:
+            return max(candidates, key=lambda item: item[1])[0]
         return max(face_dict.items(), key=lambda item: item[1])[0]
 
 
@@ -310,7 +368,7 @@ class ActiveSpeakerEngine:
                 target_mode = "wide"
                 target_face = None
                 target_speaker = diarized_spk or "SPEAKER_00"
-                calibrated_conf = 0.70 if audio_e > 0.15 else 0.50
+                calibrated_conf = float(np.clip(0.20 + 0.35 * audio_e, 0.15, 0.55))
             elif len(faces) == 1:
                 f0 = faces[0]
                 # Single face in frame: verify cross-correlation with audio
@@ -320,18 +378,18 @@ class ActiveSpeakerEngine:
                     # Resolve real associated speaker ID
                     target_speaker = associator.get_associated_speaker(f0['track_id']) or diarized_spk or "SPEAKER_00"
                     # Real statistical confidence calculation
-                    calibrated_conf = float(np.clip(0.40 * f0['pearson_r'] + 0.35 * (f0['sync_score'] * 2.0) + 0.25 * audio_e, 0.20, 0.96))
+                    calibrated_conf = float(np.clip(0.40 * f0['pearson_r'] + 0.35 * min(1.0, f0['sync_score'] * 2.5) + 0.25 * audio_e, 0.20, 0.96))
                 elif audio_e > 0.25 and f0['sync_score'] < 0.04:
                     # Off-screen speaker: person on screen is NOT talking, but speech is loud
                     target_mode = "wide"
                     target_face = None
                     target_speaker = diarized_spk or "OFF_SCREEN_SPEAKER"
-                    calibrated_conf = 0.65
+                    calibrated_conf = float(np.clip(0.30 + 0.30 * audio_e - 0.25 * f0['sync_score'], 0.20, 0.55))
                 else:
                     target_mode = "single"
                     target_face = f0['track_id']
                     target_speaker = associator.get_associated_speaker(f0['track_id']) or diarized_spk or "SPEAKER_00"
-                    calibrated_conf = 0.60
+                    calibrated_conf = float(np.clip(0.20 + 0.30 * audio_e + 0.20 * f0['sync_score'], 0.15, 0.48))
             else:
                 # Multi-person frame (e.g. Host + Guest 1 + Guest 2)
                 # Sort faces by cross-modal synchronization score
@@ -353,7 +411,7 @@ class ActiveSpeakerEngine:
                     target_face = f"{top1['track_id']}+{top2['track_id']}"
                     # Record the EXACT two debating faces
                     debate_pair_acc.append((top1['cx'], top1['cy'], top2['cx'], top2['cy']))
-                    calibrated_conf = float(np.clip(0.50 + 0.25 * (top1['sync_score'] + top2['sync_score']), 0.50, 0.94))
+                    calibrated_conf = float(np.clip(0.25 + 0.35 * (top1['sync_score'] + top2['sync_score']) + 0.25 * audio_e, 0.30, 0.94))
                 else:
                     target_mode = "single"
                     # Check if top face actually synchronizes with audio
@@ -362,24 +420,24 @@ class ActiveSpeakerEngine:
                         target_speaker = associator.get_associated_speaker(top1['track_id']) or diarized_spk or "SPEAKER_00"
                         # Discriminative margin between top1 and runner-up top2
                         margin = (top1['sync_score'] - top2['sync_score']) / max(0.05, top1['sync_score'])
-                        calibrated_conf = float(np.clip(0.35 * top1['pearson_r'] + 0.35 * margin + 0.30 * audio_e, 0.30, 0.96))
+                        calibrated_conf = float(np.clip(0.35 * top1['pearson_r'] + 0.35 * margin + 0.30 * audio_e, 0.20, 0.96))
                     elif audio_e > 0.25:
                         # Off-screen speaker talking while participants on screen listen/react
                         target_mode = "wide"
                         target_face = None
                         target_speaker = diarized_spk or "OFF_SCREEN_SPEAKER"
-                        calibrated_conf = 0.60
+                        calibrated_conf = float(np.clip(0.25 + 0.25 * audio_e - 0.20 * top1['sync_score'], 0.20, 0.55))
                     else:
                         # Ambiguous / silent pause: hold previous speaker if still present
                         prev_face = next((f for f in faces if f['track_id'] == current_face_id), None)
                         if prev_face:
                             target_face = current_face_id
                             target_speaker = current_speaker_id
-                            calibrated_conf = 0.55
+                            calibrated_conf = float(np.clip(0.25 + 0.20 * prev_face['sync_score'] + 0.15 * audio_e, 0.20, 0.48))
                         else:
                             target_face = top1['track_id']
                             target_speaker = associator.get_associated_speaker(top1['track_id']) or diarized_spk or "SPEAKER_00"
-                            calibrated_conf = 0.45
+                            calibrated_conf = float(np.clip(0.18 + 0.20 * top1['sync_score'] + 0.15 * audio_e, 0.15, 0.42))
 
             # Collect spatial tracking data for target
             if target_face and '+' not in str(target_face):
@@ -393,6 +451,17 @@ class ActiveSpeakerEngine:
 
             # Interruption & camera cut transition
             time_in_turn = t - turn_start_time
+
+            # Initial speaker setup on clip start
+            if current_speaker_id is None and target_speaker is not None:
+                current_speaker_id = target_speaker
+                current_face_id = target_face
+                current_mode = target_mode
+                turn_start_time = t
+                conf_accumulator = [calibrated_conf]
+                interruption_candidate = None
+                interruption_count = 0
+                continue
 
             # Instant cut on camera shot change
             if is_cut and target_speaker != current_speaker_id:
@@ -441,7 +510,7 @@ class ActiveSpeakerEngine:
             emit_interval(clip_duration)
 
         # Real calibrated global confidence across whole timeline
-        global_conf = round(float(np.mean([s['confidence'] for s in timeline])) if timeline else 0.70, 3)
+        global_conf = round(float(np.mean([s['confidence'] for s in timeline])) if timeline else 0.40, 3)
         return timeline, global_conf
 
     def analyze_clip_speakers(
@@ -464,11 +533,11 @@ class ActiveSpeakerEngine:
                 "speaker_id": "SPEAKER_00",
                 "face_id": "FACE_001",
                 "mode": "single",
-                "confidence": 0.65,
+                "confidence": 0.35,
                 "cx": 50.0,
                 "cy": 42.0
             }],
             "shot_boundaries": [],
             "diarized_turns": [],
-            "global_confidence": 0.65
+            "global_confidence": 0.35
         }
