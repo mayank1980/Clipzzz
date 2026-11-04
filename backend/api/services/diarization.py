@@ -28,11 +28,18 @@ def extract_analysis_audio(
     if src_wav:
         try:
             sr, data = wavfile.read(src_wav)
+            s0 = max(0, int(round(start_sec * sr)))
+            s1 = min(len(data), int(round((start_sec + duration) * sr))) if duration else len(data)
+            slice_data = data[s0:s1]
+            if len(slice_data.shape) > 1:
+                slice_data = np.mean(slice_data, axis=1).astype(data.dtype)
             if sr == sample_rate:
-                s0 = max(0, int(round(start_sec * sr)))
-                s1 = min(len(data), int(round((start_sec + duration) * sr))) if duration else len(data)
-                slice_data = data[s0:s1]
                 wavfile.write(output_wav_path, sample_rate, slice_data)
+                return output_wav_path
+            else:
+                target_len = int(len(slice_data) * float(sample_rate) / float(sr))
+                resampled = signal.resample(slice_data.astype(np.float32), target_len).astype(data.dtype)
+                wavfile.write(output_wav_path, sample_rate, resampled)
                 return output_wav_path
         except Exception:
             pass

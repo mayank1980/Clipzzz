@@ -352,41 +352,135 @@ class AutoCameraEngine:
         duration: float = 30.0,
         sample_interval: float = 0.50,
         transcript_segments: List[Dict[str, Any]] = None,
-        source_audio_path: str = None
+        source_audio_path: str = None,
+        fast_mode: bool = True
     ) -> List[Dict[str, Any]]:
         """
-        Generates responsive camera trajectory keyframes.
-        Delegates to validated cross-modal active speaker decision pipeline.
+        Generates responsive 9:16 portrait camera trajectory keyframes.
+        In fast_mode (default for batch clip processing):
+        Samples key timepoints (<0.10s per clip) using fast frame seek, detects speaker
+        positions, and aligns camera cuts/pans with speaker turns.
+        If fast_mode=False:
+        Delegates to full temporal cross-modal active speaker pipeline.
         """
-        from .active_speaker import ActiveSpeakerEngine
-        from .camera_controller import CameraController
+        if not fast_mode:
+            from .active_speaker import ActiveSpeakerEngine
+            from .camera_controller import CameraController
 
-        engine = ActiveSpeakerEngine()
-        controller = CameraController()
+            engine = ActiveSpeakerEngine()
+            controller = CameraController()
 
-        # Step 1: Compute audio-visual active speaker timeline with shot boundaries & real diarization
-        res = engine.process_clip(
-            video_path=video_path,
-            clip_start=start_sec,
-            clip_duration=duration,
-            transcript_segments=transcript_segments,
-            source_audio_path=source_audio_path
-        )
+            # Step 1: Compute audio-visual active speaker timeline with shot boundaries & real diarization
+            res = engine.process_clip(
+                video_path=video_path,
+                clip_start=start_sec,
+                clip_duration=duration,
+                transcript_segments=transcript_segments,
+                source_audio_path=source_audio_path
+            )
 
-        speaker_timeline = res.get('speaker_timeline', [])
-        shot_boundaries = res.get('shot_boundaries', [])
+            speaker_timeline = res.get('speaker_timeline', [])
+            shot_boundaries = res.get('shot_boundaries', [])
 
-        # Step 2: Convert speaker timeline into 9:16 portrait camera trajectory
-        trajectory = controller.generate_trajectory(
-            speaker_timeline=speaker_timeline,
-            shot_boundaries=shot_boundaries,
-            clip_start=start_sec,
-            duration=duration
-        )
+            # Step 2: Convert speaker timeline into 9:16 portrait camera trajectory
+            trajectory = controller.generate_trajectory(
+                speaker_timeline=speaker_timeline,
+                shot_boundaries=shot_boundaries,
+                clip_start=start_sec,
+                duration=duration
+            )
 
-        return trajectory.get('keyframes', [
-            {"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}
-        ])
+            return trajectory.get('keyframes', [
+                {"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}
+            ])
+
+        # ULTRA-FAST (<0.10s) MULTI-SPEAKER KEYFRAME ENGINE FOR BATCH CLIPS
+        cache_key = f"kf:{video_path}:{round(start_sec, 2)}:{round(duration, 2)}"
+        if cache_key in _FACE_CACHE:
+            return _FACE_CACHE[cache_key]
+
+        if not os.path.exists(video_path):
+            return [{"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}]
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return [{"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}]
+
+        # Determine keyframe sample points (opening + speaker dialogue turns + midpoints)
+        sample_points = [0.2]
+        if transcript_segments:
+            for s in transcript_segments:
+                st = float(s.get('start', 0.0))
+                if (start_sec + 1.0) <= st <= (start_sec + duration - 1.0):
+                    rel_t = round(st - start_sec, 2)
+                    if not any(abs(rel_t - p) < 2.0 for p in sample_points):
+                        sample_points.append(rel_t)
+
+        if len(sample_points) < 3:
+            for frac in [0.33, 0.66, 0.90]:
+                pt = round(duration * frac, 2)
+                if not any(abs(pt - p) < 2.0 for p in sample_points):
+                    sample_points.append(pt)
+
+        sample_points.sort()
+        sample_points = sample_points[:6]  # Max 6 points for sub-0.10s speed
+
+        detector = RobustFaceDetector()
+        raw_keyframes = []
+
+        for pt in sample_points:
+            cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, (start_sec + pt) * 1000.0))
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                continue
+
+            faces = detector.detect_faces(frame, target_w=640)
+            if faces:
+                # If multiple faces detected (debate / podcast seating):
+                # Choose active speaker by highest mouth aperture/motion or largest face
+                if len(faces) > 1:
+                    faces.sort(key=lambda f: f.get('mouth_aperture', 0.0) * 1.5 + (f.get('area', 0) / 10000.0), reverse=True)
+                    best = faces[0]
+                    spk_name = f"Speaker ({'Left' if best['cx'] < 45 else ('Right' if best['cx'] > 55 else 'Center')})"
+                else:
+                    best = faces[0]
+                    spk_name = "Primary Speaker"
+
+                cx = round(max(16.0, min(84.0, best['cx'])), 1)
+                cy = round(max(22.0, min(42.0, best['cy'])), 1)
+                raw_keyframes.append({
+                    "time": pt,
+                    "x": cx,
+                    "y": cy,
+                    "zoom": 1.15,
+                    "speaker": spk_name
+                })
+
+        cap.release()
+
+        if not raw_keyframes:
+            fallback = [{"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}]
+            _FACE_CACHE[cache_key] = fallback
+            return fallback
+
+        # Build trajectory with smooth pans & cuts
+        final_keyframes = []
+        first = dict(raw_keyframes[0])
+        first["time"] = 0.0
+        first["transition"] = "cut"
+        final_keyframes.append(first)
+
+        for kf in raw_keyframes[1:]:
+            last_kf = final_keyframes[-1]
+            dx = abs(kf["x"] - last_kf["x"])
+            # Only record keyframe if camera position noticeably shifted (>6% width)
+            if dx >= 6.0:
+                kf_copy = dict(kf)
+                kf_copy["transition"] = "cut" if dx > 20.0 else "smooth_pan"
+                final_keyframes.append(kf_copy)
+
+        _FACE_CACHE[cache_key] = final_keyframes
+        return final_keyframes
 
 def detect_primary_speaker_center(video_path: str, start_sec: float = 0.0, duration: float = 2.0) -> Dict[str, Any]:
     """Module-level helper to detect primary speaker center."""
@@ -398,7 +492,8 @@ def generate_camera_keyframes(
     start_sec: float = 0.0,
     duration: float = 30.0,
     transcript_segments: List[Dict[str, Any]] = None,
-    source_audio_path: str = None
+    source_audio_path: str = None,
+    fast_mode: bool = True
 ) -> List[Dict[str, Any]]:
     """Module-level helper to generate intelligent multi-speaker 9:16 keyframes."""
     engine = AutoCameraEngine()
@@ -407,6 +502,7 @@ def generate_camera_keyframes(
         start_sec,
         duration,
         transcript_segments=transcript_segments,
-        source_audio_path=source_audio_path
+        source_audio_path=source_audio_path,
+        fast_mode=fast_mode
     )
 
