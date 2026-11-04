@@ -38,14 +38,44 @@ class FaceTrack:
         self.mouth_motion_history.append((timestamp, mouth_delta))
         if len(self.mouth_motion_history) > 60:
             self.mouth_motion_history.pop(0)
+        self.instant_mouth_velocity = float(mouth_delta)
 
-    def get_recent_mouth_energy(self, window_sec: float = 1.0) -> float:
-        """Returns mean mouth motion variance over recent time window."""
+    def get_recent_mouth_energy(self, window_sec: float = 0.25) -> float:
+        """Returns mean mouth motion variance over responsive recent time window (250ms)."""
         if not self.mouth_motion_history:
             return 0.0
         cutoff = self.last_seen - window_sec
         recent = [val for (t, val) in self.mouth_motion_history if t >= cutoff]
         return float(np.mean(recent)) if recent else 0.0
+
+    def get_lip_velocity_sequence(self, start_t: float, end_t: float, num_points: int = 10) -> np.ndarray:
+        """
+        Extracts temporal lip velocity sequence over [start_t, end_t]
+        normalized to zero-mean unit-variance for Pearson correlation with acoustic syllable envelope.
+        """
+        if not self.mouth_motion_history or end_t <= start_t:
+            return np.zeros(num_points, dtype=np.float32)
+
+        relevant = [(t, v) for (t, v) in self.mouth_motion_history if start_t <= t <= end_t]
+        if not relevant:
+            recent_v = self.mouth_motion_history[-1][1] if self.mouth_motion_history else 0.0
+            return np.full(num_points, recent_v, dtype=np.float32)
+
+        # Interpolate onto num_points uniform grid
+        ts = [t for (t, v) in relevant]
+        vs = [v for (t, v) in relevant]
+
+        if len(ts) == 1:
+            seq = np.full(num_points, vs[0], dtype=np.float32)
+        else:
+            target_ts = np.linspace(start_t, end_t, num_points)
+            seq = np.interp(target_ts, ts, vs).astype(np.float32)
+
+        std_val = float(np.std(seq))
+        if std_val > 1e-6:
+            return (seq - np.mean(seq)) / std_val
+        return np.zeros(num_points, dtype=np.float32)
+
 
 
 class PersistentFaceTracker:
@@ -151,7 +181,8 @@ class PersistentFaceTracker:
                     "w_pct": trk.w_pct,
                     "h_pct": trk.h_pct,
                     "area": trk.area,
-                    "mouth_motion": trk.get_recent_mouth_energy(0.8),
+                    "mouth_motion": trk.get_recent_mouth_energy(0.25),
+                    "track_obj": trk,
                 })
 
         return current_visible
@@ -290,11 +321,12 @@ class AutoCameraEngine:
         video_path: str,
         start_sec: float,
         duration: float = 30.0,
-        sample_interval: float = 0.50
+        sample_interval: float = 0.50,
+        transcript_segments: List[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Generates responsive camera trajectory keyframes with high temporal resolution (500ms).
-        Delegates to the active speaker decision pipeline.
+        Generates responsive camera trajectory keyframes.
+        Delegates to validated cross-modal active speaker decision pipeline.
         """
         from .active_speaker import ActiveSpeakerEngine
         from .camera_controller import CameraController
@@ -302,17 +334,21 @@ class AutoCameraEngine:
         engine = ActiveSpeakerEngine()
         controller = CameraController()
 
-        # Step 1: Compute audio-visual active speaker timeline
-        speaker_timeline = engine.analyze_clip_speakers(
+        # Step 1: Compute audio-visual active speaker timeline with shot boundaries & real diarization
+        res = engine.process_clip(
             video_path=video_path,
             clip_start=start_sec,
-            duration=duration,
-            sample_interval=sample_interval
+            clip_duration=duration,
+            transcript_segments=transcript_segments
         )
+
+        speaker_timeline = res.get('speaker_timeline', [])
+        shot_boundaries = res.get('shot_boundaries', [])
 
         # Step 2: Convert speaker timeline into 9:16 portrait camera trajectory
         trajectory = controller.generate_trajectory(
             speaker_timeline=speaker_timeline,
+            shot_boundaries=shot_boundaries,
             clip_start=start_sec,
             duration=duration
         )
@@ -326,8 +362,13 @@ def detect_primary_speaker_center(video_path: str, start_sec: float = 0.0, durat
     engine = AutoCameraEngine()
     return engine.analyze_clip_framing(video_path, start_sec, duration)
 
-def generate_camera_keyframes(video_path: str, start_sec: float = 0.0, duration: float = 30.0) -> List[Dict[str, Any]]:
+def generate_camera_keyframes(
+    video_path: str,
+    start_sec: float = 0.0,
+    duration: float = 30.0,
+    transcript_segments: List[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
     """Module-level helper to generate intelligent multi-speaker 9:16 keyframes."""
     engine = AutoCameraEngine()
-    return engine.generate_clip_camera_keyframes(video_path, start_sec, duration)
+    return engine.generate_clip_camera_keyframes(video_path, start_sec, duration, transcript_segments=transcript_segments)
 

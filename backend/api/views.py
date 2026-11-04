@@ -401,7 +401,8 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         keyframes = generate_camera_keyframes(
             clip.project.video_file.path,
             start_sec=clip.start_time,
-            duration=clip.duration
+            duration=clip.duration,
+            transcript_segments=getattr(clip.project, 'transcript_raw', None)
         )
         clip.crop_keyframes = keyframes
         if keyframes:

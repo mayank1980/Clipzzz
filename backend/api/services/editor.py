@@ -301,15 +301,47 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def normalize_crop_coord(val: float, key: str = 'x', zoom: float = 1.25) -> float:
+    """
+    Converts face-center percentages [0, 100] into exact FFmpeg crop-origin ratios [0.0, 1.0]
+    such that the face is placed precisely at the optical center of the 9:16 portrait canvas
+    with zero blank margin exposure.
+    """
     pct = max(0.0, min(100.0, float(val))) / 100.0
+    z = max(1.0, float(zoom))
     if key == 'x':
-        z = max(1.0, float(zoom))
         half_crop = 0.1582 / z
         denom = max(0.1, 1.0 - (0.3164 / z))
         cx = (pct - half_crop) / denom
         return round(max(0.0, min(1.0, cx)), 4)
     else:
-        return round(max(0.10, min(0.65, pct)), 4)
+        # Vertical headroom: keep eyes/face at natural upper third (~35% of frame)
+        half_crop_y = 0.5 / z
+        denom_y = max(0.1, 1.0 - (1.0 / z))
+        if denom_y < 0.05:
+            return round(max(0.05, min(0.65, pct - 0.10)), 4)
+        cy = (pct - 0.35 * half_crop_y) / denom_y
+        return round(max(0.0, min(1.0, cy)), 4)
+
+def normalize_split_crop_coord(val: float, key: str = 'x', zoom: float = 1.15) -> float:
+    """
+    Calculates exact crop-origin ratios for 1080x960 stacked split-screen panels
+    so both debating participants are framed perfectly without head-cropping or wall drift.
+    """
+    pct = max(0.0, min(100.0, float(val))) / 100.0
+    z = max(1.0, float(zoom))
+    if key == 'x':
+        half_crop = 0.1582 / z
+        denom = max(0.1, 1.0 - (0.3164 / z))
+        cx = (pct - half_crop) / denom
+        return round(max(0.0, min(1.0, cx)), 4)
+    else:
+        # Panel height is 0.5/z in source normalized coordinates
+        half_panel_h = 0.25 / z
+        denom_y = max(0.1, 1.0 - (0.5 / z))
+        # Place face at 40% of the upper/lower panel height
+        cy = (pct - 0.40 * (0.5 / z)) / denom_y
+        return round(max(0.0, min(1.0, cy)), 4)
+
 
 
 def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.25, zoom: float = 1.25) -> str:
@@ -429,10 +461,11 @@ def render_shorts_clip(
             expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.04, zoom=zoom)
             expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.04, zoom=zoom)
 
-            top_x = (last_split_kf.get('top_x', 30.0) if last_split_kf else 30.0) / 100.0
-            top_y = (last_split_kf.get('top_y', 32.0) if last_split_kf else 32.0) / 100.0
-            bottom_x = (last_split_kf.get('bottom_x', 70.0) if last_split_kf else 70.0) / 100.0
-            bottom_y = (last_split_kf.get('bottom_y', 32.0) if last_split_kf else 32.0) / 100.0
+            split_zoom = 1.15
+            top_x = normalize_split_crop_coord(last_split_kf.get('top_x', 32.0) if last_split_kf else 32.0, key='x', zoom=split_zoom)
+            top_y = normalize_split_crop_coord(last_split_kf.get('top_y', 36.0) if last_split_kf else 36.0, key='y', zoom=split_zoom)
+            bottom_x = normalize_split_crop_coord(last_split_kf.get('bottom_x', 68.0) if last_split_kf else 68.0, key='x', zoom=split_zoom)
+            bottom_y = normalize_split_crop_coord(last_split_kf.get('bottom_y', 36.0) if last_split_kf else 36.0, key='y', zoom=split_zoom)
 
             enable_expr = '+'.join([f"between(t,{st:.2f},{et:.2f})" for st, et, _ in split_intervals])
             if has_overlay_text:
@@ -459,8 +492,8 @@ def render_shorts_clip(
             vf = f"crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"
         else:
             zoom = max(1.0, min(3.0, float(crop_zoom)))
-            cx = max(0.0, min(100.0, float(crop_x))) / 100.0
-            cy = max(0.0, min(100.0, float(crop_y))) / 100.0
+            cx = normalize_crop_coord(crop_x, key='x', zoom=zoom)
+            cy = normalize_crop_coord(crop_y, key='y', zoom=zoom)
             vf = f"crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*{cx}':y='(ih-oh)*{cy}',scale=1080:1920{subtitles_filter}"
     else:
         # Default: Professional Blurred Background Fill

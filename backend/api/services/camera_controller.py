@@ -69,6 +69,7 @@ class CameraTrajectoryPlanner:
                     "bottom_x": bot_x,
                     "bottom_y": bot_y,
                     "speaker": "Debate Discussion",
+                    "confidence": round(float(turn.get('confidence', 0.80)), 2),
                     "transition": transition_type
                 }
             elif mode == 'wide':
@@ -79,6 +80,7 @@ class CameraTrajectoryPlanner:
                     "zoom": 1.0,
                     "mode": "solo",
                     "speaker": speaker_id,
+                    "confidence": round(float(turn.get('confidence', 0.65)), 2),
                     "transition": transition_type
                 }
             else:
@@ -97,6 +99,7 @@ class CameraTrajectoryPlanner:
                     "zoom": zoom,
                     "mode": "solo",
                     "speaker": speaker_id,
+                    "confidence": round(float(turn.get('confidence', 0.75)), 2),
                     "transition": transition_type
                 }
 

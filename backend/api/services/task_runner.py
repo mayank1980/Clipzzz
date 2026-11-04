@@ -182,8 +182,8 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             is_speaker_centered = False
 
             if project.auto_speaker_tracking:
-                # PDF 3: Automatic Speaker Tracking across multi-speaker podcast/interview
-                keyframes = generate_camera_keyframes(video_full_path, c_start, c_dur)
+                # Automatic Audio-Visual Speaker Tracking across multi-speaker podcast/interview
+                keyframes = generate_camera_keyframes(video_full_path, c_start, c_dur, transcript_segments=transcript)
                 if keyframes and len(keyframes) > 0:
                     crop_keyframes = keyframes
                     crop_x = keyframes[0]['x']

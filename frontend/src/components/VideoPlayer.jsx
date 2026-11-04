@@ -510,6 +510,7 @@ export default function VideoPlayer({
   let activeCropY = cropSettings?.y ?? 45.0;
   let activeCropZoom = cropSettings?.zoom ?? 1.0;
   let activeSpeakerLabel = '';
+  let activeConfidence = null;
 
   const keyframes = Array.isArray(cropSettings?.keyframes) && cropSettings.keyframes.length > 0
     ? [...cropSettings.keyframes].sort((a, b) => (a.time || 0) - (b.time || 0))
@@ -527,6 +528,7 @@ export default function VideoPlayer({
       activeCropY = keyframes[0].y ?? activeCropY;
       activeCropZoom = keyframes[0].zoom ?? activeCropZoom;
       activeSpeakerLabel = keyframes[0].speaker || '';
+      activeConfidence = keyframes[0].confidence != null ? Math.round(keyframes[0].confidence * 100) : null;
     } else {
       let curIdx = 0;
       for (let i = 0; i < keyframes.length; i++) {
@@ -545,6 +547,7 @@ export default function VideoPlayer({
         activeCropY = curKf.y;
         activeCropZoom = curKf.zoom || 1.0;
         activeSpeakerLabel = curKf.speaker || '';
+        activeConfidence = curKf.confidence != null ? Math.round(curKf.confidence * 100) : null;
       } else {
         // Fluid, cinematic camera glide over 0.75s from previous keyframe to current keyframe
         const panDur = 0.75;
@@ -557,11 +560,13 @@ export default function VideoPlayer({
           activeCropY = prevKf.y + (curKf.y - prevKf.y) * easeRatio;
           activeCropZoom = (prevKf.zoom || 1.0) + ((curKf.zoom || 1.0) - (prevKf.zoom || 1.0)) * easeRatio;
           activeSpeakerLabel = curKf.speaker || '';
+          activeConfidence = curKf.confidence != null ? Math.round(curKf.confidence * 100) : null;
         } else {
           activeCropX = curKf.x;
           activeCropY = curKf.y;
           activeCropZoom = curKf.zoom || 1.0;
           activeSpeakerLabel = curKf.speaker || '';
+          activeConfidence = curKf.confidence != null ? Math.round(curKf.confidence * 100) : null;
         }
       }
     }
@@ -1037,8 +1042,12 @@ export default function VideoPlayer({
                   <span className="w-1.5 h-1.5 rounded-full bg-lime-neon animate-pulse"></span>
                   Active Speaker Following
                 </span>
-                <span className="text-[9px] font-mono font-bold text-lime-neon bg-lime-neon/10 px-1.5 py-0.5 rounded border border-lime-neon/20">
-                  95% Confidence
+                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                  activeConfidence !== null && activeConfidence < 60
+                    ? 'text-amber-400 bg-amber-400/10 border-amber-400/20'
+                    : 'text-lime-neon bg-lime-neon/10 border-lime-neon/20'
+                }`}>
+                  {activeConfidence !== null ? `${activeConfidence}% Confidence` : 'Auto-Track Active'}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2">
