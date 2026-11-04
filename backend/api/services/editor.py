@@ -312,11 +312,12 @@ def normalize_crop_coord(val: float, key: str = 'x', zoom: float = 1.25) -> floa
         return round(max(0.10, min(0.65, pct)), 4)
 
 
-def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.04, zoom: float = 1.25) -> str:
+def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.25, zoom: float = 1.25) -> str:
     """
     Constructs an FFmpeg piecewise expression for dynamic camera tracking across keyframes.
-    Precisely centers on the speaker's face with zero blank edge space.
-    Supports smooth linear panning (pan_dur=0.04s) between speakers.
+    Supports:
+    - Instantaneous cuts (0s pan) when transition == 'cut' or camera shot boundary occurs.
+    - Smooth cinematic pans (pan_dur ~0.25s) when transition == 'pan' between speakers in same shot.
     """
     if not keyframes:
         return f"{normalize_crop_coord(default_val, key, zoom)}"
@@ -335,13 +336,21 @@ def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', d
         v_prev = normalize_crop_coord(prev_k.get(key, default_val), key, zoom)
         v_curr = normalize_crop_coord(curr_k.get(key, default_val), key, zoom)
 
-        t_end = round(t_switch + pan_dur, 2)
+        # Cut vs Pan
+        is_cut = (curr_k.get('transition') == 'cut')
+        effective_pan = 0.001 if is_cut else max(0.05, float(curr_k.get('pan_dur', pan_dur)))
+
+        t_end = round(t_switch + effective_pan, 3)
         diff = round(v_curr - v_prev, 4)
 
-        lerp_expr = f"{v_prev}+({diff})*(t-{t_switch})/{pan_dur}"
-        expr = f"if(lt(t,{t_switch}),{v_prev},if(lt(t,{t_end}),{lerp_expr},{expr}))"
+        if is_cut:
+            expr = f"if(lt(t,{t_switch}),{v_prev},{expr})"
+        else:
+            lerp_expr = f"{v_prev}+({diff})*(t-{t_switch})/{effective_pan:.3f}"
+            expr = f"if(lt(t,{t_switch}),{v_prev},if(lt(t,{t_end}),{lerp_expr},{expr}))"
 
     return expr
+
 
 def render_shorts_clip(
     source_video_path: str,
