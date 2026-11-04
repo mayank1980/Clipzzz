@@ -2,234 +2,168 @@ import os
 import cv2
 import numpy as np
 import subprocess
-from typing import List, Dict, Any, Tuple, Optional
-from .face_detector import RobustFaceDetector
-
-_FACE_CACHE: Dict[str, Any] = {}
-
-class FaceTrack:
-    """Represents a single persistent visual face identity tracked over time."""
-    def __init__(self, track_id: str, init_detection: Dict[str, Any], timestamp: float):
-        self.track_id = track_id
-        self.cx = init_detection['cx']
-        self.cy = init_detection['cy']
-        self.w_pct = init_detection.get('w_pct', 15.0)
-        self.h_pct = init_detection.get('h_pct', 20.0)
-        self.area = init_detection.get('area', 5000)
-        self.last_seen = timestamp
-        self.first_seen = timestamp
-        self.detection_history: List[Tuple[float, Dict[str, Any]]] = [(timestamp, init_detection)]
-        self.last_aperture = float(init_detection.get('mouth_aperture', 0.0))
-        self.aperture_history: List[Tuple[float, float]] = [(timestamp, self.last_aperture)]
-        self.mouth_motion_history: List[Tuple[float, float]] = [] # (time, motion_val)
-        self.active_score = 0.0
-
-    def update(
-        self,
-        detection: Dict[str, Any],
-        timestamp: float,
-        mouth_delta: float = 0.0,
-        mouth_aperture: float = 0.0,
-        head_displacement: float = 0.0
-    ):
-        # Exponential moving average for smooth visual tracking
-        alpha = 0.35
-        self.cx = round((1.0 - alpha) * self.cx + alpha * detection['cx'], 2)
-        self.cy = round((1.0 - alpha) * self.cy + alpha * detection['cy'], 2)
-        self.w_pct = round((1.0 - alpha) * self.w_pct + alpha * detection.get('w_pct', self.w_pct), 2)
-        self.h_pct = round((1.0 - alpha) * self.h_pct + alpha * detection.get('h_pct', self.h_pct), 2)
-        self.area = detection.get('area', self.area)
-        self.last_seen = timestamp
-        self.detection_history.append((timestamp, detection))
-        if len(self.detection_history) > 60:
-            self.detection_history.pop(0)
-
-        # Articulatory aperture dynamics (delta MAR normalized to delta time)
-        dt = max(0.01, timestamp - (self.aperture_history[-1][0] if self.aperture_history else timestamp))
-        delta_mar = abs(mouth_aperture - self.last_aperture) / dt if self.aperture_history else 0.0
-        self.last_aperture = mouth_aperture
-        self.aperture_history.append((timestamp, mouth_aperture))
-        if len(self.aperture_history) > 60:
-            self.aperture_history.pop(0)
-
-        # Head-motion-stabilized articulatory velocity:
-        # Rigid head movements (nodding, laughing, swaying) produce large head displacement.
-        # Dampen raw pixel diff when head displacement is high, prioritizing genuine lip aperture dynamics (MAR)
-        head_damping = max(0.15, 1.0 - min(0.85, head_displacement * 0.12))
-        stabilized_velocity = 0.70 * (delta_mar * 12.0) + 0.30 * (mouth_delta * head_damping)
-
-        self.mouth_motion_history.append((timestamp, stabilized_velocity))
-        if len(self.mouth_motion_history) > 60:
-            self.mouth_motion_history.pop(0)
-        self.instant_mouth_velocity = float(stabilized_velocity)
-
-    def get_recent_mouth_energy(self, window_sec: float = 0.25) -> float:
-        """Returns mean mouth motion variance over responsive recent time window (250ms)."""
-        if not self.mouth_motion_history:
-            return 0.0
-        cutoff = self.last_seen - window_sec
-        recent = [val for (t, val) in self.mouth_motion_history if t >= cutoff]
-        return float(np.mean(recent)) if recent else 0.0
-
-    def get_lip_velocity_sequence(self, start_t: float, end_t: float, num_points: int = 10) -> np.ndarray:
-        """
-        Extracts temporal lip velocity sequence over [start_t, end_t]
-        normalized to zero-mean unit-variance for Pearson correlation with acoustic syllable envelope.
-        """
-        if not self.mouth_motion_history or end_t <= start_t:
-            return np.zeros(num_points, dtype=np.float32)
-
-        relevant = [(t, v) for (t, v) in self.mouth_motion_history if start_t <= t <= end_t]
-        if not relevant:
-            recent_v = self.mouth_motion_history[-1][1] if self.mouth_motion_history else 0.0
-            return np.full(num_points, recent_v, dtype=np.float32)
-
-        # Interpolate onto num_points uniform grid
-        ts = [t for (t, v) in relevant]
-        vs = [v for (t, v) in relevant]
-
-        if len(ts) == 1:
-            seq = np.full(num_points, vs[0], dtype=np.float32)
-        else:
-            target_ts = np.linspace(start_t, end_t, num_points)
-            seq = np.interp(target_ts, ts, vs).astype(np.float32)
-
-        std_val = float(np.std(seq))
-        if std_val > 1e-6:
-            return (seq - np.mean(seq)) / std_val
-        return np.zeros(num_points, dtype=np.float32)
-
-
-
-class PersistentFaceTracker:
-    """
-    Visual Face Tracking System with ID Persistence across video frames.
-    Matches incoming detections to active tracks using IoU, spatial proximity, and scale similarity.
-    Maintains persistent IDs (FACE_001, FACE_002, ...) throughout debate and podcast sessions.
-    """
-
-    def __init__(self, max_missed_seconds: float = 1.6, match_distance_threshold: float = 14.0):
-        self.max_missed_sec = max_missed_seconds
-        self.match_dist_thresh = match_distance_threshold
-        self.tracks: Dict[str, FaceTrack] = {}
-        self.next_track_num = 1
-        self.detector = RobustFaceDetector()
-
-    def reset_tracks(self):
-        """Resets active tracks on camera cut / shot boundary."""
-        self.tracks.clear()
-
-
-    def process_frame(
-        self,
-        frame: np.ndarray,
-        timestamp: float,
-        prev_gray: Optional[np.ndarray] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Detects faces in frame and updates active persistent face tracks.
-        Returns a list of active face tracking states at current timestamp.
-        """
-        detections = self.detector.detect_faces(frame)
-        h, w = frame.shape[:2]
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Compute mouth motion for each detection against prev_gray
-        for det in detections:
-            mouth_delta = 0.0
-            mb = det.get('mouth_box', {})
-            if prev_gray is not None and mb:
-                mx, my, mw, mh = mb['x'], mb['y'], mb['w'], mb['h']
-                if 0 <= my and my + mh <= prev_gray.shape[0] and 0 <= mx and mx + mw <= prev_gray.shape[1]:
-                    prev_mouth = prev_gray[my:my+mh, mx:mx+mw]
-                    curr_mouth = gray[my:my+mh, mx:mx+mw]
-                    if prev_mouth.shape == curr_mouth.shape and prev_mouth.size > 0:
-                        mouth_delta = float(np.mean(cv2.absdiff(prev_mouth, curr_mouth)))
-            det['mouth_delta'] = mouth_delta
-
-        # Match detections to existing tracks
-        matched_track_ids = set()
-        matched_det_indices = set()
-
-        # Greedy closest centroid assignment
-        for det_idx, det in enumerate(detections):
-            best_track_id = None
-            min_dist = 999.0
-
-            for track_id, track in self.tracks.items():
-                if track_id in matched_track_ids:
-                    continue
-                # Time since last seen
-                if (timestamp - track.last_seen) > self.max_missed_sec:
-                    continue
-
-                dist = np.hypot(det['cx'] - track.cx, det['cy'] - track.cy)
-                if dist < self.match_dist_thresh and dist < min_dist:
-                    min_dist = dist
-                    best_track_id = track_id
-
-            if best_track_id is not None:
-                self.tracks[best_track_id].update(
-                    detection=det,
-                    timestamp=timestamp,
-                    mouth_delta=det.get('mouth_delta', 0.0),
-                    mouth_aperture=det.get('mouth_aperture', 0.0),
-                    head_displacement=min_dist
-                )
-                matched_track_ids.add(best_track_id)
-                matched_det_indices.add(det_idx)
-
-        # Create new tracks for unmatched detections
-        for det_idx, det in enumerate(detections):
-            if det_idx not in matched_det_indices:
-                new_id = f"FACE_{self.next_track_num:03d}"
-                self.next_track_num += 1
-                new_track = FaceTrack(new_id, det, timestamp)
-                new_track.mouth_motion_history.append((timestamp, det.get('mouth_delta', 0.0)))
-                self.tracks[new_id] = new_track
-                matched_track_ids.add(new_id)
-
-        # Clean up obsolete tracks older than max_missed_seconds
-        expired_ids = [
-            tid for tid, t in self.tracks.items()
-            if (timestamp - t.last_seen) > self.max_missed_sec
-        ]
-        for eid in expired_ids:
-            del self.tracks[eid]
-
-        # Return snapshot of currently visible tracks
-        current_visible = []
-        for tid in matched_track_ids:
-            if tid in self.tracks:
-                trk = self.tracks[tid]
-                current_visible.append({
-                    "face_track_id": trk.track_id,
-                    "timestamp": timestamp,
-                    "cx": trk.cx,
-                    "cy": trk.cy,
-                    "w_pct": trk.w_pct,
-                    "h_pct": trk.h_pct,
-                    "area": trk.area,
-                    "mouth_motion": trk.get_recent_mouth_energy(0.25),
-                    "track_obj": trk,
-                })
-
-        return current_visible
-
+from typing import List, Dict, Any, Tuple
 
 class AutoCameraEngine:
     """
-    Backward-Compatible Facade for Camera Framing & Tracking Engine.
-    Inherited by task_runner and crop inspectors with persistent multi-speaker intelligence.
+    Intelligent Active Camera Framing & Speaker Tracking Engine.
+    Implements multi-model face detection, centroid-radius speaker clustering,
+    lip-motion dynamic active speaker identification, and sticky camera hysteresis.
     """
 
-    def __init__(self, smoothing_alpha: float = 0.20, min_shot_duration: float = 2.0):
+    def __init__(self, smoothing_alpha: float = 0.20, min_shot_duration: float = 2.5):
         self.alpha = smoothing_alpha
         self.min_shot_duration = min_shot_duration
-        self.tracker = PersistentFaceTracker()
+        self.current_focal_x = 50.0
+        self.current_focal_y = 35.0
 
-    def cluster_speaker_seats(self, all_faces: List[Dict[str, Any]], max_spread: float = 8.0) -> List[Dict[str, Any]]:
-        """Centroid-Radius clustering to discover physical studio seats."""
+        alt2_path = cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'
+        def_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        prof_path = cv2.data.haarcascades + 'haarcascade_profileface.xml'
+
+        self.face_cascade_alt2 = cv2.CascadeClassifier(alt2_path) if os.path.exists(alt2_path) else None
+        self.face_cascade_def = cv2.CascadeClassifier(def_path) if os.path.exists(def_path) else None
+        self.profile_cascade = cv2.CascadeClassifier(prof_path) if os.path.exists(prof_path) else None
+
+    def _has_valid_face_skin(self, bgr_crop: np.ndarray) -> bool:
+        if bgr_crop is None or bgr_crop.size == 0:
+            return False
+        hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
+        # Lenient skin mask to handle varied podcast studio lighting & skin tones
+        lower_skin = np.array([0, 15, 30], dtype=np.uint8)
+        upper_skin = np.array([32, 255, 255], dtype=np.uint8)
+        mask = cv2.inRange(hsv, lower_skin, upper_skin)
+        skin_pct = (mask > 0).mean() * 100.0
+        return skin_pct >= 5.0
+
+    def detect_faces_in_frame(self, frame: np.ndarray, target_w: int = 640) -> List[Dict[str, Any]]:
+        orig_h, orig_w = frame.shape[:2]
+        if orig_w == 0 or orig_h == 0:
+            return []
+
+        scale = float(target_w) / orig_w
+        new_h = int(orig_h * scale)
+        small = cv2.resize(frame, (target_w, new_h), interpolation=cv2.INTER_LINEAR)
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+
+        detections = []
+
+        # 1. Frontal Alt2 Detector
+        if self.face_cascade_alt2 and not self.face_cascade_alt2.empty():
+            faces_alt2 = self.face_cascade_alt2.detectMultiScale(
+                gray,
+                scaleFactor=1.08,
+                minNeighbors=3,
+                minSize=(16, 16)
+            )
+            for (x, y, w, h) in faces_alt2:
+                ratio = w / float(h)
+                if 0.60 <= ratio <= 1.40:
+                    crop = small[y:y+h, x:x+w]
+                    if self._has_valid_face_skin(crop):
+                        detections.append((x, y, w, h))
+
+        # 2. Frontal Default Detector (catches faces missed by Alt2 in wide/dim shots)
+        if self.face_cascade_def and not self.face_cascade_def.empty():
+            faces_def = self.face_cascade_def.detectMultiScale(
+                gray,
+                scaleFactor=1.08,
+                minNeighbors=3,
+                minSize=(16, 16)
+            )
+            for (x, y, w, h) in faces_def:
+                ratio = w / float(h)
+                if 0.60 <= ratio <= 1.40:
+                    crop = small[y:y+h, x:x+w]
+                    if self._has_valid_face_skin(crop):
+                        detections.append((x, y, w, h))
+
+        # 3. Profile Detector (Forward and Horizontally Flipped for podcast guests)
+        if self.profile_cascade and not self.profile_cascade.empty():
+            prof_faces = self.profile_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.10,
+                minNeighbors=3,
+                minSize=(18, 18)
+            )
+            for (x, y, w, h) in prof_faces:
+                ratio = w / float(h)
+                if 0.60 <= ratio <= 1.40:
+                    crop = small[y:y+h, x:x+w]
+                    if self._has_valid_face_skin(crop):
+                        detections.append((x, y, w, h))
+
+            flipped_gray = cv2.flip(gray, 1)
+            prof_flipped = self.profile_cascade.detectMultiScale(
+                flipped_gray,
+                scaleFactor=1.10,
+                minNeighbors=3,
+                minSize=(18, 18)
+            )
+            for (x, y, w, h) in prof_flipped:
+                ratio = w / float(h)
+                if 0.60 <= ratio <= 1.40:
+                    real_x = target_w - (x + w)
+                    crop = small[y:y+h, real_x:real_x+w]
+                    if self._has_valid_face_skin(crop):
+                        detections.append((real_x, y, w, h))
+
+        if not detections:
+            return []
+
+        # Non-Maximum Suppression (NMS)
+        boxes = []
+        for (x, y, w, h) in detections:
+            boxes.append([x, y, x + w, y + h, w * h])
+
+        boxes = sorted(boxes, key=lambda b: b[4], reverse=True)
+        keep = []
+        while boxes:
+            cur = boxes.pop(0)
+            keep.append(cur)
+            remaining = []
+            for other in boxes:
+                xx1 = max(cur[0], other[0])
+                yy1 = max(cur[1], other[1])
+                xx2 = min(cur[2], other[2])
+                yy2 = min(cur[3], other[3])
+                inter_w = max(0, xx2 - xx1)
+                inter_h = max(0, yy2 - yy1)
+                inter_area = inter_w * inter_h
+                union_area = cur[4] + other[4] - inter_area
+                iou = inter_area / union_area if union_area > 0 else 0
+                if iou < 0.35:
+                    remaining.append(other)
+            boxes = remaining
+
+        results = []
+        for (x1, y1, x2, y2, area) in keep:
+            fw = x2 - x1
+            fh = y2 - y1
+            cx_pct = ((x1 + fw / 2.0) / float(target_w)) * 100.0
+            cy_pct = ((y1 + fh / 2.0) / float(new_h)) * 100.0
+            # Allow studio desks spanning wide bounds [8.0, 92.0]
+            if cy_pct < 10.0 or cy_pct > 86.0:
+                continue
+            if cx_pct < 8.0 or cx_pct > 92.0:
+                continue
+            results.append({
+                'x': int(x1),
+                'y': int(y1),
+                'w': int(fw),
+                'h': int(fh),
+                'cx': float(cx_pct),
+                'cy': float(cy_pct),
+                'area': int(area),
+            })
+
+        return results
+
+    def cluster_speaker_seats(self, all_faces: List[Dict[str, Any]], max_spread: float = 7.0) -> List[Dict[str, Any]]:
+        """
+        Centroid-Radius clustering: groups face detections into distinct physical chairs/seats.
+        Avoids single-linkage chaining that merged all panelists into a single center cluster.
+        """
         if not all_faces:
             return [{"id": 0, "x": 50.0, "y": 32.0, "label": "Center Speaker", "count": 1}]
 
@@ -251,7 +185,9 @@ class AutoCameraEngine:
             else:
                 clusters.append([f])
 
-        valid_clusters = [c for c in clusters if len(c) >= max(2, int(len(all_faces) * 0.03))]
+        # Filter out 1-off noise detections: require at least 4% of total faces or >= 3 detections
+        min_cluster_len = max(3, int(len(all_faces) * 0.04)) if len(clusters) > 1 else 1
+        valid_clusters = [c for c in clusters if len(c) >= min_cluster_len]
         if not valid_clusters:
             valid_clusters = clusters
 
@@ -262,12 +198,14 @@ class AutoCameraEngine:
             med_x = float(np.median(c_xs))
             med_y = float(np.median(c_ys))
 
+            # Zero-Wall Framing: 9:16 slice is 31.64% of 16:9 width. Half-width is 15.82%.
+            # Clamping to [16.0, 84.0] guarantees ZERO black borders across any seat in the studio!
             clamped_x = round(max(16.0, min(84.0, med_x)), 1)
             clamped_y = round(max(22.0, min(42.0, med_y)), 1)
 
-            if clamped_x < 36.0:
+            if clamped_x < 38.0:
                 label = "Speaker Left"
-            elif clamped_x > 64.0:
+            elif clamped_x > 62.0:
                 label = "Speaker Right"
             else:
                 label = "Center Speaker"
@@ -281,6 +219,7 @@ class AutoCameraEngine:
                 "count": len(c)
             })
 
+        # Sort left-to-right
         speaker_seats.sort(key=lambda s: s["x"])
         for idx, s in enumerate(speaker_seats):
             s["id"] = idx
@@ -294,7 +233,9 @@ class AutoCameraEngine:
         duration: float = 2.0,
         sample_interval: float = 1.0
     ) -> Dict[str, Any]:
-        """Calculates optimal primary focal center across clip frames."""
+        """
+        Calculates optimal primary focal center across clip frames.
+        """
         if not os.path.exists(video_path):
             return {"x": 50.0, "y": 35.0, "mode": "custom_crop", "detected": False, "face_count": 0}
 
@@ -306,7 +247,6 @@ class AutoCameraEngine:
         if not cap.isOpened():
             return {"x": 50.0, "y": 35.0, "mode": "custom_crop", "detected": False, "face_count": 0}
 
-        detector = RobustFaceDetector()
         all_faces: List[Dict[str, Any]] = []
 
         for offset in [0.2, duration * 0.5, max(0.5, duration - 0.2)]:
@@ -316,8 +256,9 @@ class AutoCameraEngine:
             if not ret or frame is None:
                 continue
 
-            frame_faces = detector.detect_faces(frame, target_w=640)
+            frame_faces = self.detect_faces_in_frame(frame, target_w=640)
             if frame_faces:
+                # Prefer face closest to natural center-third
                 best = min(frame_faces, key=lambda f: abs(f['cx'] - 50.0))
                 all_faces.append(best)
 
@@ -350,159 +291,289 @@ class AutoCameraEngine:
         video_path: str,
         start_sec: float,
         duration: float = 30.0,
-        sample_interval: float = 0.50,
-        transcript_segments: List[Dict[str, Any]] = None,
-        source_audio_path: str = None,
-        fast_mode: bool = True
+        sample_interval: float = 1.33
     ) -> List[Dict[str, Any]]:
         """
-        Generates responsive 9:16 portrait camera trajectory keyframes.
-        In fast_mode (default for batch clip processing):
-        Samples key timepoints (<0.10s per clip) using fast frame seek, detects speaker
-        positions, and aligns camera cuts/pans with speaker turns.
-        If fast_mode=False:
-        Delegates to full temporal cross-modal active speaker pipeline.
+        State-of-the-art Multi-Speaker Camera Tracking Engine.
+        1. Samples video frames and measures inter-frame lip motion dynamics.
+        2. Discovers physical speaker seats via Centroid-Radius spatial clustering.
+        3. Identifies the truly speaking person instead of laughing guests or closest faces.
+        4. Applies sticky camera hysteresis: camera holds on speaking person and does not jitter away.
+        5. Switches to dynamic stacked split-screen for conversational banter.
         """
-        if not fast_mode:
-            from .active_speaker import ActiveSpeakerEngine
-            from .camera_controller import CameraController
-
-            engine = ActiveSpeakerEngine()
-            controller = CameraController()
-
-            # Step 1: Compute audio-visual active speaker timeline with shot boundaries & real diarization
-            res = engine.process_clip(
-                video_path=video_path,
-                clip_start=start_sec,
-                clip_duration=duration,
-                transcript_segments=transcript_segments,
-                source_audio_path=source_audio_path
-            )
-
-            speaker_timeline = res.get('speaker_timeline', [])
-            shot_boundaries = res.get('shot_boundaries', [])
-
-            # Step 2: Convert speaker timeline into 9:16 portrait camera trajectory
-            trajectory = controller.generate_trajectory(
-                speaker_timeline=speaker_timeline,
-                shot_boundaries=shot_boundaries,
-                clip_start=start_sec,
-                duration=duration
-            )
-
-            return trajectory.get('keyframes', [
-                {"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}
-            ])
-
-        # ULTRA-FAST (<0.10s) MULTI-SPEAKER KEYFRAME ENGINE FOR BATCH CLIPS
-        cache_key = f"kf:{video_path}:{round(start_sec, 2)}:{round(duration, 2)}"
-        if cache_key in _FACE_CACHE:
-            return _FACE_CACHE[cache_key]
-
         if not os.path.exists(video_path):
             return [{"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}]
 
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
+        frame_w = 640
+        frame_h = 360
+        frame_sz = frame_w * frame_h * 3
+        fps = 1.0 / max(0.8, sample_interval)
+
+        sampled_timeline: List[Dict[str, Any]] = []
+
+        # Fast 1-pass FFmpeg raw pipe decoding
+        cmd = [
+            'ffmpeg', '-y',
+            '-ss', f"{start_sec:.2f}",
+            '-t', f"{duration:.2f}",
+            '-i', video_path,
+            '-vf', f"fps={fps:.3f},scale={frame_w}:{frame_h}",
+            '-c:v', 'rawvideo',
+            '-pix_fmt', 'bgr24',
+            '-f', 'rawvideo',
+            'pipe:1'
+        ]
+
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            raw_bytes, _ = proc.communicate()
+            total_frames = len(raw_bytes) // frame_sz
+
+            prev_gray = None
+            for i in range(total_frames):
+                rel_t = round(i * sample_interval, 2)
+                buf = raw_bytes[i * frame_sz : (i + 1) * frame_sz]
+                frame = np.frombuffer(buf, dtype=np.uint8).reshape((frame_h, frame_w, 3))
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+                faces = self.detect_faces_in_frame(frame, target_w=frame_w)
+
+                # Compute mouth/lip motion variance against prev_gray
+                for fc in faces:
+                    lip_motion = 0.0
+                    if prev_gray is not None:
+                        my1 = int(fc['y'] + 0.65 * fc['h'])
+                        my2 = int(fc['y'] + fc['h'])
+                        mx1 = int(fc['x'] + 0.20 * fc['w'])
+                        mx2 = int(fc['x'] + 0.80 * fc['w'])
+                        m1 = prev_gray[my1:my2, mx1:mx2]
+                        m2 = gray[my1:my2, mx1:mx2]
+                        if m1.size > 0 and m1.shape == m2.shape:
+                            lip_motion = float(np.mean(cv2.absdiff(m1, m2)))
+                    fc['lip_motion'] = lip_motion
+
+                sampled_timeline.append({
+                    "time": rel_t,
+                    "faces": faces
+                })
+                prev_gray = gray
+
+        except Exception as e:
+            # Fallback to OpenCV seek if FFmpeg raw pipe fails
+            cap = cv2.VideoCapture(video_path)
+            prev_gray = None
+            for rel_t in [0.0, round(duration * 0.33, 1), round(duration * 0.66, 1), round(max(0.0, duration - 1.0), 1)]:
+                cap.set(cv2.CAP_PROP_POS_MSEC, (start_sec + rel_t) * 1000.0)
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    faces = self.detect_faces_in_frame(frame, target_w=frame_w)
+                    gray = cv2.cvtColor(cv2.resize(frame, (frame_w, frame_h)), cv2.COLOR_BGR2GRAY)
+                    for fc in faces:
+                        fc['lip_motion'] = 15.0  # nominal active motion
+                    sampled_timeline.append({"time": rel_t, "faces": faces})
+            cap.release()
+
+        if not sampled_timeline:
             return [{"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}]
 
-        # Determine keyframe sample points (opening + speaker dialogue turns + midpoints)
-        sample_points = [0.2]
-        if transcript_segments:
-            for s in transcript_segments:
-                st = float(s.get('start', 0.0))
-                if (start_sec + 1.0) <= st <= (start_sec + duration - 1.0):
-                    rel_t = round(st - start_sec, 2)
-                    if not any(abs(rel_t - p) < 2.0 for p in sample_points):
-                        sample_points.append(rel_t)
+        # Collect all valid face detections across clip
+        all_faces = [f for st in sampled_timeline for f in st["faces"]]
+        if not all_faces:
+            return [{"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}]
 
-        if len(sample_points) < 3:
-            for frac in [0.33, 0.66, 0.90]:
-                pt = round(duration * frac, 2)
-                if not any(abs(pt - p) < 2.0 for p in sample_points):
-                    sample_points.append(pt)
+        # 1. Establish stable physical speaker seats via Centroid-Radius Clustering
+        speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=7.0)
 
-        sample_points.sort()
-        sample_points = sample_points[:6]  # Max 6 points for sub-0.10s speed
+        # 2. Build continuous focal track across time samples with Sticky Speaker Hysteresis
+        focal_track = []
+        current_seat = speaker_seats[0]
+        last_switch_time = 0.0
+        switch_candidate_id = None
+        candidate_streak = 0
+        min_dwell = self.min_shot_duration  # Default 2.5s minimum hold on a speaker
 
-        detector = RobustFaceDetector()
-        raw_keyframes = []
+        for st in sampled_timeline:
+            t = st["time"]
+            faces = st["faces"]
 
-        for pt in sample_points:
-            cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, (start_sec + pt) * 1000.0))
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                continue
-
-            faces = detector.detect_faces(frame, target_w=640)
             if faces:
-                # If multiple faces detected (debate / podcast seating):
-                # Choose active speaker by highest mouth aperture/motion or largest face
-                if len(faces) > 1:
-                    faces.sort(key=lambda f: f.get('mouth_aperture', 0.0) * 1.5 + (f.get('area', 0) / 10000.0), reverse=True)
-                    best = faces[0]
-                    spk_name = f"Speaker ({'Left' if best['cx'] < 45 else ('Right' if best['cx'] > 55 else 'Center')})"
+                # Calculate active speech score for each physical seat
+                seat_scores = {s["id"]: 0.0 for s in speaker_seats}
+                for f in faces:
+                    nearest_s = min(speaker_seats, key=lambda s: abs(s["x"] - f["cx"]))
+                    motion = f.get("lip_motion", 0.0)
+                    # Normalize by face area with soft dampening: prevents large foreground face from dominating
+                    area_weight = 1.0 + 0.15 * min(2.0, f["area"] / 10000.0)
+                    score = motion * area_weight
+                    seat_scores[nearest_s["id"]] = max(seat_scores[nearest_s["id"]], score)
+
+                # Sticky Continuity Bonus for current speaker:
+                # Gives +50% advantage to prevent camera from jumping away if someone else laughs or moves
+                curr_score = seat_scores[current_seat["id"]]
+                other_seats = [s for s in speaker_seats if s["id"] != current_seat["id"]]
+
+                if other_seats:
+                    best_other_seat = max(other_seats, key=lambda s: seat_scores[s["id"]])
+                    other_score = seat_scores[best_other_seat["id"]]
+
+                    # Switch rules:
+                    # 1. Must hold current speaker for at least min_dwell (2.5s)
+                    # 2. Candidate must show true active speech (score > 10.0)
+                    # 3. Candidate must clearly exceed current speaker (1.35x)
+                    time_since_switch = t - last_switch_time
+                    is_valid_candidate = (
+                        other_score > 10.0 and
+                        (other_score > 1.35 * max(4.0, curr_score)) and
+                        time_since_switch >= min_dwell
+                    )
+
+                    if is_valid_candidate:
+                        if switch_candidate_id == best_other_seat["id"]:
+                            candidate_streak += 1
+                        else:
+                            switch_candidate_id = best_other_seat["id"]
+                            candidate_streak = 1
+
+                        # Require 2 consecutive time samples (~2.5s) of confirmed talking
+                        # This eliminates brief laughs, coughs, and fast movements completely!
+                        if candidate_streak >= 2:
+                            current_seat = best_other_seat
+                            last_switch_time = t
+                            switch_candidate_id = None
+                            candidate_streak = 0
+                    else:
+                        candidate_streak = 0
+                        switch_candidate_id = None
+
+                chosen_x = current_seat["x"]
+                chosen_y = current_seat["y"]
+                chosen_label = current_seat["label"]
+
+            else:
+                # No face detected in this frame (e.g. wide crowd shot or slide)
+                chosen_x = current_seat["x"]
+                chosen_y = current_seat["y"]
+                chosen_label = current_seat["label"]
+
+            focal_track.append({
+                "time": t,
+                "x": chosen_x,
+                "y": chosen_y,
+                "speaker": chosen_label,
+                "seat_id": current_seat["id"]
+            })
+
+        # 3. Dynamic Stacked Split-Screen & Solo Framing State Machine
+        has_multi_seats = len(speaker_seats) >= 2
+        seat_top = min(speaker_seats, key=lambda s: s["x"]) if has_multi_seats else speaker_seats[0]
+        seat_bottom = max(speaker_seats, key=lambda s: s["x"]) if has_multi_seats else speaker_seats[0]
+        seat_distance = abs(seat_bottom["x"] - seat_top["x"]) if has_multi_seats else 0.0
+
+        keyframes = []
+        active_mode = "solo"
+        split_hold_until = -1.0
+        last_kf_time = -999.0
+        last_kf_x = -999.0
+
+        total_samples = len(focal_track)
+        for i, pt in enumerate(focal_track):
+            t = pt["time"]
+
+            # Rapid banter detection: check if focal point changes back-and-forth within <= 1.8s window
+            is_rapid_banter = False
+            if has_multi_seats and seat_distance >= 18.0:
+                window_pts = [focal_track[j] for j in range(i, min(total_samples, i + 4))]
+                unique_speakers = set(wp["seat_id"] for wp in window_pts)
+                if len(unique_speakers) >= 2:
+                    is_rapid_banter = True
+
+            # State Machine: Split vs Solo
+            if is_rapid_banter:
+                if active_mode != "split":
+                    active_mode = "split"
+                    split_hold_until = t + 2.8  # Hold split for at least 2.8 seconds anti-flicker
+                    keyframes.append({
+                        "time": round(t, 1),
+                        "mode": "split",
+                        "top_x": seat_top["x"],
+                        "top_y": seat_top["y"],
+                        "bottom_x": seat_bottom["x"],
+                        "bottom_y": seat_bottom["y"],
+                        "x": seat_top["x"],
+                        "y": seat_top["y"],
+                        "zoom": 1.15,
+                        "speaker": f"Split: {seat_top['label']} & {seat_bottom['label']}"
+                    })
+                    last_kf_time = t
                 else:
-                    best = faces[0]
-                    spk_name = "Primary Speaker"
+                    split_hold_until = max(split_hold_until, t + 2.8)
 
-                cx = round(max(16.0, min(84.0, best['cx'])), 1)
-                cy = round(max(22.0, min(42.0, best['cy'])), 1)
-                raw_keyframes.append({
-                    "time": pt,
-                    "x": cx,
-                    "y": cy,
-                    "zoom": 1.15,
-                    "speaker": spk_name
-                })
+            elif active_mode == "split":
+                if t >= split_hold_until:
+                    # Split hold elapsed: return cleanly to solo active speaker
+                    active_mode = "solo"
+                    keyframes.append({
+                        "time": round(t, 1),
+                        "mode": "solo",
+                        "x": pt["x"],
+                        "y": pt["y"],
+                        "zoom": 1.0,
+                        "speaker": pt["speaker"]
+                    })
+                    last_kf_time = t
+                    last_kf_x = pt["x"]
 
-        cap.release()
+            else:
+                # Solo camera tracking
+                if not keyframes:
+                    keyframes.append({
+                        "time": 0.0,
+                        "mode": "solo",
+                        "x": pt["x"],
+                        "y": pt["y"],
+                        "zoom": 1.0,
+                        "speaker": pt["speaker"]
+                    })
+                    last_kf_time = 0.0
+                    last_kf_x = pt["x"]
+                else:
+                    shift = abs(pt["x"] - last_kf_x)
+                    time_elapsed = t - last_kf_time
+                    if shift >= 8.0 and time_elapsed >= self.min_shot_duration:
+                        keyframes.append({
+                            "time": round(t, 1),
+                            "mode": "solo",
+                            "x": pt["x"],
+                            "y": pt["y"],
+                            "zoom": 1.0,
+                            "speaker": pt["speaker"]
+                        })
+                        last_kf_time = t
+                        last_kf_x = pt["x"]
 
-        if not raw_keyframes:
-            fallback = [{"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}]
-            _FACE_CACHE[cache_key] = fallback
-            return fallback
+        if not keyframes:
+            keyframes.append({
+                "time": 0.0,
+                "mode": "solo",
+                "x": focal_track[0]["x"],
+                "y": focal_track[0]["y"],
+                "zoom": 1.0,
+                "speaker": focal_track[0]["speaker"]
+            })
 
-        # Build trajectory with smooth pans & cuts
-        final_keyframes = []
-        first = dict(raw_keyframes[0])
-        first["time"] = 0.0
-        first["transition"] = "cut"
-        final_keyframes.append(first)
+        return keyframes
 
-        for kf in raw_keyframes[1:]:
-            last_kf = final_keyframes[-1]
-            dx = abs(kf["x"] - last_kf["x"])
-            # Only record keyframe if camera position noticeably shifted (>6% width)
-            if dx >= 6.0:
-                kf_copy = dict(kf)
-                kf_copy["transition"] = "cut" if dx > 20.0 else "smooth_pan"
-                final_keyframes.append(kf_copy)
+_FACE_CACHE: Dict[str, Any] = {}
+_CAMERA_ENGINE = AutoCameraEngine()
 
-        _FACE_CACHE[cache_key] = final_keyframes
-        return final_keyframes
+def detect_primary_speaker_center(video_path: str, start_sec: float = 0.0, sample_duration: float = 2.0) -> dict:
+    """
+    Returns robust, tightly focused speaker center coordinates without blank space.
+    """
+    return _CAMERA_ENGINE.analyze_clip_framing(video_path, start_sec=start_sec, duration=sample_duration)
 
-def detect_primary_speaker_center(video_path: str, start_sec: float = 0.0, duration: float = 2.0) -> Dict[str, Any]:
-    """Module-level helper to detect primary speaker center."""
-    engine = AutoCameraEngine()
-    return engine.analyze_clip_framing(video_path, start_sec, duration)
-
-def generate_camera_keyframes(
-    video_path: str,
-    start_sec: float = 0.0,
-    duration: float = 30.0,
-    transcript_segments: List[Dict[str, Any]] = None,
-    source_audio_path: str = None,
-    fast_mode: bool = True
-) -> List[Dict[str, Any]]:
-    """Module-level helper to generate intelligent multi-speaker 9:16 keyframes."""
-    engine = AutoCameraEngine()
-    return engine.generate_clip_camera_keyframes(
-        video_path,
-        start_sec,
-        duration,
-        transcript_segments=transcript_segments,
-        source_audio_path=source_audio_path,
-        fast_mode=fast_mode
-    )
-
+def generate_camera_keyframes(video_path: str, start_sec: float, duration: float) -> list:
+    """
+    Generates dynamic multi-speaker camera keyframes across a clip.
+    """
+    return _CAMERA_ENGINE.generate_clip_camera_keyframes(video_path, start_sec, duration)

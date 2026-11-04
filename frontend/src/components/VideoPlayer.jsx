@@ -12,7 +12,6 @@ import {
   Sliders,
   Sparkles,
   Maximize2,
-  Tv,
   Youtube,
   Smartphone,
   Scissors,
@@ -95,7 +94,6 @@ export default function VideoPlayer({
 
   // Drag-and-drop subtitle positioning state
   const phoneContainerRef = useRef(null);
-  const landscapeContainerRef = useRef(null);
   const [isDraggingCaption, setIsDraggingCaption] = useState(false);
   const [dragYPercent, setDragYPercent] = useState(null);
   const [dragXPercent, setDragXPercent] = useState(null);
@@ -510,7 +508,6 @@ export default function VideoPlayer({
   let activeCropY = cropSettings?.y ?? 45.0;
   let activeCropZoom = cropSettings?.zoom ?? 1.0;
   let activeSpeakerLabel = '';
-  let activeConfidence = null;
 
   const keyframes = Array.isArray(cropSettings?.keyframes) && cropSettings.keyframes.length > 0
     ? [...cropSettings.keyframes].sort((a, b) => (a.time || 0) - (b.time || 0))
@@ -528,7 +525,6 @@ export default function VideoPlayer({
       activeCropY = keyframes[0].y ?? activeCropY;
       activeCropZoom = keyframes[0].zoom ?? activeCropZoom;
       activeSpeakerLabel = keyframes[0].speaker || '';
-      activeConfidence = keyframes[0].confidence != null ? Math.round(keyframes[0].confidence * 100) : null;
     } else {
       let curIdx = 0;
       for (let i = 0; i < keyframes.length; i++) {
@@ -547,7 +543,6 @@ export default function VideoPlayer({
         activeCropY = curKf.y;
         activeCropZoom = curKf.zoom || 1.0;
         activeSpeakerLabel = curKf.speaker || '';
-        activeConfidence = curKf.confidence != null ? Math.round(curKf.confidence * 100) : null;
       } else {
         // Fluid, cinematic camera glide over 0.75s from previous keyframe to current keyframe
         const panDur = 0.75;
@@ -560,13 +555,11 @@ export default function VideoPlayer({
           activeCropY = prevKf.y + (curKf.y - prevKf.y) * easeRatio;
           activeCropZoom = (prevKf.zoom || 1.0) + ((curKf.zoom || 1.0) - (prevKf.zoom || 1.0)) * easeRatio;
           activeSpeakerLabel = curKf.speaker || '';
-          activeConfidence = curKf.confidence != null ? Math.round(curKf.confidence * 100) : null;
         } else {
           activeCropX = curKf.x;
           activeCropY = curKf.y;
           activeCropZoom = curKf.zoom || 1.0;
           activeSpeakerLabel = curKf.speaker || '';
-          activeConfidence = curKf.confidence != null ? Math.round(curKf.confidence * 100) : null;
         }
       }
     }
@@ -800,7 +793,7 @@ export default function VideoPlayer({
 
   return (
     <div className="flex flex-col items-center justify-center w-full h-full p-2 overflow-y-auto min-h-0">
-      {/* 9:16 PORTRAIT SHORTS STUDIO */}
+      {/* 9:16 PORTRAIT LAYOUT: PHONE ON LEFT, TIMELINE DECK ON RIGHT (Compact, fully visible above taskbar) */}
       <div className="flex flex-row items-center justify-center gap-4 w-full max-w-4xl py-1 my-auto">
           {/* Phone Frame Container: Clean bezels, proportional height */}
           <div
@@ -937,10 +930,10 @@ export default function VideoPlayer({
                 </span>
               </div>
 
-              {/* Dedicated 9:16 Shorts Studio Badge */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-lime-neon/10 border border-lime-neon/30 rounded-lg text-lime-neon text-[11px] font-bold select-none">
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>9:16 Shorts Studio</span>
+              {/* Format Badge: 9:16 Shorts Only */}
+              <div className="flex items-center gap-1 bg-dark-950 px-2.5 py-1 rounded-lg border border-dark-800 text-[11px] font-bold text-lime-neon shadow-sm">
+                <Smartphone className="w-3 h-3 text-lime-neon" />
+                <span>9:16 Shorts</span>
               </div>
             </div>
 
@@ -1035,40 +1028,57 @@ export default function VideoPlayer({
 
 
 
-            {/* Intelligent Audio-Visual Speaker Tracking Engine */}
-            <div className="p-2.5 bg-dark-950/90 rounded-xl border border-dark-800 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-lime-neon animate-pulse"></span>
-                  Active Speaker Following
-                </span>
-                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${
-                  activeConfidence !== null && activeConfidence < 60
-                    ? 'text-amber-400 bg-amber-400/10 border-amber-400/20'
-                    : 'text-lime-neon bg-lime-neon/10 border-lime-neon/20'
-                }`}>
-                  {activeConfidence !== null ? `${activeConfidence}% Confidence` : 'Auto-Track Active'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-slate-300 font-semibold truncate">
-                  {activeSpeakerLabel || 'Speaker Follow Active'}
-                </span>
+            {/* Framing Style Selector */}
+            <div className="space-y-1.5 pt-1 border-t border-dark-800">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Framing Style
+              </label>
+              <div className="grid grid-cols-2 p-0.5 bg-dark-950 rounded-xl border border-dark-800 text-[11px]">
                 <button
                   type="button"
-                  onClick={handleRunAutoTrack}
-                  disabled={isAutoTracking}
-                  className="px-2.5 py-1 bg-lime-neon hover:bg-lime-400 text-black rounded-lg font-extrabold text-[10px] flex items-center gap-1 transition shadow-neon-sm cursor-pointer disabled:opacity-50 shrink-0"
-                  title="Re-track active speakers in video"
+                  onClick={() => onChangeCrop?.({ mode: 'blur_fill' })}
+                  className={`py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                    cropMode === 'blur_fill'
+                      ? 'bg-lime-neon text-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
                 >
-                  {isAutoTracking ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3 h-3 fill-black" />
-                  )}
-                  <span>{isAutoTracking ? 'Tracking...' : '⚡ Re-Track (AI)'}</span>
+                  Blurred BG
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeCrop?.({ mode: 'custom_crop' })}
+                  className={`py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                    cropMode === 'custom_crop'
+                      ? 'bg-lime-neon text-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Smart Crop
                 </button>
               </div>
+            </div>
+
+            {/* AI Auto-Speaker Focus Action */}
+            <div className="flex items-center justify-between text-xs pt-1">
+              <span className="text-[11px] text-slate-300 font-bold flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-lime-neon fill-lime-neon" />
+                Auto-Speaker Focus
+              </span>
+              <button
+                type="button"
+                onClick={handleRunAutoTrack}
+                disabled={isAutoTracking}
+                className="px-2.5 py-1 bg-lime-neon hover:bg-lime-400 text-black rounded-lg font-extrabold text-[10px] flex items-center gap-1 transition shadow-neon-sm cursor-pointer disabled:opacity-50"
+                title="AI detects all speakers in video and shifts camera automatically"
+              >
+                {isAutoTracking ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3 fill-black" />
+                )}
+                <span>{isAutoTracking ? 'Tracking...' : '⚡ Auto-Track (AI)'}</span>
+              </button>
             </div>
 
             {/* AI Tracking Overlay Toggle */}

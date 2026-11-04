@@ -301,99 +301,47 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def normalize_crop_coord(val: float, key: str = 'x', zoom: float = 1.25) -> float:
-    """
-    Converts face-center percentages [0, 100] into exact FFmpeg crop-origin ratios [0.0, 1.0]
-    such that the face is placed precisely at the optical center of the 9:16 portrait canvas
-    with zero blank margin exposure.
-    """
     pct = max(0.0, min(100.0, float(val))) / 100.0
-    z = max(1.0, float(zoom))
     if key == 'x':
+        z = max(1.0, float(zoom))
         half_crop = 0.1582 / z
         denom = max(0.1, 1.0 - (0.3164 / z))
         cx = (pct - half_crop) / denom
         return round(max(0.0, min(1.0, cx)), 4)
     else:
-        # Vertical headroom: keep eyes/face at natural upper third (~35% of frame)
-        half_crop_y = 0.5 / z
-        denom_y = max(0.1, 1.0 - (1.0 / z))
-        if denom_y < 0.05:
-            return round(max(0.05, min(0.65, pct - 0.10)), 4)
-        cy = (pct - 0.35 * half_crop_y) / denom_y
-        return round(max(0.0, min(1.0, cy)), 4)
-
-def normalize_split_crop_coord(val: float, key: str = 'x', zoom: float = 1.15) -> float:
-    """
-    Calculates exact crop-origin ratios for 1080x960 stacked split-screen panels
-    so both debating participants are framed perfectly without head-cropping or wall drift.
-    """
-    pct = max(0.0, min(100.0, float(val))) / 100.0
-    z = max(1.0, float(zoom))
-    if key == 'x':
-        half_crop = 0.1582 / z
-        denom = max(0.1, 1.0 - (0.3164 / z))
-        cx = (pct - half_crop) / denom
-        return round(max(0.0, min(1.0, cx)), 4)
-    else:
-        # Panel height is 0.5/z in source normalized coordinates
-        half_panel_h = 0.25 / z
-        denom_y = max(0.1, 1.0 - (0.5 / z))
-        # Place face at 40% of the upper/lower panel height
-        cy = (pct - 0.40 * (0.5 / z)) / denom_y
-        return round(max(0.0, min(1.0, cy)), 4)
+        return round(max(0.10, min(0.65, pct)), 4)
 
 
-
-def build_piecewise_crop_expr(
-    keyframes: List[Dict[str, Any]],
-    key: str = 'x',
-    default_val: float = 50.0,
-    pan_dur: float = 0.25,
-    zoom: float = 1.25,
-    is_split: bool = False
-) -> str:
+def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.04, zoom: float = 1.25) -> str:
     """
     Constructs an FFmpeg piecewise expression for dynamic camera tracking across keyframes.
-    Supports:
-    - Instantaneous cuts (0s pan) when transition == 'cut' or camera shot boundary occurs.
-    - Smooth cinematic pans (pan_dur ~0.25s) when transition == 'pan' between speakers in same shot.
-    - Dynamic split-screen (top/bottom) panels tracking both debate participants.
+    Precisely centers on the speaker's face with zero blank edge space.
+    Supports smooth linear panning (pan_dur=0.04s) between speakers.
     """
-    norm_fn = normalize_split_crop_coord if is_split else (lambda v, k, z: normalize_crop_coord(v, k, z))
-    coord_axis = 'y' if 'y' in key else 'x'
-
     if not keyframes:
-        return f"{norm_fn(default_val, coord_axis, zoom)}"
+        return f"{normalize_crop_coord(default_val, key, zoom)}"
 
     kfs = sorted(keyframes, key=lambda k: float(k.get('time', 0.0)))
     if len(kfs) == 1:
-        return f"{norm_fn(kfs[0].get(key, default_val), coord_axis, zoom)}"
+        return f"{normalize_crop_coord(kfs[0].get(key, default_val), key, zoom)}"
 
-    last_val = norm_fn(kfs[-1].get(key, default_val), coord_axis, zoom)
+    last_val = normalize_crop_coord(kfs[-1].get(key, default_val), key, zoom)
     expr = f"{last_val}"
 
     for i in range(len(kfs) - 1, 0, -1):
         prev_k = kfs[i - 1]
         curr_k = kfs[i]
         t_switch = round(float(curr_k.get('time', 0.0)), 2)
-        v_prev = norm_fn(prev_k.get(key, default_val), coord_axis, zoom)
-        v_curr = norm_fn(curr_k.get(key, default_val), coord_axis, zoom)
+        v_prev = normalize_crop_coord(prev_k.get(key, default_val), key, zoom)
+        v_curr = normalize_crop_coord(curr_k.get(key, default_val), key, zoom)
 
-        # Cut vs Pan
-        is_cut = (curr_k.get('transition') == 'cut')
-        effective_pan = 0.001 if is_cut else max(0.05, float(curr_k.get('pan_dur', pan_dur)))
-
-        t_end = round(t_switch + effective_pan, 3)
+        t_end = round(t_switch + pan_dur, 2)
         diff = round(v_curr - v_prev, 4)
 
-        if is_cut:
-            expr = f"if(lt(t,{t_switch}),{v_prev},{expr})"
-        else:
-            lerp_expr = f"{v_prev}+({diff})*(t-{t_switch})/{effective_pan:.3f}"
-            expr = f"if(lt(t,{t_switch}),{v_prev},if(lt(t,{t_end}),{lerp_expr},{expr}))"
+        lerp_expr = f"{v_prev}+({diff})*(t-{t_switch})/{pan_dur}"
+        expr = f"if(lt(t,{t_switch}),{v_prev},if(lt(t,{t_end}),{lerp_expr},{expr}))"
 
     return expr
-
 
 def render_shorts_clip(
     source_video_path: str,
@@ -472,23 +420,17 @@ def render_shorts_clip(
             expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.04, zoom=zoom)
             expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.04, zoom=zoom)
 
-            split_zoom = 1.15
-            split_kfs = [kf for kf in (crop_keyframes or []) if kf.get('mode') == 'split']
-            if not split_kfs and last_split_kf:
-                split_kfs = [last_split_kf]
-
-            # Dynamic continuous camera framing for both participants during debates
-            expr_top_x = build_piecewise_crop_expr(split_kfs, key='top_x', default_val=32.0, pan_dur=0.04, zoom=split_zoom, is_split=True)
-            expr_top_y = build_piecewise_crop_expr(split_kfs, key='top_y', default_val=36.0, pan_dur=0.04, zoom=split_zoom, is_split=True)
-            expr_bot_x = build_piecewise_crop_expr(split_kfs, key='bottom_x', default_val=68.0, pan_dur=0.04, zoom=split_zoom, is_split=True)
-            expr_bot_y = build_piecewise_crop_expr(split_kfs, key='bottom_y', default_val=36.0, pan_dur=0.04, zoom=split_zoom, is_split=True)
+            top_x = (last_split_kf.get('top_x', 30.0) if last_split_kf else 30.0) / 100.0
+            top_y = (last_split_kf.get('top_y', 32.0) if last_split_kf else 32.0) / 100.0
+            bottom_x = (last_split_kf.get('bottom_x', 70.0) if last_split_kf else 70.0) / 100.0
+            bottom_y = (last_split_kf.get('bottom_y', 32.0) if last_split_kf else 32.0) / 100.0
 
             enable_expr = '+'.join([f"between(t,{st:.2f},{et:.2f})" for st, et, _ in split_intervals])
             if has_overlay_text:
                 vf = (
                     f"[0:v]crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920[solo];"
-                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*({expr_top_x})':y='(ih-oh)*({expr_top_y})',scale=1080:960[split_top];"
-                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*({expr_bot_x})':y='(ih-oh)*({expr_bot_y})',scale=1080:960[split_bot];"
+                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*{top_x}':y='(ih-oh)*{top_y}',scale=1080:960[split_top];"
+                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*{bottom_x}':y='(ih-oh)*{bottom_y}',scale=1080:960[split_bot];"
                     f"[split_top][split_bot]vstack=inputs=2[split_full];"
                     f"[solo][split_full]overlay=0:0:enable='{enable_expr}'[v_stacked];"
                     f"[v_stacked]subtitles=filename='{rel_ass}'[outv]"
@@ -496,8 +438,8 @@ def render_shorts_clip(
             else:
                 vf = (
                     f"[0:v]crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920[solo];"
-                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*({expr_top_x})':y='(ih-oh)*({expr_top_y})',scale=1080:960[split_top];"
-                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*({expr_bot_x})':y='(ih-oh)*({expr_bot_y})',scale=1080:960[split_bot];"
+                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*{top_x}':y='(ih-oh)*{top_y}',scale=1080:960[split_top];"
+                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*{bottom_x}':y='(ih-oh)*{bottom_y}',scale=1080:960[split_bot];"
                     f"[split_top][split_bot]vstack=inputs=2[split_full];"
                     f"[solo][split_full]overlay=0:0:enable='{enable_expr}'[outv]"
                 )
@@ -508,8 +450,8 @@ def render_shorts_clip(
             vf = f"crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"
         else:
             zoom = max(1.0, min(3.0, float(crop_zoom)))
-            cx = normalize_crop_coord(crop_x, key='x', zoom=zoom)
-            cy = normalize_crop_coord(crop_y, key='y', zoom=zoom)
+            cx = max(0.0, min(100.0, float(crop_x))) / 100.0
+            cy = max(0.0, min(100.0, float(crop_y))) / 100.0
             vf = f"crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*{cx}':y='(ih-oh)*{cy}',scale=1080:1920{subtitles_filter}"
     else:
         # Default: Professional Blurred Background Fill

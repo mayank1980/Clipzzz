@@ -489,7 +489,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                             {isInspecting ? (
                               <>
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>AI Analyzing Video Content...</span>
+                                <span>Pre-Caching & AI Analyzing...</span>
                               </>
                             ) : (
                               <>
@@ -607,41 +607,36 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             )}
           </div>
 
-          {/* Section 2: Dedicated 9:16 Portrait Shorts Canvas */}
+          {/* Section 2: Target Canvas Format (9:16 Shorts Portrait Only) */}
           <div className="bg-dark-900 border border-dark-750 rounded-3xl p-6 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <label className="text-sm font-bold text-white mb-1 flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-lime-neon" />
-                  2. Target Canvas Format
-                </label>
-                <p className="text-xs text-slate-400">
-                  Dedicated high-converting short-form canvas format:
-                </p>
-              </div>
-              <span className="text-[10px] font-mono font-bold text-lime-neon bg-lime-neon/10 px-2.5 py-1 rounded-full border border-lime-neon/30 uppercase tracking-wider">
-                Dedicated 9:16 Studio
-              </span>
-            </div>
+            <label className="text-sm font-bold text-white mb-1.5 flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-lime-neon" />
+              2. Target Canvas Format
+            </label>
+            <p className="text-xs text-slate-400 mb-4">
+              Canvas format optimized for viral mobile feeds:
+            </p>
 
-            <div className="relative p-4 rounded-2xl border bg-dark-800/90 border-lime-neon shadow-neon-sm flex items-center justify-between">
+            <div className="relative p-4 rounded-2xl border bg-dark-800 border-lime-neon shadow-neon-sm flex items-center justify-between">
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-lime-neon/15 border border-lime-neon/30 flex items-center justify-center text-lime-neon shrink-0">
-                  <Smartphone className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-xl bg-lime-neon/15 border border-lime-neon/30 flex items-center justify-center text-lime-neon shrink-0">
+                  <Smartphone className="w-6 h-6" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h4 className="text-xs font-bold text-white">9:16 Portrait Shorts</h4>
-                    <span className="text-[9px] bg-lime-neon text-black font-extrabold px-1.5 py-0.5 rounded-full uppercase">
-                      Default & Optimized
+                    <h4 className="text-sm font-bold text-white">9:16 Portrait (1080 × 1920)</h4>
+                    <span className="text-[9px] bg-lime-neon text-black font-extrabold px-2 py-0.5 rounded-full uppercase">
+                      Shorts Standard
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    YouTube Shorts, Instagram Reels, TikTok (1080×1920)
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    YouTube Shorts, TikTok, Instagram Reels & Mobile Fullscreen
                   </p>
                 </div>
               </div>
-              <div className="w-2.5 h-2.5 rounded-full bg-lime-neon animate-pulse shrink-0"></div>
+              <div className="hidden sm:flex items-center gap-1.5 text-xs text-lime-neon font-bold bg-lime-neon/10 border border-lime-neon/20 px-3 py-1.5 rounded-xl">
+                <span>Active Format</span>
+              </div>
             </div>
           </div>
 
