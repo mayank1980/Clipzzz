@@ -4,34 +4,31 @@
 
 ---
 
-## ⚡ 1-Click Setup & Launch (Zero-Touch Installation)
-
-To set up and run CLIPZZZ, **simply double-click one file**:
+## ⚡ Quick Start: Setup & Run
 
 ### 🪟 Windows:
-Double-click:
-```cmd
-setup_and_run.bat
-```
-
-**What this 1-click script does automatically:**
-1. Checks for Python, Node.js, and FFmpeg.
-2. Creates the Python virtual environment (`backend/venv`).
-3. Copies `.env.example` to `.env` if not present.
-4. Installs all Python dependencies (`backend/requirements.txt`).
-5. Runs Django database migrations.
-6. Installs all frontend dependencies (`frontend/package.json`).
-7. Creates all required media directories.
-8. Launches both the Django Backend (`http://localhost:8000`) and React Frontend (`http://localhost:5173`).
-9. Automatically opens your default web browser to the studio.
+1. **First-time Setup** (Run once to install dependencies & database):
+   ```cmd
+   setup.bat
+   ```
+2. **Launch CLIPZZZ Studio** (Run anytime):
+   ```cmd
+   run_clipzzz.bat
+   ```
+   *(Launches Backend on `http://localhost:8000`, Frontend on `http://localhost:5173`, and opens your browser automatically).*
 
 ---
 
 ### 🍎 Linux / macOS:
-```bash
-chmod +x setup_and_run.sh
-./setup_and_run.sh
-```
+1. **First-time Setup**:
+   ```bash
+   chmod +x setup.sh run_clipzzz.sh
+   ./setup.sh
+   ```
+2. **Launch CLIPZZZ Studio**:
+   ```bash
+   ./run_clipzzz.sh
+   ```
 
 ---
 
@@ -102,8 +99,10 @@ CLIPZZZ/
 │   │   └── main.jsx
 │   ├── package.json
 │   └── vite.config.js
-├── setup_and_run.bat               # Master 1-Click Setup & Launcher for Windows
-├── setup_and_run.sh                # Master 1-Click Setup & Launcher for Linux/macOS
+├── setup.bat                       # Initial Setup & Dependency Installer (Windows)
+├── run_clipzzz.bat                 # Fast Studio Runner & Browser Launcher (Windows)
+├── setup.sh                        # Initial Setup (Linux/macOS)
+├── run_clipzzz.sh                  # Studio Runner (Linux/macOS)
 ├── .gitignore                      # Git exclusion rules
 ├── .env.example                    # Environment template
 └── README.md

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# CLIPZZZ - 1-Click AI YouTube Shorts Studio Setup & Runner (Linux / macOS)
+# CLIPZZZ - Initial Setup & Dependencies Installer (Linux / macOS)
 # ==============================================================================
 set -e
 
@@ -8,7 +8,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
 echo "=============================================================================="
-echo "       CLIPZZZ - AI YouTube Shorts Clipper Studio (1-Click Setup)"
+echo "       CLIPZZZ - AI YouTube Shorts Clipper Studio (Setup)"
 echo "=============================================================================="
 
 # 1. Check Python
@@ -69,32 +69,9 @@ if [ ! -d "node_modules" ]; then
 fi
 echo "  [OK] Frontend setup complete."
 
-# Launch Services
 echo -e "\n=============================================================================="
-echo "  LAUNCHING CLIPZZZ SERVICES..."
+echo "  SETUP COMPLETED SUCCESSFULLY!"
 echo "=============================================================================="
-cd "$DIR/backend"
-venv/bin/python manage.py runserver 0.0.0.0:8000 &
-BACKEND_PID=$!
-
-cd "$DIR/frontend"
-npm run dev &
-FRONTEND_PID=$!
-
-cleanup() {
-    echo -e "\nStopping services..."
-    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
-    exit 0
-}
-trap cleanup SIGINT SIGTERM
-
-echo -e "\n=============================================================================="
-echo "  CLIPZZZ IS LIVE AND READY!"
+echo "  All dependencies and databases are configured."
+echo "  To launch CLIPZZZ, run: ./run_clipzzz.sh"
 echo "=============================================================================="
-echo "  Frontend UI : http://localhost:5173/"
-echo "  Backend API : http://localhost:8000/api/"
-echo "=============================================================================="
-echo "Press Ctrl+C to stop both servers."
-
-wait
-

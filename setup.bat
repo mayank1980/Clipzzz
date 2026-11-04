@@ -1,14 +1,14 @@
 @echo off
 setlocal enabledelayedexpansion
-title CLIPZZZ - 1-Click AI YouTube Shorts Studio Setup & Runner
+title CLIPZZZ - Initial Setup & Dependencies Installer
 
 echo ==============================================================================
-echo        CLIPZZZ - AI YouTube Shorts Clipper Studio (1-Click Setup)
+echo        CLIPZZZ - AI YouTube Shorts Clipper Studio (Setup)
 echo ==============================================================================
 echo.
 
 :: 1. Check Python installation
-echo [1/6] Checking Python installation...
+echo [1/5] Checking Python installation...
 python --version >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Python is not installed or not in PATH!
@@ -22,7 +22,7 @@ echo   [OK] Found %PYTHON_VER%
 
 :: 2. Check Node.js and NPM installation
 echo.
-echo [2/6] Checking Node.js and NPM...
+echo [2/5] Checking Node.js and NPM...
 node --version >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Node.js is not installed or not in PATH!
@@ -35,7 +35,7 @@ echo   [OK] Found Node.js %NODE_VER%
 
 :: 3. Check FFmpeg installation
 echo.
-echo [3/6] Checking FFmpeg (Required for video slicing & subtitles)...
+echo [3/5] Checking FFmpeg (Required for video slicing and subtitles)...
 ffmpeg -version >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo   [WARNING] FFmpeg is not found in PATH!
@@ -49,7 +49,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 :: 4. Setup Backend (Virtualenv, dependencies, .env, migrations)
 echo.
-echo [4/6] Setting up Python Backend...
+echo [4/5] Setting up Python Backend...
 cd /d "%~dp0backend"
 
 if not exist ".env" (
@@ -67,7 +67,7 @@ if not exist "venv\Scripts\python.exe" (
     )
 )
 
-echo   [+] Installing/Verifying Python dependencies...
+echo   [+] Installing/Updating Python dependencies...
 venv\Scripts\python.exe -m pip install --upgrade pip --quiet
 venv\Scripts\pip.exe install -r requirements.txt --quiet
 if %ERRORLEVEL% NEQ 0 (
@@ -92,11 +92,11 @@ echo   [OK] Backend setup complete.
 
 :: 5. Setup Frontend (npm install)
 echo.
-echo [5/6] Setting up React + Vite Frontend...
+echo [5/5] Setting up React + Vite Frontend...
 cd /d "%~dp0frontend"
 
 if not exist "node_modules" (
-    echo   [+] Installing Node.js packages (first-time run, please wait)...
+    echo   [+] Installing Node.js packages (this may take a minute)...
     call npm install
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Failed to install frontend npm packages!
@@ -108,33 +108,18 @@ if not exist "node_modules" (
 )
 echo   [OK] Frontend setup complete.
 
-:: 6. Launch Backend & Frontend Servers
-echo.
-echo [6/6] Launching CLIPZZZ Services...
 cd /d "%~dp0"
-
-echo   [+] Starting Backend on http://localhost:8000/api ...
-start "CLIPZZZ - Django Backend" cmd /k "cd /d %~dp0backend && venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000"
-
-echo   [+] Starting Frontend on http://localhost:5173 ...
-start "CLIPZZZ - React Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
-
-:: Wait 3 seconds then open browser
-timeout /t 3 /nobreak >nul
-echo   [+] Opening browser to http://localhost:5173 ...
-start http://localhost:5173/
-
 echo.
 echo ==============================================================================
-echo   CLIPZZZ IS LIVE AND READY!
-echo ==============================================================================
-echo   Frontend UI : http://localhost:5173/
-echo   Backend API : http://localhost:8000/api/
-echo   Admin Panel : http://localhost:8000/admin/
+echo   SETUP COMPLETED SUCCESSFULLY!
 echo ==============================================================================
 echo.
-echo You can keep this window open or close it. The services run in their own windows.
-echo To stop CLIPZZZ, simply close the Backend and Frontend command windows.
+echo   All dependencies, virtual environment, and databases are configured.
+echo   You only need to run setup once.
+echo.
+echo   To launch CLIPZZZ now or anytime in the future, double-click:
+echo     run_clipzzz.bat
+echo.
+echo ==============================================================================
 echo.
 pause
-
