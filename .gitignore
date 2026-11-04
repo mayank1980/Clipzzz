@@ -89,7 +89,9 @@ backend/media/source_videos/
 *.log
 *.tmp
 *.temp
-test_*.*
+scratch_*.*
+!backend/api/tests/**
+backend/api/tests/**/__pycache__/
 
 # --- Operating System & IDE ---
 .DS_Store

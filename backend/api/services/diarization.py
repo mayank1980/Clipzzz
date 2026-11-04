@@ -63,14 +63,43 @@ def extract_analysis_audio(
     if not success:
         return None
 
-    # Validate extracted duration against expected clip duration
+    # Validate extracted duration against expected clip duration strictly
     try:
         sr, data = wavfile.read(output_wav_path)
         actual_dur = len(data) / float(sr)
-        if duration is not None and duration > 1.0 and abs(actual_dur - duration) > 2.0:
-            print(f"[extract_analysis_audio] Timestamp alignment mismatch: expected {duration:.1f}s, got {actual_dur:.1f}s")
+        tolerance = max(0.40, 0.08 * (duration or 1.0))
+        if duration is not None and duration > 1.0 and abs(actual_dur - duration) > tolerance:
+            # Timestamp alignment mismatch: retry with accurate seek re-extraction
+            if os.path.exists(output_wav_path):
+                os.remove(output_wav_path)
+            
+            cmd_accurate = [
+                'ffmpeg', '-y',
+                '-i', video_path,
+                '-ss', f"{start_sec:.3f}",
+                '-t', f"{duration:.3f}",
+                '-vn',
+                '-acodec', 'pcm_s16le',
+                '-ac', '1',
+                '-ar', str(sample_rate),
+                output_wav_path
+            ]
+            res_acc = subprocess.run(cmd_accurate, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res_acc.returncode == 0 and os.path.exists(output_wav_path) and os.path.getsize(output_wav_path) > 300:
+                sr2, data2 = wavfile.read(output_wav_path)
+                actual_dur2 = len(data2) / float(sr2)
+                if abs(actual_dur2 - duration) <= tolerance:
+                    return output_wav_path
+
+            # Strict rejection: fail extraction to prevent AV desync
+            if os.path.exists(output_wav_path):
+                os.remove(output_wav_path)
+            print(f"[extract_analysis_audio] Strict rejection: expected {duration:.2f}s, got {actual_dur:.2f}s")
+            return None
     except Exception:
-        pass
+        if os.path.exists(output_wav_path):
+            os.remove(output_wav_path)
+        return None
 
     return output_wav_path
 
@@ -322,11 +351,13 @@ class SpeakerDiarizer:
 
     def detect_acoustic_turn_points(self, audio: np.ndarray, hop_sec: float = 0.20) -> List[float]:
         """
-        Acoustic change-point detection using BIC likelihood delta over sliding feature windows.
-        Identifies rapid interruptions down to 300ms without artificial chunking.
+        Acoustic change-point detection using the Bayesian Information Criterion (BIC).
+        Evaluates the Generalized Likelihood Ratio (GLR) with BIC complexity penalty:
+        ΔBIC = 0.5 * [N * Σ ln(σ_full^2) - N1 * Σ ln(σ_left^2) - N2 * Σ ln(σ_right^2)] - λ * d * ln(N)
+        Identifies genuine speaker turn transitions without arbitrary fixed distance thresholding.
         """
         hop_samples = int(hop_sec * self.sample_rate)
-        if len(audio) < hop_samples * 4:
+        if len(audio) < hop_samples * 6:
             return []
 
         num_windows = len(audio) // hop_samples
@@ -335,24 +366,50 @@ class SpeakerDiarizer:
             chunk = audio[i * hop_samples:(i + 1) * hop_samples]
             features.append(self.extract_voiceprint(chunk))
 
-        if len(features) < 4:
+        if len(features) < 6:
             return []
 
-        features_arr = np.array(features)
+        features_arr = np.array(features, dtype=np.float64)
+        N_total, d = features_arr.shape
         turn_times = []
 
-        # Sliding delta BIC comparison across adjacent acoustic contexts
-        for i in range(2, len(features_arr) - 2):
-            left_chunk = features_arr[i-2:i]
-            right_chunk = features_arr[i:i+2]
-            left_mean = np.mean(left_chunk, axis=0)
-            right_mean = np.mean(right_chunk, axis=0)
-            dist = 1.0 - float(np.dot(left_mean, right_mean))
+        # Sliding window analysis: 3 frames left (0.60s), 3 frames right (0.60s)
+        window_half = 3
+        lambda_param = 1.10 # BIC penalty parameter
 
-            # Acoustic turn threshold
-            if dist > 0.22:
+        for i in range(window_half, N_total - window_half):
+            left_part = features_arr[i - window_half:i]
+            right_part = features_arr[i:i + window_half]
+            full_window = features_arr[i - window_half:i + window_half]
+
+            N1 = len(left_part)
+            N2 = len(right_part)
+            N = len(full_window)
+
+            var_full = np.var(full_window, axis=0) + 1e-5
+            var_left = np.var(left_part, axis=0) + 1e-5
+            var_right = np.var(right_part, axis=0) + 1e-5
+
+            # Generalized Likelihood Ratio under Gaussian model with diagonal covariance
+            glr = 0.5 * (
+                N * np.sum(np.log(var_full))
+                - N1 * np.sum(np.log(var_left))
+                - N2 * np.sum(np.log(var_right))
+            )
+
+            # BIC penalty: (d) * ln(N)
+            bic_penalty = lambda_param * d * np.log(N)
+            delta_bic = glr - bic_penalty
+
+            # Vector distance corroboration
+            left_mean = np.mean(left_part, axis=0)
+            right_mean = np.mean(right_part, axis=0)
+            dist = 1.0 - float(np.dot(left_mean, right_mean) / (np.linalg.norm(left_mean) * np.linalg.norm(right_mean) + 1e-8))
+
+            # Turn confirmed when BIC favors 2-speaker model AND vector distance indicates divergence
+            if delta_bic > 0.0 and dist > 0.06:
                 t = round(i * hop_sec, 2)
-                if not turn_times or (t - turn_times[-1]) >= 0.35:
+                if not turn_times or (t - turn_times[-1]) >= 0.40:
                     turn_times.append(t)
 
         return turn_times
@@ -430,6 +487,21 @@ class SpeakerDiarizer:
         sr = vad_engine.sample_rate
         all_turns = []
 
+        # Ground boundaries with transcript segment anchors if available
+        transcript_cuts = set()
+        if transcript_segments:
+            for seg in transcript_segments:
+                seg_st = float(seg.get('start', 0.0))
+                seg_et = float(seg.get('end', 0.0))
+                if seg_st > 0.0:
+                    transcript_cuts.add(round(seg_st, 2))
+                if seg_et > 0.0:
+                    transcript_cuts.add(round(seg_et, 2))
+                for w in (seg.get('words') or []):
+                    w_et = float(w.get('end', 0.0))
+                    if w_et > 0.0:
+                        transcript_cuts.add(round(w_et, 2))
+
         for s in speech_segs:
             st = s['start']
             et = s['end']
@@ -441,7 +513,9 @@ class SpeakerDiarizer:
             seg_audio = vad_engine.speech_band_audio[s0:s1]
 
             internal_cuts = self.detect_acoustic_turn_points(seg_audio, hop_sec=0.20)
-            boundary_times = [st] + [round(st + cut_t, 3) for cut_t in internal_cuts] + [et]
+            boundary_times = [st] + [round(st + cut_t, 3) for cut_t in internal_cuts]
+            boundary_times += [t for t in transcript_cuts if st < t < et]
+            boundary_times.append(et)
             boundary_times = sorted(list(set(boundary_times)))
 
             for i in range(len(boundary_times) - 1):
@@ -464,7 +538,7 @@ class SpeakerDiarizer:
                 "start": speech_segs[0]['start'],
                 "end": speech_segs[-1]['end'],
                 "is_overlap": False,
-                "confidence": 0.85
+                "confidence": 0.35
             }]
 
         X = np.array([turn['voiceprint'] for turn in all_turns])
@@ -508,23 +582,37 @@ class SpeakerDiarizer:
             reverse=True
         )
 
-        cluster_map = {}
-        for spk_idx, members in enumerate(sorted_clusters):
-            for m in members:
-                cluster_map[m] = f"SPEAKER_{spk_idx:02d}"
+        # Compute normalized centroid for each speaker cluster
+        cluster_centroids = []
+        for members in sorted_clusters:
+            c_vps = [all_turns[m]['voiceprint'] for m in members]
+            mean_c = np.mean(c_vps, axis=0)
+            mean_c = mean_c / (np.linalg.norm(mean_c) + 1e-8)
+            cluster_centroids.append(mean_c)
 
         # Detect overlapping speech intervals
         overlaps = self.detect_overlapping_intervals(vad_engine)
 
         timeline = []
         for i, turn in enumerate(all_turns):
-            spk_id = cluster_map.get(i, "SPEAKER_00")
-            # Check if this turn overlaps with any detected dual-speech interval
-            is_ov = any(max(turn['start'], ov['start']) < min(turn['end'], ov['end']) for ov in overlaps)
+            turn_vp = turn['voiceprint']
+            sims = [float(np.dot(turn_vp, c)) for c in cluster_centroids]
+            ranked = sorted([(idx, s) for idx, s in enumerate(sims)], key=lambda x: x[1], reverse=True)
+            best_spk_idx = ranked[0][0]
+            spk_id = f"SPEAKER_{best_spk_idx:02d}"
+
+            # Only identify overlap when there is genuine acoustic evidence for both speakers
+            is_ov = False
             spk_list = [spk_id]
-            if is_ov and len(sorted_clusters) >= 2:
-                runner_up_spk = "SPEAKER_01" if spk_id != "SPEAKER_01" else "SPEAKER_00"
-                spk_list.append(runner_up_spk)
+            if len(ranked) >= 2 and ranked[0][1] > 0.58 and ranked[1][1] > 0.52 and (ranked[0][1] - ranked[1][1]) < 0.20:
+                intersects_ov = any(max(turn['start'], ov['start']) < min(turn['end'], ov['end']) for ov in overlaps)
+                if intersects_ov:
+                    second_spk_idx = ranked[1][0]
+                    spk_list = [spk_id, f"SPEAKER_{second_spk_idx:02d}"]
+                    is_ov = True
+
+            margin = ranked[0][1] - (ranked[1][1] if len(ranked) > 1 else 0.0)
+            heuristic_conf = round(float(np.clip(0.30 + 0.45 * ranked[0][1] + 0.25 * margin, 0.20, 0.95)), 3)
 
             timeline.append({
                 "speaker_id": spk_id,
@@ -532,7 +620,7 @@ class SpeakerDiarizer:
                 "start": turn['start'],
                 "end": turn['end'],
                 "is_overlap": is_ov,
-                "confidence": 0.85
+                "confidence": heuristic_conf
             })
 
         # Merge adjacent turns with identical speaker assignments

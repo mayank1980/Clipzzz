@@ -71,34 +71,20 @@ class SpeakerFaceAssociator:
                 self._face_to_speaker[fc] = spk
 
     def get_associated_speaker(self, face_id: str) -> Optional[str]:
-        """Finds which acoustic speaker identity best corresponds to this visual face."""
+        """
+        Finds which acoustic speaker identity best corresponds to this visual face.
+        Strictly enforces exclusive 1-to-1 bipartite assignment. Returns None if unassigned.
+        """
         self.solve_bipartite_matching()
-        if face_id in self._face_to_speaker:
-            return self._face_to_speaker[face_id]
-        
-        # Fallback to local max evidence if unassigned
-        best_spk = None
-        max_ev = 0.05
-        for spk, face_dict in self.evidence.items():
-            ev = face_dict.get(face_id, 0.0)
-            if ev > max_ev and spk not in self._speaker_to_face:
-                max_ev = ev
-                best_spk = spk
-        return best_spk
+        return self._face_to_speaker.get(face_id, None)
 
     def get_associated_face(self, speaker_id: str) -> Optional[str]:
-        """Finds which visual face best corresponds to this acoustic speaker."""
+        """
+        Finds which visual face best corresponds to this acoustic speaker.
+        Strictly enforces exclusive 1-to-1 bipartite assignment. Returns None if unassigned.
+        """
         self.solve_bipartite_matching()
-        if speaker_id in self._speaker_to_face:
-            return self._speaker_to_face[speaker_id]
-        
-        face_dict = self.evidence.get(speaker_id, {})
-        if not face_dict:
-            return None
-        candidates = [(fc, ev) for fc, ev in face_dict.items() if fc not in self._face_to_speaker]
-        if candidates:
-            return max(candidates, key=lambda item: item[1])[0]
-        return max(face_dict.items(), key=lambda item: item[1])[0]
+        return self._speaker_to_face.get(speaker_id, None)
 
 
 class ActiveSpeakerEngine:
@@ -315,8 +301,8 @@ class ActiveSpeakerEngine:
                 return
             med_x = round(float(np.median(xs_acc or [50.0])), 2)
             med_y = round(float(np.median(ys_acc or [42.0])), 2)
-            # Calibrated mean confidence
-            real_conf = round(float(np.mean(conf_accumulator or [0.75])), 3)
+            # Calibrated mean confidence score (None if unobserved/uncertain)
+            real_conf = round(float(np.mean(conf_accumulator)), 3) if conf_accumulator else None
 
             item = {
                 "start": round(turn_start_time, 3),
@@ -398,8 +384,12 @@ class ActiveSpeakerEngine:
                 top2 = sorted_by_sync[1]
 
                 # Check for genuine simultaneous debate overlap:
-                # Both speakers must have active positive cross-correlation with audio
-                is_debate_overlap = (top1['sync_score'] > 0.18 and top2['sync_score'] > 0.15 and audio_e > 0.20)
+                # Both speakers must have active positive cross-correlation with audio AND distinct associated speakers
+                spk1 = associator.get_associated_speaker(top1['track_id']) or diarized_spk
+                spk2 = associator.get_associated_speaker(top2['track_id'])
+                has_distinct_speakers = (spk1 is not None and spk2 is not None and spk1 != spk2)
+                is_debate_overlap = (top1['sync_score'] > 0.18 and top2['sync_score'] > 0.15 and audio_e > 0.20 and has_distinct_speakers)
+                
                 if is_debate_overlap:
                     overlap_count += 1
                 else:
@@ -407,7 +397,7 @@ class ActiveSpeakerEngine:
 
                 if overlap_count >= 3: # sustained debate > 250ms
                     target_mode = "two_person"
-                    target_speaker = "DEBATE_OVERLAP"
+                    target_speaker = f"{spk1}+{spk2}"
                     target_face = f"{top1['track_id']}+{top2['track_id']}"
                     # Record the EXACT two debating faces
                     debate_pair_acc.append((top1['cx'], top1['cy'], top2['cx'], top2['cy']))
@@ -509,8 +499,9 @@ class ActiveSpeakerEngine:
         if current_speaker_id is not None and clip_duration > turn_start_time:
             emit_interval(clip_duration)
 
-        # Real calibrated global confidence across whole timeline
-        global_conf = round(float(np.mean([s['confidence'] for s in timeline])) if timeline else 0.40, 3)
+        # Heuristic global confidence score across whole timeline
+        valid_confs = [s['confidence'] for s in timeline if s.get('confidence') is not None]
+        global_conf = round(float(np.mean(valid_confs)), 3) if valid_confs else None
         return timeline, global_conf
 
     def analyze_clip_speakers(

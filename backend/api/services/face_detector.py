@@ -116,6 +116,9 @@ class RobustFaceDetector:
                     remaining.append(other)
             boxes = remaining
 
+        inv_scale_x = float(orig_w) / float(target_w)
+        inv_scale_y = float(orig_h) / float(new_h)
+
         results = []
         for (x, y, w, h, conf) in keep:
             cx_pct = ((x + w / 2.0) / float(target_w)) * 100.0
@@ -125,7 +128,7 @@ class RobustFaceDetector:
             if cy_pct < 8.0 or cy_pct > 88.0 or cx_pct < 5.0 or cx_pct > 95.0:
                 continue
 
-            # Estimate mouth region: lower 35% of face, center 60% width
+            # Estimate mouth region: lower 35% of face, center 60% width (in 640px analysis space)
             mx = int(x + 0.20 * w)
             my = int(y + 0.65 * h)
             mw = int(0.60 * w)
@@ -156,15 +159,33 @@ class RobustFaceDetector:
                 # Vertical lip separation normalized by mouth width, scaled by inner oral opening
                 mouth_aperture = float((lip_sep / float(mw)) * (0.6 + dark_ratio))
 
+            # Transform bounding boxes and mouth ROI accurately to original frame coordinates
+            x_orig = int(round(x * inv_scale_x))
+            y_orig = int(round(y * inv_scale_y))
+            w_orig = int(round(w * inv_scale_x))
+            h_orig = int(round(h * inv_scale_y))
+
+            mx_orig = int(round(mx * inv_scale_x))
+            my_orig = int(round(my * inv_scale_y))
+            mw_orig = int(round(mw * inv_scale_x))
+            mh_orig = int(round(mh * inv_scale_y))
+
+            # Clamp coordinates to original image bounds
+            mx_orig = max(0, min(orig_w - 1, mx_orig))
+            my_orig = max(0, min(orig_h - 1, my_orig))
+            mw_orig = max(1, min(orig_w - mx_orig, mw_orig))
+            mh_orig = max(1, min(orig_h - my_orig, mh_orig))
+
             results.append({
-                "bbox": {"x": int(x), "y": int(y), "w": int(w), "h": int(h)},
+                "bbox": {"x": x_orig, "y": y_orig, "w": w_orig, "h": h_orig},
                 "cx": round(cx_pct, 2),
                 "cy": round(cy_pct, 2),
                 "w_pct": round((w / float(target_w)) * 100.0, 2),
                 "h_pct": round((h / float(new_h)) * 100.0, 2),
-                "area": int(w * h),
+                "area": int(w_orig * h_orig),
                 "confidence": round(float(conf), 2),
-                "mouth_box": {"x": mx, "y": my, "w": mw, "h": mh},
+                "mouth_box": {"x": mx_orig, "y": my_orig, "w": mw_orig, "h": mh_orig},
+                "mouth_box_scaled": {"x": mx, "y": my, "w": mw, "h": mh},
                 "mouth_energy": round(mouth_energy, 2),
                 "mouth_aperture": round(mouth_aperture, 4)
             })
