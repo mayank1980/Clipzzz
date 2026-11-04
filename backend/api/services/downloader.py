@@ -370,39 +370,66 @@ def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
     secs = int(duration % 60)
     duration_str = f"{mins}:{secs:02d}" if duration > 0 else ""
 
-    # 2. Content classification & mode recommendation
-    text_corpus = f"{title} {author} {description}".lower()
+    # 2. AI Content classification & mode recommendation
+    api_key = gemini_api_key or getattr(settings, 'GEMINI_API_KEY', '') or os.environ.get('GEMINI_API_KEY', '')
+    ai_classified = False
+    content_type = ""
+    recommended_mode = ""
+    reason = ""
 
-    if any(k in text_corpus for k in ['horror', 'bhoot', 'chudail', 'ghost', 'paranormal', 'incident', 'darr', 'haunted', 'scary', 'mystery', 'crime', 'true crime', 'case', 'murder', 'qissa']):
-        content_type = "Horror & Paranormal Story Arc"
-        recommended_mode = "story_series"
-        reason = "Continuous narrative incident detected. Slices complete consecutive episodes (Part 1 to Part N) until the story concludes."
-    elif any(k in text_corpus for k in ['podcast', 'interview', 'story', 'kahani', 'biopic', 'journey', 'life of', 'real experience', 'narration', 'conversation', 'talk']):
-        content_type = "Story Narration & Deep Podcast"
-        recommended_mode = "story_series"
-        reason = "Narrative storytelling detected. Story Series preserves the chronological arc without mid-sentence cutoffs."
-    elif any(k in text_corpus for k in ['comedy', 'standup', 'roast', 'funny', 'joke', 'laughter', 'sketch', 'mimicry', 'crowd work', 'meme']):
-        content_type = "Standup Comedy & Humor"
-        recommended_mode = "viral_highlights"
-        reason = "High-energy punchlines detected. Viral Highlights extracts the top standalone comedic hooks across the timeline."
-    elif any(k in text_corpus for k in ['motivation', 'speech', 'ted', 'advice', 'success', 'mindset', 'habits', 'rules', 'growth']):
-        content_type = "Motivational Keynote & Speech"
-        recommended_mode = "viral_highlights"
-        reason = "Strong actionable takeaway hooks detected. Viral Highlights maximizes standalone opening retention."
-    else:
-        content_type = "General Video Content"
-        recommended_mode = "viral_highlights"
-        reason = "Viral Highlights will detect and extract high-retention moments across the full timeline."
-
-    # 3. Trigger immediate background pre-downloading on the spot
-    def _bg_download():
+    if api_key:
         try:
-            out_dir = os.path.join(settings.MEDIA_ROOT, 'source_videos')
-            download_youtube_video(url, out_dir)
-        except Exception as dl_e:
-            print(f"[inspect_and_classify_video] Pre-download thread note: {dl_e}")
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            prompt = (
+                f"Analyze this YouTube video based on its title and description:\n"
+                f"Title: {title}\n"
+                f"Author: {author}\n"
+                f"Description: {description[:800]}\n\n"
+                f"Determine the video content type and recommend the best short-form clipping mode:\n"
+                f"Either 'story_series' (for horror stories, long narratives, continuous incident podcasts, or multi-part sequential stories) "
+                f"or 'viral_highlights' (for standup comedy, advice, motivational speeches, or standalone punchlines).\n"
+                f"Return JSON format:\n"
+                f'{{"content_type": "<descriptive 2-4 word content genre>", "recommended_mode": "story_series" or "viral_highlights", "reason": "<1-2 sentence explanation>"}}'
+            )
+            response = model.generate_content(prompt)
+            clean_text = response.text.strip().replace('```json', '').replace('```', '').strip()
+            parsed = json.loads(clean_text)
+            content_type = parsed.get('content_type', '')
+            recommended_mode = parsed.get('recommended_mode', '')
+            reason = parsed.get('reason', '')
+            if content_type and recommended_mode in ['story_series', 'viral_highlights']:
+                ai_classified = True
+        except Exception as ai_e:
+            print(f"[inspect_and_classify_video] Gemini classification note: {ai_e}")
 
-    threading.Thread(target=_bg_download, daemon=True).start()
+    # Fallback to semantic keyword classification if AI classification not available
+    if not ai_classified:
+        text_corpus = f"{title} {author} {description}".lower()
+        if any(k in text_corpus for k in ['horror', 'bhoot', 'chudail', 'ghost', 'paranormal', 'incident', 'darr', 'haunted', 'scary', 'mystery', 'crime', 'true crime', 'case', 'murder', 'qissa']):
+            content_type = "Horror & Paranormal Story Arc"
+            recommended_mode = "story_series"
+            reason = "Continuous narrative incident detected. Slices complete consecutive episodes (Part 1 to Part N) until the story concludes."
+        elif any(k in text_corpus for k in ['podcast', 'interview', 'story', 'kahani', 'biopic', 'journey', 'life of', 'real experience', 'narration', 'conversation', 'talk']):
+            content_type = "Story Narration & Deep Podcast"
+            recommended_mode = "story_series"
+            reason = "Narrative storytelling detected. Story Series preserves the chronological arc without mid-sentence cutoffs."
+        elif any(k in text_corpus for k in ['comedy', 'standup', 'roast', 'funny', 'joke', 'laughter', 'sketch', 'mimicry', 'crowd work', 'meme']):
+            content_type = "Standup Comedy & Humor"
+            recommended_mode = "viral_highlights"
+            reason = "High-energy punchlines detected. Viral Highlights extracts the top standalone comedic hooks across the timeline."
+        elif any(k in text_corpus for k in ['motivation', 'speech', 'ted', 'advice', 'success', 'mindset', 'habits', 'rules', 'growth']):
+            content_type = "Motivational Keynote & Speech"
+            recommended_mode = "viral_highlights"
+            reason = "Strong actionable takeaway hooks detected. Viral Highlights maximizes standalone opening retention."
+        else:
+            content_type = "General Video Content"
+            recommended_mode = "viral_highlights"
+            reason = "Viral Highlights will detect and extract high-retention moments across the full timeline."
+
+    # NOTE: No background downloading on the initial page. Video download only starts
+    # when the user creates the project and launches the generation pipeline.
 
     return {
         'success': True,

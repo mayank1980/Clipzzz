@@ -489,7 +489,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                             {isInspecting ? (
                               <>
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>Pre-Caching & AI Analyzing...</span>
+                                <span>AI Analyzing Video Content...</span>
                               </>
                             ) : (
                               <>
