@@ -282,8 +282,14 @@ export default function App() {
     const updated = {
       ...selectedClip,
       caption_style: newStyle,
+      render_status: 'not_started',
+      rendered_file: null,
     };
     setSelectedClip(updated);
+    setActiveProject((prev) => ({
+      ...prev,
+      clips: (prev?.clips || []).map((c) => (c.id === updated.id ? updated : c)),
+    }));
 
     try {
       await api.updateClip(updated.id, {
@@ -402,23 +408,27 @@ export default function App() {
     }
   };
 
-  const handleOpenExport = async (mode = 'captioned', force = false) => {
+  const handleOpenExport = async (mode = 'captioned', force = false, targetClip = null) => {
+    const clipToExport = targetClip || selectedClip;
+    if (clipToExport && clipToExport.id !== selectedClip?.id) {
+      setSelectedClip(clipToExport);
+    }
     // Immediately persist latest transcript & clip caption styling before starting render
     if (activeProject?.id && activeProject.transcript_raw) {
       try {
         await api.updateProject(activeProject.id, {
           transcript_raw: activeProject.transcript_raw,
         });
-        if (selectedClip?.id) {
-          await api.updateClip(selectedClip.id, {
-            caption_style: selectedClip.caption_style,
+        if (clipToExport?.id) {
+          await api.updateClip(clipToExport.id, {
+            caption_style: clipToExport.caption_style,
           });
         }
       } catch (err) {
         console.warn('[App] Pre-export save note:', err);
       }
     }
-    setExportMode(mode);
+    setExportMode(typeof mode === 'string' ? mode : 'captioned');
     setExportForce(force);
     setIsExportOpen(true);
   };
@@ -496,7 +506,7 @@ export default function App() {
             clips={activeProject.clips}
             selectedClip={selectedClip}
             onSelectClip={handleSelectClip}
-            onRenderClip={(clip, mode = 'captioned') => handleOpenExport(mode, true)}
+            onRenderClip={(clip, mode = 'captioned') => handleOpenExport(mode, true, clip)}
             onDeleteClip={handleDeleteClip}
             onDeleteProject={handleDeleteCurrentProject}
             onCreateNew={() => setViewMode('wizard')}

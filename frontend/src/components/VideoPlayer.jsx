@@ -99,6 +99,7 @@ export default function VideoPlayer({
   const [isDraggingCaption, setIsDraggingCaption] = useState(false);
   const [dragYPercent, setDragYPercent] = useState(null);
   const [dragXPercent, setDragXPercent] = useState(null);
+  const dragPosRef = useRef({ x: 50, y: 75 });
 
   const activeCaptionY = dragYPercent !== null
     ? dragYPercent
@@ -116,20 +117,32 @@ export default function VideoPlayer({
     const container = containerRef.current;
     if (!container) return;
 
+    const startClientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+    const startClientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const initialY = activeCaptionY;
+    const initialX = activeCaptionX;
+    dragPosRef.current = { x: initialX, y: initialY };
+
     const onMove = (moveEvent) => {
       const clientY = moveEvent.clientY ?? moveEvent.touches?.[0]?.clientY;
       const clientX = moveEvent.clientX ?? moveEvent.touches?.[0]?.clientX;
       if (clientY === undefined || clientX === undefined) return;
 
       const rect = container.getBoundingClientRect();
-      const newY = Math.max(10, Math.min(88, ((clientY - rect.top) / rect.height) * 100));
-      const newX = Math.max(15, Math.min(85, ((clientX - rect.left) / rect.width) * 100));
+      if (!rect.width || !rect.height) return;
 
-      setDragYPercent(Math.round(newY));
-      setDragXPercent(Math.round(newX));
+      const deltaY = ((clientY - startClientY) / rect.height) * 100;
+      const deltaX = ((clientX - startClientX) / rect.width) * 100;
+
+      const newY = Math.max(8, Math.min(90, Math.round(initialY + deltaY)));
+      const newX = Math.max(10, Math.min(90, Math.round(initialX + deltaX)));
+
+      dragPosRef.current = { x: newX, y: newY };
+      setDragYPercent(newY);
+      setDragXPercent(newX);
     };
 
-    const onEnd = (endEvent) => {
+    const onEnd = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onEnd);
       window.removeEventListener('touchmove', onMove);
@@ -137,34 +150,25 @@ export default function VideoPlayer({
 
       setIsDraggingCaption(false);
 
-      const clientY = endEvent.clientY ?? endEvent.changedTouches?.[0]?.clientY;
-      const clientX = endEvent.clientX ?? endEvent.changedTouches?.[0]?.clientX;
-
-      let finalY = activeCaptionY;
-      let finalX = activeCaptionX;
-
-      if (clientY !== undefined && clientX !== undefined) {
-        const rect = container.getBoundingClientRect();
-        finalY = Math.max(10, Math.min(88, ((clientY - rect.top) / rect.height) * 100));
-        finalX = Math.max(15, Math.min(85, ((clientX - rect.left) / rect.width) * 100));
-      }
-
-      const roundedY = Math.round(finalY);
-      const roundedX = Math.round(finalX);
-
-      setDragYPercent(null);
-      setDragXPercent(null);
+      const finalY = dragPosRef.current.y;
+      const finalX = dragPosRef.current.x;
 
       onChangeCaptionStyle?.({
-        yPercent: roundedY,
-        xPercent: roundedX,
+        yPercent: finalY,
+        xPercent: finalX,
         position: 'custom',
       });
+
+      // Avoid visual snapback: keep local position until parent state prop settles
+      setTimeout(() => {
+        setDragYPercent(null);
+        setDragXPercent(null);
+      }, 80);
     };
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onEnd);
-    window.addEventListener('touchmove', onMove);
+    window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('touchend', onEnd);
   };
 

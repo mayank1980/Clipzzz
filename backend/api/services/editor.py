@@ -82,32 +82,34 @@ def generate_ass_subtitle_file(
     text_color = hex_to_ass_color(style.get('textColor', '#FFFFFF'))
     highlight_color = hex_to_ass_color(style.get('highlightColor', '#bef264'))
     
-    # Alignment: 2 = Bottom Center, 5 = Middle Center, 8 = Top Center
+    # Subtitle positioning: Aligned pixel-for-pixel with the 9:16 web player preview
+    # \an5 (Middle-Center anchor) matches CSS transform: translate(-50%, -50%)
     pos = style.get('position', 'bottom')
-    alignment = 2
-    margin_v = 560  # Platform Safe Zone [Y = 960px to 1350px] above YouTube Shorts UI elements
-    if pos == 'center':
-        alignment = 5
-        margin_v = 0
-    elif pos == 'top':
-        alignment = 8
-        margin_v = 280
-
-    # Custom drag-and-drop position support (yPercent, xPercent)
     y_pct = style.get('yPercent')
     x_pct = style.get('xPercent')
-    use_pos = False
-    custom_pos_tag = ""
+
     if y_pct is not None:
         try:
             y_val = max(8.0, min(92.0, float(y_pct)))
             x_val = max(10.0, min(90.0, float(x_pct))) if x_pct is not None else 50.0
-            pixel_x = int((x_val / 100.0) * 1080)
-            pixel_y = int((y_val / 100.0) * 1920)
-            custom_pos_tag = f"\\an5\\pos({pixel_x},{pixel_y})"
-            use_pos = True
-        except Exception as e:
-            print(f"[generate_ass_subtitle_file] custom pos error: {e}")
+        except Exception:
+            y_val = 75.0
+            x_val = 50.0
+    else:
+        x_val = 50.0
+        if pos == 'top':
+            y_val = 20.0
+        elif pos == 'center':
+            y_val = 50.0
+        else:
+            y_val = 75.0
+
+    pixel_x = int((x_val / 100.0) * 1080)
+    pixel_y = int((y_val / 100.0) * 1920)
+    custom_pos_tag = f"\\an5\\pos({pixel_x},{pixel_y})"
+    use_pos = True
+    alignment = 5
+    margin_v = 0
 
     # Determine style properties according to captions.js presets
     preset = (style.get('preset') or style.get('templateId') or 'Karaoke').lower()
