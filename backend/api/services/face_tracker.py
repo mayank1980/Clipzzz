@@ -36,7 +36,7 @@ class AutoCameraEngine:
         skin_pct = (mask > 0).mean() * 100.0
         return skin_pct >= 5.0
 
-    def detect_faces_in_frame(self, frame: np.ndarray, target_w: int = 480) -> List[Dict[str, Any]]:
+    def detect_faces_in_frame(self, frame: np.ndarray, target_w: int = 640) -> List[Dict[str, Any]]:
         orig_h, orig_w = frame.shape[:2]
         if orig_w == 0 or orig_h == 0:
             return []
@@ -48,13 +48,13 @@ class AutoCameraEngine:
 
         detections = []
 
-        # 1. Frontal Alt2 Detector (Fastest and highly accurate for podcast/interviews)
+        # 1. Frontal Alt2 Detector
         if self.face_cascade_alt2 and not self.face_cascade_alt2.empty():
             faces_alt2 = self.face_cascade_alt2.detectMultiScale(
                 gray,
-                scaleFactor=1.15,
-                minNeighbors=4,
-                minSize=(32, 32)
+                scaleFactor=1.08,
+                minNeighbors=3,
+                minSize=(16, 16)
             )
             for (x, y, w, h) in faces_alt2:
                 ratio = w / float(h)
@@ -63,13 +63,13 @@ class AutoCameraEngine:
                     if self._has_valid_face_skin(crop):
                         detections.append((x, y, w, h))
 
-        # 2. Frontal Default Detector (Hierarchical fallback if Alt2 found no faces)
-        if not detections and self.face_cascade_def and not self.face_cascade_def.empty():
+        # 2. Frontal Default Detector (catches faces missed by Alt2 in wide/dim shots)
+        if self.face_cascade_def and not self.face_cascade_def.empty():
             faces_def = self.face_cascade_def.detectMultiScale(
                 gray,
-                scaleFactor=1.15,
-                minNeighbors=4,
-                minSize=(32, 32)
+                scaleFactor=1.08,
+                minNeighbors=3,
+                minSize=(16, 16)
             )
             for (x, y, w, h) in faces_def:
                 ratio = w / float(h)
@@ -78,13 +78,13 @@ class AutoCameraEngine:
                     if self._has_valid_face_skin(crop):
                         detections.append((x, y, w, h))
 
-        # 3. Profile Detector (Hierarchical fallback for profile speakers)
-        if not detections and self.profile_cascade and not self.profile_cascade.empty():
+        # 3. Profile Detector (Forward and Horizontally Flipped for podcast guests)
+        if self.profile_cascade and not self.profile_cascade.empty():
             prof_faces = self.profile_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.15,
-                minNeighbors=4,
-                minSize=(32, 32)
+                scaleFactor=1.10,
+                minNeighbors=3,
+                minSize=(18, 18)
             )
             for (x, y, w, h) in prof_faces:
                 ratio = w / float(h)
@@ -93,21 +93,20 @@ class AutoCameraEngine:
                     if self._has_valid_face_skin(crop):
                         detections.append((x, y, w, h))
 
-            if not detections:
-                flipped_gray = cv2.flip(gray, 1)
-                prof_flipped = self.profile_cascade.detectMultiScale(
-                    flipped_gray,
-                    scaleFactor=1.15,
-                    minNeighbors=4,
-                    minSize=(32, 32)
-                )
-                for (x, y, w, h) in prof_flipped:
-                    ratio = w / float(h)
-                    if 0.60 <= ratio <= 1.40:
-                        real_x = target_w - (x + w)
-                        crop = small[y:y+h, real_x:real_x+w]
-                        if self._has_valid_face_skin(crop):
-                            detections.append((real_x, y, w, h))
+            flipped_gray = cv2.flip(gray, 1)
+            prof_flipped = self.profile_cascade.detectMultiScale(
+                flipped_gray,
+                scaleFactor=1.10,
+                minNeighbors=3,
+                minSize=(18, 18)
+            )
+            for (x, y, w, h) in prof_flipped:
+                ratio = w / float(h)
+                if 0.60 <= ratio <= 1.40:
+                    real_x = target_w - (x + w)
+                    crop = small[y:y+h, real_x:real_x+w]
+                    if self._has_valid_face_skin(crop):
+                        detections.append((real_x, y, w, h))
 
         if not detections:
             return []
@@ -250,21 +249,18 @@ class AutoCameraEngine:
 
         all_faces: List[Dict[str, Any]] = []
 
-        # Adaptive fast sampling: check middle frame first, exit immediately on face detection
-        sample_offsets = [round(min(2.0, duration * 0.5), 2), 0.5]
-        for offset in sample_offsets:
+        for offset in [0.2, duration * 0.5, max(0.5, duration - 0.2)]:
             target_time = start_sec + offset
             cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, target_time * 1000.0))
             ret, frame = cap.read()
             if not ret or frame is None:
                 continue
 
-            frame_faces = self.detect_faces_in_frame(frame, target_w=480)
+            frame_faces = self.detect_faces_in_frame(frame, target_w=640)
             if frame_faces:
                 # Prefer face closest to natural center-third
                 best = min(frame_faces, key=lambda f: abs(f['cx'] - 50.0))
                 all_faces.append(best)
-                break  # Fast exit: speaker located!
 
         cap.release()
 
@@ -295,7 +291,7 @@ class AutoCameraEngine:
         video_path: str,
         start_sec: float,
         duration: float = 30.0,
-        sample_interval: float = 2.0
+        sample_interval: float = 1.33
     ) -> List[Dict[str, Any]]:
         """
         State-of-the-art Multi-Speaker Camera Tracking Engine.
@@ -308,8 +304,8 @@ class AutoCameraEngine:
         if not os.path.exists(video_path):
             return [{"time": 0.0, "x": 50.0, "y": 35.0, "zoom": 1.0, "speaker": "Center Focus"}]
 
-        frame_w = 480
-        frame_h = 270
+        frame_w = 640
+        frame_h = 360
         frame_sz = frame_w * frame_h * 3
         fps = 1.0 / max(0.8, sample_interval)
 

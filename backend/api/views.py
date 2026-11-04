@@ -342,24 +342,8 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         serializer = ClipUpdateSerializer(clip, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            # If caption_style or crop settings were updated, invalidate old cached render
-            if any(k in request.data for k in ('caption_style', 'crop_x', 'crop_y', 'crop_zoom', 'crop_mode', 'crop_keyframes')):
-                if clip.rendered_file:
-                    try:
-                        old_path = clip.rendered_file.path
-                        if os.path.exists(old_path):
-                            os.remove(old_path)
-                    except Exception:
-                        pass
-                    clip.rendered_file = None
-                    clip.render_status = 'not_started'
-                    clip.save(update_fields=['rendered_file', 'render_status'])
             return Response(VideoClipSerializer(clip).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def partial_update(self, request, *args, **kwargs):
-        kwargs['partial'] = True
-        return self.update(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
     def render(self, request, pk=None):
@@ -367,7 +351,6 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         update_ser = ClipUpdateSerializer(clip, data=request.data, partial=True)
         if update_ser.is_valid():
             update_ser.save()
-            clip.refresh_from_db()
 
         # Delete any previous rendered file so new styling is always generated fresh
         if clip.rendered_file:
