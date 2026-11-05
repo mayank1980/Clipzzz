@@ -243,6 +243,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
         video_file = serializer.validated_data.get('video_file', None)
         gemini_api_key = serializer.validated_data.get('gemini_api_key', '').strip()
         target_ratio = serializer.validated_data.get('target_ratio', '9:16')
+        download_quality = serializer.validated_data.get('download_quality', '720p')
         auto_speaker_tracking = serializer.validated_data.get('auto_speaker_tracking', True)
         requested_clip_count = serializer.validated_data.get('requested_clip_count', 7)
         duration_preference = serializer.validated_data.get('duration_preference', '30-60')
@@ -257,6 +258,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
                 youtube_url=youtube_url,
                 title='Importing YouTube Video...',
                 target_ratio=target_ratio,
+                download_quality=download_quality,
                 auto_speaker_tracking=auto_speaker_tracking,
                 requested_clip_count=requested_clip_count,
                 duration_preference=duration_preference,
@@ -272,6 +274,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
                 video_file=video_file,
                 title=video_file.name,
                 target_ratio=target_ratio,
+                download_quality=download_quality,
                 auto_speaker_tracking=auto_speaker_tracking,
                 requested_clip_count=requested_clip_count,
                 duration_preference=duration_preference,

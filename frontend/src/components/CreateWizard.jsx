@@ -23,7 +23,8 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   const [selectedFile, setSelectedFile] = useState(null);
 
   // Settings requested by user
-  const [targetRatio, setTargetRatio] = useState('9:16'); // '9:16', '16:9', '1:1'
+  const [targetRatio, setTargetRatio] = useState('9:16'); // '9:16'
+  const [downloadQuality, setDownloadQuality] = useState('720p'); // '720p' (fast/recommended), '1080p', '480p'
   const [autoSpeakerTracking, setAutoSpeakerTracking] = useState(true);
   const [clipCount, setClipCount] = useState(0); // 0 (Auto), 5, 7, 9, 11, 15
   const [durationPref, setDurationPref] = useState('30-60'); // '0-30', '30-60', '60-80'
@@ -74,6 +75,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         setIsLinkConfirmed(true);
         if (res.recommended_mode) {
           setClippingMode(res.recommended_mode);
+        }
+        if (res.default_quality) {
+          setDownloadQuality(res.default_quality);
         }
       } else {
         setInspectError(res?.error || 'Failed to inspect YouTube video.');
@@ -172,6 +176,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         payload = {
           youtube_url: youtubeUrl.trim(),
           target_ratio: targetRatio,
+          download_quality: downloadQuality,
           auto_speaker_tracking: autoSpeakerTracking,
           requested_clip_count: clipCount,
           duration_preference: durationPref,
@@ -181,6 +186,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         const formData = new FormData();
         formData.append('video_file', selectedFile);
         formData.append('target_ratio', targetRatio);
+        formData.append('download_quality', downloadQuality);
         formData.append('auto_speaker_tracking', autoSpeakerTracking);
         formData.append('requested_clip_count', clipCount);
         formData.append('duration_preference', durationPref);
@@ -586,6 +592,62 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                             💡 {videoInfo.recommendation_reason}
                           </p>
                         )}
+
+                        {/* Download Quality & File Size Selector */}
+                        <div className="mt-3 pt-3 border-t border-dark-800">
+                          <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+                            <label className="text-[11px] font-extrabold text-white flex items-center gap-1.5 uppercase tracking-wider">
+                              <Sparkles className="w-3.5 h-3.5 text-lime-neon" />
+                              <span>Download Quality & File Size</span>
+                            </label>
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              ⚡ 720p is 4x lighter &amp; downloads in under a minute
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {(videoInfo.qualities || [
+                              { id: '720p', label: '720p HD', sub: 'Fast & Crisp', tag: 'Recommended (4x Faster)', size_mb: Math.max(15, Math.round((videoInfo.duration || 600) * 0.12)), time_est: '~45s', recommended: true },
+                              { id: '1080p', label: '1080p Full HD', sub: 'Source Quality', tag: 'Large (Heavy)', size_mb: Math.max(40, Math.round((videoInfo.duration || 600) * 0.40)), time_est: '~6m', recommended: false },
+                              { id: '480p', label: '480p SD', sub: 'Ultra-Fast', tag: 'Fastest (Data Saver)', size_mb: Math.max(8, Math.round((videoInfo.duration || 600) * 0.06)), time_est: '~20s', recommended: false },
+                            ]).map((q) => {
+                              const isSelected = downloadQuality === q.id;
+                              return (
+                                <button
+                                  key={q.id}
+                                  type="button"
+                                  onClick={() => setDownloadQuality(q.id)}
+                                  className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between relative cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-lime-neon/15 border-lime-neon shadow-neon-sm'
+                                      : 'bg-dark-900 border-dark-750 hover:bg-dark-850 hover:border-dark-600'
+                                  }`}
+                                >
+                                  {q.recommended && (
+                                    <span className="absolute top-2 right-2 text-[8px] bg-lime-neon text-black font-extrabold px-1.5 py-0.2 rounded-full uppercase">
+                                      Fast
+                                    </span>
+                                  )}
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`text-xs font-black ${isSelected ? 'text-lime-neon' : 'text-white'}`}>
+                                        {q.label}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 font-mono">
+                                        ({q.size_mb >= 1000 ? `${(q.size_mb / 1024).toFixed(1)} GB` : `${q.size_mb} MB`})
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">{q.sub}</p>
+                                  </div>
+                                  <div className="mt-2 pt-1 border-t border-dark-800/80 flex items-center justify-between text-[9px] font-mono text-slate-400">
+                                    <span className={isSelected ? 'text-lime-neon font-bold' : ''}>{q.tag}</span>
+                                    <span>{q.time_est}</span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>

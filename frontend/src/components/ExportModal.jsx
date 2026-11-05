@@ -14,11 +14,6 @@ import {
   VolumeX,
   ChevronLeft,
   ChevronRight,
-  Smartphone,
-  Eye,
-  FileText,
-  Youtube,
-  Trash2,
 } from 'lucide-react';
 import { api, API_BASE_URL } from '../services/api';
 import logoImg from '../assets/logo.png';
@@ -102,29 +97,6 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
     const m = Math.floor(secs / 60);
     const s = Math.floor(secs % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
-  };
-
-  const handleSkip = (seconds) => {
-    if (!previewVideoRef.current) return;
-    const target = Math.max(0, Math.min(duration, previewVideoRef.current.currentTime + seconds));
-    previewVideoRef.current.currentTime = target;
-    setCurrentTime(target);
-  };
-
-  const toggleCleanPreview = () => {
-    const activeClip = clipRef.current || clip;
-    if (!activeClip) return;
-    if (renderMode === 'clean') {
-      setRenderMode('captioned');
-      setRenderedUrl(api.getClipDownloadUrl(activeClip.id));
-    } else {
-      if (activeClip?.clean_render_status === 'completed' && activeClip?.rendered_clean_file) {
-        setRenderMode('clean');
-        setRenderedUrl(api.getClipCleanDownloadUrl(activeClip.id));
-      } else {
-        startRender('clean');
-      }
-    }
   };
 
   useEffect(() => {
@@ -283,7 +255,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
-      <div className={`bg-dark-900 border border-dark-700 w-full transition-all duration-300 ${status === 'completed' ? 'max-w-4xl' : 'max-w-lg'} rounded-3xl shadow-2xl overflow-hidden max-h-[94vh] flex flex-col`}>
+      <div className="bg-dark-900 border border-dark-700 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="px-5 py-3 border-b border-dark-750 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -305,7 +277,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
         </div>
 
         {/* Content */}
-        <div className="p-4 sm:p-6 overflow-y-auto scrollbar-thin">
+        <div className="p-4 sm:p-5 overflow-y-auto scrollbar-thin">
           {status === 'rendering' && (
             <div className="py-4 flex flex-col items-center text-center space-y-4">
               {/* Animated Brand Hero Ring */}
@@ -372,279 +344,112 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
           )}
 
           {status === 'completed' && (
-            <div className="flex flex-col lg:flex-row items-center lg:items-start gap-6">
-              {/* Left Column: Full 9:16 Shorts Phone Mockup Video Player */}
-              <div className="relative aspect-[9/16] w-64 sm:w-72 bg-black rounded-3xl overflow-hidden shadow-2xl border-2 border-dark-700/80 flex items-center justify-center shrink-0 group">
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5">
+              {/* Left Column: Compact 9:16 Video Player Preview */}
+              <div className="w-36 sm:w-40 aspect-[9/16] shrink-0 bg-black rounded-2xl overflow-hidden border border-lime-neon/40 shadow-neon flex items-center justify-center">
                 <video
-                  ref={previewVideoRef}
                   src={renderedUrl}
-                  onTimeUpdate={handleTimeUpdate}
-                  onLoadedMetadata={handleLoadedMetadata}
-                  onEnded={() => setIsPlaying(false)}
+                  controls
                   autoPlay
-                  playsInline
                   className="w-full h-full object-cover"
                 />
-
-                {/* Top Overlay Badges */}
-                <div className="absolute top-3 inset-x-3 flex items-center justify-between pointer-events-none z-10">
-                  <div className="bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-bold text-white flex items-center gap-1.5 border border-white/10 shadow-lg">
-                    <span className="w-2 h-2 rounded-full bg-lime-neon animate-pulse" />
-                    Speaker Focus
-                  </div>
-                  {(clip.channel_credit || 'RealHit') && (
-                    <div className="bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-bold text-white border border-white/10 shadow-lg">
-                      Credit - {clip.channel_credit || 'RealHit'}
-                    </div>
-                  )}
-                </div>
-
-                {/* Center Hover Play/Pause Button */}
-                <button
-                  type="button"
-                  onClick={togglePlay}
-                  className={`absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity cursor-pointer ${
-                    isPlaying ? 'opacity-0 hover:opacity-100' : 'opacity-100'
-                  }`}
-                >
-                  <div className="w-14 h-14 rounded-full bg-lime-neon text-black flex items-center justify-center shadow-neon transition hover:scale-110">
-                    {isPlaying ? (
-                      <Pause className="w-6 h-6 fill-current" />
-                    ) : (
-                      <Play className="w-6 h-6 fill-current ml-0.5" />
-                    )}
-                  </div>
-                </button>
               </div>
 
-              {/* Right Column: Full Studio Deck matching main player */}
-              <div className="flex-1 flex flex-col min-w-0 space-y-4 w-full">
-                {/* Scene Header */}
-                <div className="flex items-center justify-between gap-2 flex-wrap border-b border-dark-800 pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-lime-neon animate-pulse" />
-                    <span className="font-extrabold text-white text-sm tracking-wide">
-                      SCENE #{clip.id ? clip.id.substring(0, 4).toUpperCase() : 'CLIP'}
-                    </span>
-                    <span className="bg-dark-950 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold text-slate-300 border border-dark-800">
-                      {formatTime(clip.start_time)} - {formatTime(clip.end_time)}
-                    </span>
+              {/* Right Column: Title, Metadata & Action Buttons */}
+              <div className="flex-1 flex flex-col min-w-0 space-y-2.5 w-full">
+                <div>
+                  <div className="inline-flex items-center gap-1 text-lime-neon text-[10px] font-bold bg-lime-neon/15 px-2.5 py-0.5 rounded-full border border-lime-neon/30 mb-1">
+                    <CheckCircle className="w-3.5 h-3.5" /> Ready for YouTube Shorts
                   </div>
-                  <div className="flex items-center gap-1.5 bg-dark-950 px-2.5 py-1 rounded-full text-[11px] font-bold text-lime-neon border border-lime-neon/30">
-                    <Smartphone className="w-3.5 h-3.5" />
-                    <span>9:16 Shorts</span>
-                  </div>
+                  <h3 className="text-sm font-bold text-white truncate" title={clip.title}>
+                    {clip.title}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-mono">
+                    1080 × 1920 MP4 • {isCleanMode ? 'Clean (No Captions)' : 'With Dynamic Captions'}
+                  </p>
                 </div>
 
-                {/* Transport Controls Row */}
-                <div className="flex items-center justify-between gap-2 bg-dark-950/80 p-2.5 rounded-2xl border border-dark-800">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={togglePlay}
-                      className="w-10 h-10 rounded-xl bg-lime-neon hover:bg-lime-400 text-black flex items-center justify-center shadow-neon-sm transition cursor-pointer"
-                      title={isPlaying ? 'Pause' : 'Play'}
-                    >
-                      {isPlaying ? (
-                        <Pause className="w-5 h-5 fill-current" />
-                      ) : (
-                        <Play className="w-5 h-5 fill-current ml-0.5" />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSkip(-5)}
-                      className="w-8 h-8 rounded-lg bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white flex items-center justify-center border border-dark-750 transition cursor-pointer"
-                      title="Rewind 5s"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSkip(5)}
-                      className="w-8 h-8 rounded-lg bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white flex items-center justify-center border border-dark-750 transition cursor-pointer"
-                      title="Skip 5s"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Speed Selector */}
-                  <div className="flex items-center gap-1 bg-dark-900 px-1.5 py-1 rounded-xl border border-dark-750">
-                    <Sparkles className="w-3 h-3 text-lime-neon" />
-                    {[0.75, 1.0, 1.25, 1.5].map((rate) => (
-                      <button
-                        key={rate}
-                        type="button"
-                        onClick={() => handleSpeedChange(rate)}
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md transition cursor-pointer ${
-                          playbackRate === rate
-                            ? 'bg-lime-neon text-black'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
+                <div className="space-y-1.5 pt-1">
+                  {/* Clean Mode Primary Button */}
+                  {isCleanMode ? (
+                    <>
+                      <a
+                        href={api.getClipCleanDownloadUrl(clip.id)}
+                        download
+                        className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs py-2.5 px-3 rounded-xl transition shadow-neon flex items-center justify-center gap-2 cursor-pointer"
+                        title="Download clean 9:16 short without burned-in subtitles"
                       >
-                        {rate}x
+                        <Film className="w-4 h-4 text-black stroke-[2.5]" />
+                        <span>Download Clean Short (No Captions)</span>
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={() => startRender('captioned')}
+                        className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white border border-dark-700 hover:border-lime-neon/50 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                        title="Render captioned version with dynamic animated subtitles"
+                      >
+                        <Download className="w-3.5 h-3.5 text-lime-neon" />
+                        <span>{hasCaptionedReady ? 'Switch to Captions Short' : 'Render Short (With Captions)'}</span>
                       </button>
-                    ))}
-                  </div>
+                    </>
+                  ) : (
+                    /* Captioned Mode Primary Button */
+                    <>
+                      <a
+                        href={api.getClipDownloadUrl(clip.id)}
+                        download
+                        className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs py-2.5 px-3 rounded-xl transition shadow-neon flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Download className="w-4 h-4 stroke-[2.5]" />
+                        <span>Download Video MP4 (With Captions)</span>
+                      </a>
 
-                  {/* Clip Time */}
-                  <div className="text-right pl-2">
-                    <div className="text-[9px] uppercase font-bold text-slate-400 leading-none">Clip Time</div>
-                    <div className="text-xs font-mono font-bold text-lime-neon">
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </div>
-                  </div>
-                </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (hasCleanReady) {
+                            window.location.href = api.getClipCleanDownloadUrl(clip.id);
+                          } else {
+                            startRender('clean');
+                          }
+                        }}
+                        className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white border border-dark-700 hover:border-lime-neon/50 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                        title="Download or render clean 9:16 short without subtitles"
+                      >
+                        <Film className="w-3.5 h-3.5 text-lime-neon" />
+                        <span>{hasCleanReady ? 'Download Clean Short (No Captions)' : 'Render & Download Clean (No Captions)'}</span>
+                      </button>
+                    </>
+                  )}
 
-                {/* Volume Slider Row */}
-                <div className="flex items-center gap-2 bg-dark-950/60 px-3 py-2 rounded-xl border border-dark-800">
-                  <button
-                    type="button"
-                    onClick={toggleMute}
-                    className="text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    {isMuted || volume === 0 ? (
-                      <VolumeX className="w-4 h-4 text-red-400" />
-                    ) : (
-                      <Volume2 className="w-4 h-4 text-lime-neon" />
-                    )}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={isMuted ? 0 : volume}
-                    onChange={handleVolumeChange}
-                    className="flex-1 accent-lime-neon cursor-pointer"
-                  />
-                  <span className="text-[10px] text-slate-400 font-mono w-8 text-right">
-                    {Math.round((isMuted ? 0 : volume) * 100)}%
-                  </span>
-                </div>
-
-                {/* Framing Style */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-                    Framing Style
-                  </label>
                   <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled
-                      className="bg-dark-950 text-slate-500 font-bold text-xs py-2 px-3 rounded-xl border border-dark-800 cursor-not-allowed opacity-60"
+                    <a
+                      href={api.getClipDescriptionDownloadUrl(clip.id)}
+                      download
+                      className="bg-dark-800 hover:bg-dark-750 text-slate-200 border border-dark-700 hover:text-white text-[11px] font-bold py-2 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
                     >
-                      Blurred BG
-                    </button>
-                    <button
-                      type="button"
-                      className="bg-lime-neon text-black font-extrabold text-xs py-2 px-3 rounded-xl shadow-neon-sm cursor-default"
-                    >
-                      Smart Crop
-                    </button>
-                  </div>
-                </div>
+                      <span>.MD Kit</span>
+                    </a>
 
-                {/* AI Features Row */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-dark-950/80 px-3 py-2 rounded-xl border border-dark-800 flex items-center gap-1.5 text-xs text-white font-bold">
-                    <Sparkles className="w-3.5 h-3.5 text-lime-neon" />
-                    <span>Auto-Speaker Focus</span>
-                  </div>
-                  <div className="bg-lime-neon/15 px-3 py-2 rounded-xl border border-lime-neon/30 flex items-center justify-center gap-1.5 text-xs text-lime-neon font-bold">
-                    <Sparkles className="w-3.5 h-3.5 fill-lime-neon" />
-                    <span>Auto-Track (AI)</span>
-                  </div>
-                </div>
-
-                {/* Channel Credit */}
-                <div className="flex items-center justify-between bg-dark-950/60 px-3 py-2 rounded-xl border border-dark-800 text-xs">
-                  <span className="text-slate-400 flex items-center gap-1.5">
-                    <Youtube className="w-3.5 h-3.5 text-red-500" />
-                    Channel Credit
-                  </span>
-                  <span className="font-bold text-white">
-                    {clip.channel_credit || 'RealHit'}
-                  </span>
-                </div>
-
-                {/* Toggle Captions / Clean Preview Button */}
-                <button
-                  type="button"
-                  onClick={toggleCleanPreview}
-                  className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white font-bold border border-dark-700 hover:border-lime-neon/40 py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 text-xs cursor-pointer"
-                >
-                  <Eye className="w-3.5 h-3.5 text-lime-neon" />
-                  <span>{isCleanMode ? 'Preview With Captions' : 'Preview Without Captions'}</span>
-                </button>
-
-                {/* Main Action Download Buttons */}
-                <div className="space-y-2 pt-1 border-t border-dark-800">
-                  {/* Primary Download Button */}
-                  <a
-                    href={isCleanMode ? api.getClipCleanDownloadUrl(clip.id) : api.getClipDownloadUrl(clip.id)}
-                    download
-                    className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs py-3 px-3 rounded-xl transition shadow-neon flex items-center justify-center gap-2 uppercase tracking-wider cursor-pointer"
-                  >
-                    <Download className="w-4 h-4 stroke-[2.5]" />
-                    <span>{isCleanMode ? 'Download Clean Short (No Captions)' : 'Download Short (With Captions)'}</span>
-                  </a>
-
-                  {/* Secondary Clean / Captioned Alternate */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isCleanMode) {
-                        if (hasCaptionedReady) {
-                          window.location.href = api.getClipDownloadUrl(clip.id);
-                        } else {
-                          startRender('captioned');
-                        }
-                      } else {
-                        if (hasCleanReady) {
-                          window.location.href = api.getClipCleanDownloadUrl(clip.id);
-                        } else {
-                          startRender('clean');
-                        }
-                      }
-                    }}
-                    className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white font-bold border border-dark-700 hover:border-lime-neon/50 py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer"
-                  >
-                    <Film className="w-3.5 h-3.5 text-lime-neon" />
-                    <span>
-                      {isCleanMode
-                        ? hasCaptionedReady
-                          ? 'Download Short (With Captions)'
-                          : 'Render Short (With Captions)'
-                        : hasCleanReady
-                        ? 'Download Clean (No Captions)'
-                        : 'Render Clean (No Captions)'}
-                    </span>
-                  </button>
-
-                  {/* Shorts Kit & Re-render Fresh */}
-                  <div className="grid grid-cols-2 gap-2 pt-0.5">
                     <a
                       href={api.getClipBundleDownloadUrl(clip.id)}
                       download
-                      className="bg-dark-950 hover:bg-dark-850 text-white font-bold border border-dark-700 hover:border-lime-neon/50 py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1.5 text-xs cursor-pointer truncate"
-                      title="Download Shorts Kit (MD Description & ZIP Pack)"
+                      className="bg-dark-800 hover:bg-dark-750 text-lime-neon border border-lime-neon/40 text-[11px] font-bold py-2 rounded-xl transition flex items-center justify-center gap-1 hover:bg-lime-neon/10 cursor-pointer"
                     >
-                      <FileText className="w-3.5 h-3.5 text-lime-neon shrink-0" />
-                      <span className="truncate">Shorts Kit</span>
+                      <span>ZIP Pack</span>
                     </a>
-
-                    <button
-                      type="button"
-                      onClick={() => startRender(renderMode)}
-                      className="bg-dark-950 hover:bg-dark-850 text-slate-300 hover:text-lime-neon font-bold border border-dark-700 hover:border-lime-neon/40 py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1.5 text-xs cursor-pointer truncate"
-                      title="Re-render video fresh"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-lime-neon shrink-0" />
-                      <span className="truncate">Re-render Fresh</span>
-                    </button>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => startRender(renderMode)}
+                    className="w-full bg-dark-950 hover:bg-dark-850 text-slate-400 hover:text-lime-neon border border-dark-800 hover:border-lime-neon/40 text-[10px] font-semibold py-1.5 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer mt-0.5"
+                    title="Re-render video fresh"
+                  >
+                    <RefreshCw className="w-3 h-3 text-lime-neon" />
+                    <span>Re-render Fresh</span>
+                  </button>
                 </div>
               </div>
             </div>
