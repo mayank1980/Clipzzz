@@ -12,7 +12,8 @@ from .transcription import (
     transcribe_with_gemini,
     transcribe_with_groq,
     generate_fallback_transcript,
-    align_clip_audio_with_whisper
+    align_clip_audio_with_whisper,
+    build_sentence_indexed_transcript
 )
 from .ai_analyzer import analyze_highlights_with_gemini
 from .face_tracker import detect_primary_speaker_center, generate_camera_keyframes
@@ -150,8 +151,11 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.status_message = f"Scanning video timeline for {count_label} moments..."
         project.save(update_fields=['status', 'progress', 'status_message'])
 
+        # Sentence-Indexed Audio Transcription for atomic narrative boundary snapping
+        sentence_indexed_transcript = build_sentence_indexed_transcript(transcript)
+
         highlights = analyze_highlights_with_gemini(
-            transcript_segments=transcript,
+            transcript_segments=sentence_indexed_transcript,
             video_title=project.title,
             total_duration=project.duration,
             api_key=api_key,
@@ -255,6 +259,8 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 story_id=h.get('story_id', ''),
                 part_number=h.get('part_number', 1),
                 total_parts=h.get('total_parts', 1),
+                ending_type=h.get('ending_type', 'punchline'),
+                hook_title=h.get('hook_title') or h.get('part_hook') or h.get('title', ''),
                 start_time=c_start,
                 end_time=c_end,
                 duration=c_dur,

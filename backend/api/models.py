@@ -113,6 +113,17 @@ class VideoClip(models.Model):
     story_id = models.CharField(max_length=100, blank=True, default='')
     part_number = models.IntegerField(default=1)
     total_parts = models.IntegerField(default=1)
+    ending_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('punchline', 'Punchline'),
+            ('cliffhanger', 'Cliffhanger'),
+            ('takeaway', 'Takeaway'),
+        ],
+        default='punchline',
+        blank=True
+    )
+    hook_title = models.CharField(max_length=255, blank=True, default='')
     
     # Timing
     start_time = models.FloatField(default=0.0)

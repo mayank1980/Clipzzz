@@ -122,12 +122,28 @@ export default function ClipsList({
             : 'bg-dark-950/70 hover:bg-dark-850 border-dark-800 hover:border-dark-700'
         } ${isChild ? 'ml-3 w-[calc(100%-0.75rem)] border-l-2 border-l-lime-neon/60' : ''}`}
       >
-        {/* Top Row: Score + Part/Category + Duration */}
+        {/* Top Row: Score + Part/Category + Ending Type Badge + Duration */}
         <div className="flex items-center justify-between gap-1 mb-1.5">
-          <span className="text-[10px] font-extrabold bg-lime-neon/15 text-lime-neon border border-lime-neon/40 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-            <Flame className="w-3 h-3 fill-lime-neon" />
-            {clip.score}/100
-          </span>
+          <div className="flex items-center gap-1.5 overflow-hidden">
+            <span className="text-[10px] font-extrabold bg-lime-neon/15 text-lime-neon border border-lime-neon/40 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm shrink-0">
+              <Flame className="w-3 h-3 fill-lime-neon" />
+              {clip.score}/100
+            </span>
+
+            {clip.ending_type && (
+              <span
+                className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider border shrink-0 ${
+                  clip.ending_type === 'cliffhanger'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : clip.ending_type === 'takeaway'
+                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                    : 'bg-lime-500/20 text-lime-300 border-lime-500/40'
+                }`}
+              >
+                {clip.ending_type}
+              </span>
+            )}
+          </div>
 
           <span className="text-[10px] text-slate-300 uppercase font-bold tracking-wider flex items-center gap-1 truncate">
             {clip.part_number && clip.total_parts ? (
@@ -160,7 +176,13 @@ export default function ClipsList({
           </div>
         </div>
 
-        {/* Title */}
+        {/* Title & Hook Title */}
+        {clip.hook_title && clip.hook_title !== clip.title && (
+          <div className="text-[10px] font-bold text-lime-neon/90 line-clamp-1 mb-0.5 flex items-center gap-1">
+            <span className="text-[9px] bg-lime-neon/15 px-1 py-0.2 rounded text-lime-neon">HOOK</span>
+            {clip.hook_title}
+          </div>
+        )}
         <h4 className="text-xs font-bold text-white line-clamp-1 mb-1" title={clip.title}>
           {clip.title}
         </h4>

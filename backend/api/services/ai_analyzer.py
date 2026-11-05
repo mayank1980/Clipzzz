@@ -1,7 +1,35 @@
 import os
 import json
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Literal
+from pydantic import BaseModel, Field
+
+class StoryPart(BaseModel):
+    story_id: Optional[str] = "story_1"
+    parent_story_title: Optional[str] = ""
+    part_number: int = 1
+    total_parts: int = 1
+    title: str = "Story Clip"
+    start_sentence_id: Optional[int] = None
+    end_sentence_id: Optional[int] = None
+    start: Optional[float] = None
+    end: Optional[float] = None
+    ending_type: Literal["cliffhanger", "punchline", "takeaway"] = "punchline"
+    hook_title: Optional[str] = None
+    score: int = 90
+    category: str = "Story Series"
+    hook: Optional[str] = ""
+    reason: Optional[str] = ""
+    retention_score: Optional[int] = 90
+
+class CompleteStoryArc(BaseModel):
+    story_id: str = "story_1"
+    story_topic: str = "Story Arc"
+    total_parts: int = 1
+    parts: List[StoryPart] = Field(default_factory=list)
+
+class StoryAnalysisResult(BaseModel):
+    clips: List[StoryPart] = Field(default_factory=list)
 
 def get_duration_range(preference: str):
     if preference == '0-30':
@@ -199,17 +227,23 @@ def analyze_highlights_with_gemini(
     if not api_key or not transcript_segments:
         return extract_smart_nlp_highlights(transcript_segments, total_duration, video_title, count, min_dur, max_dur, intro_cutoff, clipping_mode=clipping_mode)
 
-    # Format COMPLETE transcript with exact seconds spanning the ENTIRE video (zero sampling/skipping)
+    # Format COMPLETE transcript with sentence indices or exact seconds spanning the ENTIRE video
+    sentence_map = {}
     formatted_transcript = []
     for s in transcript_segments:
+        s_id = s.get('id')
         s_start = float(s.get('start', 0.0))
         s_end = float(s.get('end', s_start + 2.0))
-        start_min = int(s_start // 60)
-        start_sec = int(s_start % 60)
-        time_str = f"[{start_min:02d}:{start_sec:02d}]"
         txt = s.get('text', '').strip()
-        if txt:
-            formatted_transcript.append(f"{time_str} ({s_start:.1f}s-{s_end:.1f}s) {txt}")
+        if not txt:
+            continue
+        if s_id is not None:
+            sentence_map[int(s_id)] = s
+            formatted_transcript.append(f"[{s_id}] ({s_start:.2f}s-{s_end:.2f}s) {txt}")
+        else:
+            start_min = int(s_start // 60)
+            start_sec = int(s_start % 60)
+            formatted_transcript.append(f"[{start_min:02d}:{start_sec:02d}] ({s_start:.1f}s-{s_end:.1f}s) {txt}")
 
     # Pass full transcript (up to 3500 segments fits easily inside Gemini's 1M context window)
     transcript_text = "\n".join(formatted_transcript[:3500])
@@ -245,6 +279,9 @@ def analyze_highlights_with_gemini(
        - Part 2 starts exactly where Part 1 ends, Part 3 starts where Part 2 ends. There must be zero dead gaps between consecutive parts of the same story.
        - Assign each story its own distinct "story_id" (e.g. "story_1", "story_2", "story_3") and captivating "parent_story_title".
        - Set "part_number" (1, 2, 3...) and "total_parts" (the TRUE total number of parts in THAT specific story, e.g. 8, 12, 16, 20).
+       - Set "start_sentence_id" and "end_sentence_id" corresponding to the integer sentence tags [N] in the transcript.
+       - Set "ending_type": classify strictly as "cliffhanger" (leaves viewer eager for next part), "punchline" (humorous or dramatic climax), or "takeaway" (lesson/resolution).
+       - Set "hook_title": a punchy 4-7 word headline for this episode.
 
     Return JSON:
     {{
@@ -255,8 +292,12 @@ def analyze_highlights_with_gemini(
           "part_number": 1,
           "total_parts": 12,
           "title": "Part 1: The Midnight Call",
+          "start_sentence_id": 1,
+          "end_sentence_id": 14,
           "start": 45.0,
           "end": 98.5,
+          "ending_type": "cliffhanger",
+          "hook_title": "The Midnight Call Nobody Expected",
           "score": 96,
           "category": "Story Series",
           "hook": "Spoken opening hook in the first 5 seconds",
@@ -269,8 +310,12 @@ def analyze_highlights_with_gemini(
           "part_number": 2,
           "total_parts": 12,
           "title": "Part 2: Strange Footsteps in the Dark",
+          "start_sentence_id": 15,
+          "end_sentence_id": 28,
           "start": 98.5,
           "end": 152.0,
+          "ending_type": "cliffhanger",
+          "hook_title": "Footsteps on the Locked Roof",
           "score": 95,
           "category": "Story Series",
           "hook": "Spoken continuation hook",
@@ -283,8 +328,12 @@ def analyze_highlights_with_gemini(
           "part_number": 3,
           "total_parts": 12,
           "title": "Part 3: The Locked Basement",
+          "start_sentence_id": 29,
+          "end_sentence_id": 41,
           "start": 152.0,
           "end": 208.0,
+          "ending_type": "punchline",
+          "hook_title": "What Was Behind the Iron Door",
           "score": 95,
           "category": "Story Series",
           "hook": "Next part hook",
@@ -380,12 +429,23 @@ def analyze_highlights_with_gemini(
             clip_texts = []
 
             for c in clips:
-                s_time = float(c.get('start', 0.0))
+                # Snap to acoustic sentence boundaries with micro-buffering cushions if sentence IDs present
+                st_id = c.get('start_sentence_id')
+                et_id = c.get('end_sentence_id')
+                if st_id and int(st_id) in sentence_map and et_id and int(et_id) in sentence_map:
+                    first_sent = sentence_map[int(st_id)]
+                    last_sent = sentence_map[int(et_id)]
+                    # Plosive cushion (-0.08s) and room tone trailing cushion (+0.25s)
+                    s_time = max(0.0, float(first_sent.get('start', 0.0)) - 0.08)
+                    e_time = min(total_duration if total_duration > 0 else 99999.0, float(last_sent.get('end', 0.0)) + 0.25)
+                else:
+                    s_time = float(c.get('start', 0.0))
+                    e_time = min(total_duration if total_duration > 0 else 99999.0, float(c.get('end', s_time + min_dur)))
+
                 # For story_series, do not drop early clips if a story starts around 30-45s
                 if clipping_mode != 'story_series' and s_time < intro_cutoff and total_duration > 90.0:
                     continue
 
-                e_time = min(total_duration if total_duration > 0 else 99999.0, float(c.get('end', s_time + min_dur)))
                 clip_len = e_time - s_time
                 if clip_len < 15.0 or clip_len > (max_dur + 20.0):
                     continue
@@ -407,6 +467,12 @@ def analyze_highlights_with_gemini(
                     parent_title = f"{video_title[:35]} Story"
                     story_id = story_id or "story_1"
 
+                ending_type = str(c.get('ending_type', 'punchline')).lower().strip()
+                if ending_type not in ('cliffhanger', 'punchline', 'takeaway'):
+                    ending_type = 'cliffhanger' if part_num < tot_parts else 'punchline'
+
+                hook_title = c.get('hook_title') or c.get('part_hook') or title
+
                 valid_clips.append({
                     "title": title,
                     "parent_story_title": parent_title,
@@ -419,6 +485,8 @@ def analyze_highlights_with_gemini(
                     "score": min(99, max(75, int(c.get('score', 88)))),
                     "category": c.get('category', 'Highlight' if clipping_mode != 'story_series' else 'Story Series'),
                     "hook": c.get('hook', ''),
+                    "ending_type": ending_type,
+                    "hook_title": hook_title,
                     "reason": c.get('reason') or retention_info['reason'],
                     "retention_score": c.get('retention_score', retention_info['retention_score'])
                 })
@@ -545,6 +613,8 @@ def extract_smart_nlp_highlights(
                         "score": max(80, 96 - (part_idx * 2)),
                         "category": "Story Series",
                         "hook": " ".join(full_text.split()[:10]) + "...",
+                        "ending_type": "cliffhanger",
+                        "hook_title": part_title_str,
                         "reason": f"Part {part_idx} of continuous story '{parent_story_title}'",
                         "retention_score": 93
                     })
@@ -552,8 +622,9 @@ def extract_smart_nlp_highlights(
 
             # Backfill total_parts accurately
             tot_p = len(parts_for_this_story)
-            for pt in parts_for_this_story:
+            for idx_p, pt in enumerate(parts_for_this_story):
                 pt['total_parts'] = tot_p
+                pt['ending_type'] = "takeaway" if (idx_p + 1) == tot_p else "cliffhanger"
                 all_story_clips.append(pt)
 
         if len(all_story_clips) >= 2:
@@ -678,6 +749,8 @@ def extract_smart_nlp_highlights(
             "score": clip_score,
             "category": "High Retention",
             "hook": opening_hook,
+            "ending_type": "punchline",
+            "hook_title": title,
             "reason": retention_info['reason'],
             "retention_score": retention_info['retention_score'],
             "breakdown": cand['breakdown']
@@ -740,6 +813,8 @@ def generate_heuristic_highlights(
             "score": score,
             "category": t_cat,
             "hook": t_hook,
+            "ending_type": "punchline",
+            "hook_title": t_title,
             "reason": t_reason,
             "retention_score": 90 + ((i * 3) % 8)
         })

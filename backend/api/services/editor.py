@@ -549,12 +549,13 @@ def render_shorts_clip(
     # Audio filter: audio loudness normalization
     af = "loudnorm=I=-14:LRA=7:tp=-1.5"
 
-    # Ultra-Fast Seeking: -ss and -t before -i for instantaneous 10ms keyframe seek
+    # Ultra-Fast Seeking: -ss and -t before -i for instantaneous 10ms keyframe seek with make_zero ts
     cmd = [
         'ffmpeg',
         '-y',
         '-ss', f"{clip_start:.3f}",
         '-t', f"{duration:.3f}",
+        '-avoid_negative_ts', 'make_zero',
         '-i', source_video_path,
     ]
 

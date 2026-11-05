@@ -786,3 +786,100 @@ def align_clip_audio_with_whisper(
                 os.remove(clip_wav)
             except Exception:
                 pass
+
+
+def build_sentence_indexed_transcript(raw_segments: list) -> list:
+    """
+    Phase 3: Sentence-Indexed Audio Transcription.
+    Converts raw transcript segments into an authoritative, sentence-indexed list:
+    - id: 1, 2, 3... (strictly integer, 1-based, perfect for Gemini reasoning)
+    - start: exact start timestamp of first word
+    - end: exact end timestamp of final word
+    - text: clean sentence string
+    - words: exact internal word-level timestamp array
+    """
+    if not raw_segments:
+        return []
+
+    # Flatten all words with acoustic timestamps
+    all_words = []
+    for seg in raw_segments:
+        words = seg.get('words', [])
+        if words:
+            for w in words:
+                w_txt = str(w.get('word', '')).strip()
+                if w_txt:
+                    all_words.append({
+                        'word': w_txt,
+                        'start': float(w.get('start', seg.get('start', 0.0))),
+                        'end': float(w.get('end', seg.get('end', 0.0))),
+                        'confidence': float(w.get('confidence', 0.95)),
+                        'needs_review': bool(w.get('needs_review', False))
+                    })
+        else:
+            s_text = str(seg.get('text', '')).strip()
+            w_list = s_text.split()
+            s_st = float(seg.get('start', 0.0))
+            s_et = float(seg.get('end', s_st + 2.0))
+            dur = max(0.2, s_et - s_st)
+            if w_list:
+                step = dur / len(w_list)
+                for wi, wt in enumerate(w_list):
+                    all_words.append({
+                        'word': wt,
+                        'start': round(s_st + wi * step, 3),
+                        'end': round(min(s_et, s_st + (wi + 1) * step), 3),
+                        'confidence': 0.90,
+                        'needs_review': False
+                    })
+
+    if not all_words:
+        fallback_sents = []
+        for idx, seg in enumerate(raw_segments, start=1):
+            fallback_sents.append({
+                'id': idx,
+                'start': round(float(seg.get('start', 0.0)), 3),
+                'end': round(float(seg.get('end', 0.0)), 3),
+                'text': str(seg.get('text', '')).strip(),
+                'words': seg.get('words', [])
+            })
+        return fallback_sents
+
+    # Group into sentences based on punctuation and natural pause gaps
+    sentences = []
+    current_words = []
+    sentence_id = 1
+    total_words = len(all_words)
+
+    for i, w in enumerate(all_words):
+        current_words.append(w)
+        w_txt = w['word']
+        is_terminator = w_txt.endswith(('.', '?', '!', '।', '|', ':'))
+
+        # Natural pause detection: silence gap >= 0.65 seconds
+        is_pause = False
+        if i + 1 < total_words:
+            next_start = all_words[i + 1]['start']
+            if (next_start - w['end']) >= 0.65:
+                is_pause = True
+
+        # Safety length limit: break on comma if sentence exceeds 18 words
+        is_length_overflow = (len(current_words) >= 18 and w_txt.endswith(','))
+        is_last = (i == total_words - 1)
+
+        if is_terminator or is_pause or is_length_overflow or is_last:
+            s_start = round(current_words[0]['start'], 3)
+            s_end = round(current_words[-1]['end'], 3)
+            s_text = ' '.join(item['word'] for item in current_words)
+
+            sentences.append({
+                'id': sentence_id,
+                'start': s_start,
+                'end': s_end,
+                'text': s_text,
+                'words': list(current_words)
+            })
+            sentence_id += 1
+            current_words = []
+
+    return sentences
