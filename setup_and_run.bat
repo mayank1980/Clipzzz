@@ -22,3 +22,4 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo [2/2] Launching CLIPZZZ services and opening web studio...
 call run_clipzzz.bat
+

@@ -43,16 +43,66 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
 
         groq_key = getattr(settings, 'GROQ_API_KEY', '')
 
-        # Step 1: Download or locate video file
-        project.status = 'downloading'
-        project.progress = 10
-        project.status_message = 'Fetching video...'
-        project.save(update_fields=['status', 'progress', 'status_message'])
-
+        # Step 1: Download or locate existing video file
         media_videos_dir = os.path.join(settings.MEDIA_ROOT, 'videos')
         os.makedirs(media_videos_dir, exist_ok=True)
 
-        if project.source_type == 'youtube' and project.youtube_url:
+        video_full_path = ""
+        # 1. Check if this project already has a valid video file
+        if project.video_file and project.video_file.name:
+            cand = os.path.join(settings.MEDIA_ROOT, project.video_file.name)
+            if os.path.exists(cand) and os.path.getsize(cand) > 1024 * 100:
+                video_full_path = cand
+
+        # 2. Check if YouTube video already exists in media/videos/ by video_id or previous project
+        if not video_full_path and project.source_type == 'youtube' and project.youtube_url:
+            from .downloader import get_youtube_video_id
+            vid_id = get_youtube_video_id(project.youtube_url)
+            if vid_id:
+                for ext in ['mp4', 'mkv', 'webm']:
+                    cand = os.path.join(media_videos_dir, f"{vid_id}.{ext}")
+                    if os.path.exists(cand) and os.path.getsize(cand) > 1024 * 100:
+                        video_full_path = cand
+                        rel_path = os.path.relpath(cand, settings.MEDIA_ROOT).replace('\\', '/')
+                        project.video_file.name = rel_path
+                        project.save(update_fields=['video_file'])
+                        break
+
+            # Check if any prior project already downloaded this exact YouTube URL
+            if not video_full_path:
+                prev_proj = VideoProject.objects.filter(youtube_url=project.youtube_url).exclude(id=project.id).order_by('-created_at').first()
+                if prev_proj and prev_proj.video_file and prev_proj.video_file.name:
+                    cand = os.path.join(settings.MEDIA_ROOT, prev_proj.video_file.name)
+                    if os.path.exists(cand) and os.path.getsize(cand) > 1024 * 100:
+                        video_full_path = cand
+                        project.video_file.name = prev_proj.video_file.name
+                        if not project.title or project.title == 'Importing YouTube Video...':
+                            project.title = prev_proj.title
+                        if not project.thumbnail_url:
+                            project.thumbnail_url = prev_proj.thumbnail_url
+                        project.save()
+
+        if video_full_path:
+            project.status_message = 'Existing video file found on disk. Skipping download.'
+            project.progress = 40
+            project.download_progress = 100
+            project.save(update_fields=['status_message', 'progress', 'download_progress'])
+            from .upload_kit import extract_channel_credit
+            if not project.channel_name:
+                project.channel_name = extract_channel_credit(project.title)
+            if not project.duration or project.duration <= 0:
+                probe = probe_video_metadata(video_full_path)
+                project.duration = probe['duration']
+                project.width = probe['width']
+                project.height = probe['height']
+                project.fps = probe['fps']
+                project.save()
+        elif project.source_type == 'youtube' and project.youtube_url:
+            project.status = 'downloading'
+            project.progress = 10
+            project.status_message = 'Fetching video from YouTube...'
+            project.save(update_fields=['status', 'progress', 'status_message'])
+
             def update_dl_progress(pct, msg, meta=None):
                 project.progress = min(40, 10 + int(pct * 0.3))
                 project.download_progress = pct
@@ -87,61 +137,96 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             project.fps = probe['fps']
             project.save()
 
-        # Step 2: Speech transcription (fetch native YouTube transcript first if available for instant speed)
-        project.status = 'transcribing'
-        project.progress = 45
-        project.status_message = 'Extracting dialogue captions...'
-        project.save(update_fields=['status', 'progress', 'status_message'])
-
+        # Step 2: Check for existing Dialogue Transcript (from project or previous project)
         transcript = []
-        if project.source_type == 'youtube' and project.youtube_url:
-            transcript = get_native_youtube_transcript(project.youtube_url)
+        if project.transcript_raw and isinstance(project.transcript_raw, list) and len(project.transcript_raw) > 0:
+            transcript = project.transcript_raw
+        elif project.source_type == 'youtube' and project.youtube_url:
+            prev_proj = VideoProject.objects.filter(youtube_url=project.youtube_url).exclude(id=project.id).order_by('-created_at').first()
+            if prev_proj and prev_proj.transcript_raw and isinstance(prev_proj.transcript_raw, list) and len(prev_proj.transcript_raw) > 0:
+                transcript = prev_proj.transcript_raw
+                project.transcript_raw = transcript
+                project.save(update_fields=['transcript_raw'])
 
-        # Step 3: Fast Audio Extraction
+        # Step 3: Fast Audio Extraction (reuse if already extracted)
         audio_filename = f"{project.id}.mp3"
         audio_full_path = os.path.join(settings.MEDIA_ROOT, 'audio', audio_filename)
-        if not os.path.exists(audio_full_path) or os.path.getsize(audio_full_path) < 1024:
-            project.status = 'extracting_audio'
+        if os.path.exists(audio_full_path) and os.path.getsize(audio_full_path) > 1024:
+            project.status_message = 'Existing audio stream found. Skipping audio extraction.'
             project.progress = 55
-            project.status_message = 'Extracting audio stream...'
-            project.save(update_fields=['status', 'progress', 'status_message'])
-            extract_audio_from_video(video_full_path, audio_full_path)
-        project.audio_file.name = f"audio/{audio_filename}"
-        project.save(update_fields=['audio_file'])
+            project.audio_file.name = f"audio/{audio_filename}"
+            project.save(update_fields=['status_message', 'progress', 'audio_file'])
+        else:
+            # Check if previous project with same youtube_url has audio stream
+            prev_audio = None
+            if project.source_type == 'youtube' and project.youtube_url:
+                prev_proj = VideoProject.objects.filter(youtube_url=project.youtube_url).exclude(id=project.id).order_by('-created_at').first()
+                if prev_proj and prev_proj.audio_file and prev_proj.audio_file.name:
+                    cand_a = os.path.join(settings.MEDIA_ROOT, prev_proj.audio_file.name)
+                    if os.path.exists(cand_a) and os.path.getsize(cand_a) > 1024:
+                        prev_audio = cand_a
 
-        # Unified Multi-Engine Transcription (FFmpeg + Whisper + WhisperX + Shruti + Gemini)
+            if prev_audio:
+                import shutil
+                shutil.copy2(prev_audio, audio_full_path)
+                project.status_message = 'Existing audio stream restored from cache. Skipping audio extraction.'
+                project.progress = 55
+                project.audio_file.name = f"audio/{audio_filename}"
+                project.save(update_fields=['status_message', 'progress', 'audio_file'])
+            else:
+                project.status = 'extracting_audio'
+                project.progress = 55
+                project.status_message = 'Extracting audio stream...'
+                project.save(update_fields=['status', 'progress', 'status_message'])
+                extract_audio_from_video(video_full_path, audio_full_path)
+                project.audio_file.name = f"audio/{audio_filename}"
+                project.save(update_fields=['audio_file'])
+
+        # Step 2 (Cont.): Speech transcription only if transcript is missing
         if not transcript:
-            project.status = 'transcribing'
-            project.progress = 58
-            project.status_message = 'Transcribing Hinglish & English dialogue with Whisper + WhisperX + Shruti ensemble...'
-            project.save(update_fields=['status', 'progress', 'status_message'])
-            transcript = transcribe_with_whisper(audio_full_path)
+            if project.source_type == 'youtube' and project.youtube_url:
+                project.status = 'transcribing'
+                project.progress = 56
+                project.status_message = 'Checking for native YouTube dialogue captions...'
+                project.save(update_fields=['status', 'progress', 'status_message'])
+                transcript = get_native_youtube_transcript(project.youtube_url)
 
-        if not transcript:
-            project.progress = 62
-            project.status_message = 'Aligning dialogue with Shruti acoustic ASR engine...'
+            if not transcript:
+                project.status = 'transcribing'
+                project.progress = 58
+                project.status_message = 'Transcribing dialogue with faster-whisper...'
+                project.save(update_fields=['status', 'progress', 'status_message'])
+                transcript = transcribe_with_whisper(audio_full_path)
+
+            if not transcript:
+                project.progress = 62
+                project.status_message = 'Aligning dialogue with Shruti acoustic ASR engine...'
+                project.save(update_fields=['progress', 'status_message'])
+                transcript = transcribe_with_shruti(audio_full_path)
+
+            if not transcript and api_key:
+                project.progress = 66
+                project.status_message = 'Transcribing dialogue with Gemini Multimodal AI...'
+                project.save(update_fields=['progress', 'status_message'])
+                transcript = transcribe_with_gemini(audio_full_path, api_key)
+
+            if not transcript and groq_key:
+                project.progress = 68
+                project.status_message = 'Transcribing with Groq Whisper API...'
+                project.save(update_fields=['progress', 'status_message'])
+                transcript = transcribe_with_groq(audio_full_path, groq_key)
+
+            if not transcript:
+                transcript = generate_fallback_transcript(project.duration, project.title)
+
+            project.transcript_raw = transcript
+            project.progress = 72
+            project.status_message = f'Loaded dialogue ({len(transcript)} segments). Analyzing viral highlights...'
+            project.save(update_fields=['transcript_raw', 'progress', 'status_message'])
+        else:
+            project.progress = 72
+            project.status_message = f'Using cached dialogue ({len(transcript)} segments). Analyzing viral highlights...'
             project.save(update_fields=['progress', 'status_message'])
-            transcript = transcribe_with_shruti(audio_full_path)
-
-        if not transcript and api_key:
-            project.progress = 66
-            project.status_message = 'Transcribing dialogue with Gemini Multimodal AI...'
-            project.save(update_fields=['progress', 'status_message'])
-            transcript = transcribe_with_gemini(audio_full_path, api_key)
-
-        if not transcript and groq_key:
-            project.progress = 68
-            project.status_message = 'Transcribing with Groq Whisper API...'
-            project.save(update_fields=['progress', 'status_message'])
-            transcript = transcribe_with_groq(audio_full_path, groq_key)
-
-        if not transcript:
-            transcript = generate_fallback_transcript(project.duration, project.title)
-
-        project.transcript_raw = transcript
-        project.progress = 72
-        project.status_message = f'Loaded dialogue ({len(transcript)} segments). Analyzing viral highlights...'
-        project.save(update_fields=['transcript_raw', 'progress', 'status_message'])
 
         # Step 4: AI Highlight Detection & Viral Scoring
         project.status = 'analyzing'
@@ -164,11 +249,34 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             clipping_mode=getattr(project, 'clipping_mode', 'viral_highlights')
         )
 
-        # Step 5: Save generated clips with Instant In-Memory Master Slicing & Lazy Face Tracking
-        project.clips.all().delete()
+        # Step 5: Save generated clips with Smart Resume & Deduplication
         total_clips = len(highlights)
+        existing_clips = list(project.clips.all().order_by('part_number', 'start_time'))
 
-        # Pre-extract master words with global timestamps once to eliminate per-clip Whisper inference
+        # Check existing rendered files in system folder for all existing clips
+        rendered_dir = os.path.join(settings.MEDIA_ROOT, 'rendered_clips')
+        clean_rendered_dir = os.path.join(rendered_dir, 'clean')
+        os.makedirs(rendered_dir, exist_ok=True)
+        os.makedirs(clean_rendered_dir, exist_ok=True)
+
+        for ec in existing_clips:
+            r_name = f"clip_{ec.id}.mp4"
+            r_path = os.path.join(rendered_dir, r_name)
+            if os.path.exists(r_path) and os.path.getsize(r_path) > 10240:
+                if not ec.rendered_file or not ec.rendered_file.name:
+                    ec.rendered_file.name = f"rendered_clips/{r_name}"
+                ec.render_status = 'completed'
+                ec.render_progress = 100
+                ec.save(update_fields=['rendered_file', 'render_status', 'render_progress'])
+            cr_name = f"clip_{ec.id}_clean.mp4"
+            cr_path = os.path.join(clean_rendered_dir, cr_name)
+            if os.path.exists(cr_path) and os.path.getsize(cr_path) > 10240:
+                if not ec.rendered_clean_file or not ec.rendered_clean_file.name:
+                    ec.rendered_clean_file.name = f"rendered_clips/clean/{cr_name}"
+                ec.clean_render_status = 'completed'
+                ec.save(update_fields=['rendered_clean_file', 'clean_render_status'])
+
+        # Pre-extract master words with global timestamps once
         master_words = []
         if transcript:
             for seg in transcript:
@@ -185,10 +293,59 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                             'needs_review': bool(w.get('needs_review', False))
                         })
 
+        matched_clip_ids = set()
+        highlight_to_clip = {}
+
+        # Pass 1: Match existing clips by part_number and story_id, or by timestamp proximity
+        for h_idx, h in enumerate(highlights):
+            h_start = float(h['start'])
+            h_end = float(h['end'])
+            h_part = h.get('part_number', h_idx + 1)
+            h_story = h.get('story_id', '')
+
+            matched = None
+            for ec in existing_clips:
+                if ec.id in matched_clip_ids:
+                    continue
+                # Match by story_id and part_number
+                if h_story and ec.story_id == h_story and ec.part_number == h_part:
+                    matched = ec
+                    break
+                # Match by start and end timestamps (within 1.5s tolerance)
+                if abs(ec.start_time - h_start) <= 1.5 and abs(ec.end_time - h_end) <= 1.5:
+                    matched = ec
+                    break
+                # Fallback match by sequential order if timestamps are close
+                if h_idx < len(existing_clips) and existing_clips[h_idx].id not in matched_clip_ids and abs(existing_clips[h_idx].start_time - h_start) <= 3.0:
+                    matched = existing_clips[h_idx]
+                    break
+
+            if matched:
+                matched_clip_ids.add(matched.id)
+                highlight_to_clip[h_idx] = matched
+                matched.title = h['title']
+                matched.score = h.get('score', matched.score)
+                matched.ending_type = h.get('ending_type', matched.ending_type)
+                matched.hook_title = h.get('hook_title') or h.get('part_hook') or matched.title
+                matched.save(update_fields=['title', 'score', 'ending_type', 'hook_title'])
+
+        already_created_count = len(highlight_to_clip)
+        if already_created_count > 0:
+            resume_part = already_created_count + 1
+            project.status_message = f"{already_created_count}/{total_clips} clips already created. Resuming from clip {resume_part}/{total_clips}..."
+            project.progress = 80 + int((already_created_count / max(1, total_clips)) * 18)
+            project.save(update_fields=['status_message', 'progress'])
+
+        created_count = 0
+        # Pass 2: Create only the remaining clips that are missing
         for idx, h in enumerate(highlights):
+            if idx in highlight_to_clip:
+                continue
+
             pct = 80 + int(((idx + 1) / max(1, total_clips)) * 18)
             project.progress = pct
             project.status_message = f"Assembling shorts studio package (clip {idx + 1}/{total_clips})..."
+            project.save(update_fields=['progress', 'status_message'])
 
             c_start = float(h['start'])
             c_end = float(h['end'])
@@ -211,7 +368,6 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                             'needs_review': w['needs_review']
                         })
 
-            # If master words were not timestamped per-word, tokenize the snippet evenly
             if not aligned_words:
                 snippet = h.get('transcript_snippet', '') or h.get('title', '')
                 tokens = snippet.split()
@@ -230,8 +386,6 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                             'needs_review': False
                         })
 
-            # Lazy Neural Framing: Lightweight default framing for instant 70-clip display
-            # Full YuNet dynamic keyframing evaluates on-demand when previewed or rendered
             crop_x = 50.0
             crop_y = 35.0
             crop_zoom = 1.15
@@ -252,13 +406,13 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             if aligned_words:
                 caption_style["aligned_words"] = aligned_words
 
-            VideoClip.objects.create(
+            new_clip = VideoClip.objects.create(
                 project=project,
                 title=h['title'],
                 parent_story_title=h.get('parent_story_title', ''),
                 story_id=h.get('story_id', ''),
-                part_number=h.get('part_number', 1),
-                total_parts=h.get('total_parts', 1),
+                part_number=h.get('part_number', idx + 1),
+                total_parts=h.get('total_parts', total_clips),
                 ending_type=h.get('ending_type', 'punchline'),
                 hook_title=h.get('hook_title') or h.get('part_hook') or h.get('title', ''),
                 start_time=c_start,
@@ -277,11 +431,20 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 is_speaker_centered=is_speaker_centered,
                 caption_style=caption_style
             )
+            highlight_to_clip[idx] = new_clip
+            created_count += 1
+
+        # Delete only orphan clips that were not matched to any highlight
+        all_retained_ids = [c.id for c in highlight_to_clip.values() if hasattr(c, 'id')]
+        project.clips.exclude(id__in=all_retained_ids).delete()
 
         # Complete!
         project.status = 'ready'
         project.progress = 100
-        project.status_message = f'Ready! Generated {len(highlights)} clips.'
+        if already_created_count > 0:
+            project.status_message = f'Ready! {total_clips}/{total_clips} clips ready ({already_created_count} retained from cache, {created_count} newly generated).'
+        else:
+            project.status_message = f'Ready! Generated {total_clips} clips.'
         project.save(update_fields=['status', 'progress', 'status_message'])
 
     except Exception as e:
@@ -338,6 +501,21 @@ def _run_clip_render(clip_id: str, clean: bool = False):
 
         output_filename = f"clip_{clip.id}{'_clean' if clean else ''}.mp4"
         output_path = os.path.join(rendered_dir, output_filename)
+
+        # Check if already rendered early and remains in system folder
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10240:
+            print(f"[_run_clip_render] Existing rendered clip found on disk at {output_path}. Skipping render!")
+            rel_path = f"rendered_clips/{'clean/' if clean else ''}{output_filename}"
+            if clean:
+                clip.rendered_clean_file.name = rel_path
+                clip.clean_render_status = 'completed'
+                clip.save(update_fields=['rendered_clean_file', 'clean_render_status'])
+            else:
+                clip.rendered_file.name = rel_path
+                clip.render_status = 'completed'
+                clip.render_progress = 100
+                clip.save(update_fields=['rendered_file', 'render_status', 'render_progress'])
+            return
 
         active_caption_style = dict(clip.caption_style or {})
         if clean:

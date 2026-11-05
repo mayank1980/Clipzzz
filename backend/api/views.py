@@ -433,14 +433,22 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         except Exception:
             file_path = None
 
-        # If not rendered yet, render full 9:16 short with subtitles and crop
+        # If not rendered yet, check if file exists in system folder first, otherwise render full 9:16 short
         if not file_path:
-            if clip.project.video_file and os.path.exists(clip.project.video_file.path):
+            out_dir = os.path.join(settings.MEDIA_ROOT, 'rendered_clips')
+            os.makedirs(out_dir, exist_ok=True)
+            out_name = f"clip_{clip.id}.mp4"
+            out_path = os.path.join(out_dir, out_name)
+
+            # Check if clip is already rendered and remains in system folder
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 10240:
+                clip.rendered_file.name = f"rendered_clips/{out_name}"
+                clip.render_status = 'completed'
+                clip.render_progress = 100
+                clip.save(update_fields=['rendered_file', 'render_status', 'render_progress'])
+                file_path = out_path
+            elif clip.project.video_file and os.path.exists(clip.project.video_file.path):
                 from .services.editor import render_shorts_clip
-                out_dir = os.path.join(settings.MEDIA_ROOT, 'rendered_clips')
-                os.makedirs(out_dir, exist_ok=True)
-                out_name = f"clip_{clip.id}.mp4"
-                out_path = os.path.join(out_dir, out_name)
                 try:
                     crop_kfs = clip.crop_keyframes or []
                     if len(crop_kfs) <= 1 and getattr(clip.project, 'auto_speaker_tracking', True):
@@ -527,14 +535,21 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         except Exception:
             clean_path = None
 
-        # If not clean-rendered yet, render clean 9:16 short without subtitles on demand
+        # If not clean-rendered yet, check system folder first, otherwise render clean 9:16 short
         if not clean_path:
-            if clip.project.video_file and os.path.exists(clip.project.video_file.path):
+            out_dir = os.path.join(settings.MEDIA_ROOT, 'rendered_clips', 'clean')
+            os.makedirs(out_dir, exist_ok=True)
+            out_name = f"clip_{clip.id}_clean.mp4"
+            out_path = os.path.join(out_dir, out_name)
+
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 10240:
+                rel_name = f"rendered_clips/clean/{out_name}"
+                clip.rendered_clean_file.name = rel_name
+                clip.clean_render_status = 'completed'
+                clip.save(update_fields=['rendered_clean_file', 'clean_render_status'])
+                clean_path = out_path
+            elif clip.project.video_file and os.path.exists(clip.project.video_file.path):
                 from .services.editor import render_shorts_clip
-                out_dir = os.path.join(settings.MEDIA_ROOT, 'rendered_clips', 'clean')
-                os.makedirs(out_dir, exist_ok=True)
-                out_name = f"clip_{clip.id}_clean.mp4"
-                out_path = os.path.join(out_dir, out_name)
                 try:
                     clean_style = dict(clip.caption_style or {})
                     clean_style['showCaptions'] = False

@@ -14,3 +14,4 @@ bash ./setup.sh
 
 # Step 2: Run clipzzz
 bash ./run_clipzzz.sh
+
