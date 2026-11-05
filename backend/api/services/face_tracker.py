@@ -473,94 +473,38 @@ class AutoCameraEngine:
                 "seat_id": current_seat["id"]
             })
 
-        # 3. Debate Layout Routing: Check if 2 distinct speakers on opposite sides
-        has_multi_seats = len(speaker_seats) >= 2
-        seat_top = min(speaker_seats, key=lambda s: s["x"]) if has_multi_seats else speaker_seats[0]
-        seat_bottom = max(speaker_seats, key=lambda s: s["x"]) if has_multi_seats else speaker_seats[0]
-        seat_distance = abs(seat_bottom["x"] - seat_top["x"]) if has_multi_seats else 0.0
-
-        # Debate layout criteria: Left speaker (x <= 45%) and Right speaker (x >= 55%) with distance >= 18%
-        is_debate_setup = has_multi_seats and seat_distance >= 18.0 and (seat_top["x"] <= 45.0 and seat_bottom["x"] >= 55.0)
-
         keyframes = []
-        active_mode = "solo"
-        split_hold_until = -1.0
         last_kf_time = -999.0
         last_kf_x = -999.0
 
-        total_samples = len(focal_track)
-        for i, pt in enumerate(focal_track):
+        for pt in focal_track:
             t = pt["time"]
-
-            # Rapid debate banter check: focal point alternates between speakers within 1.5s
-            is_rapid_banter = False
-            if is_debate_setup:
-                window_pts = [focal_track[j] for j in range(i, min(total_samples, i + 3))]
-                unique_speakers = set(wp["seat_id"] for wp in window_pts)
-                if len(unique_speakers) >= 2:
-                    is_rapid_banter = True
-
-            if is_rapid_banter:
-                if active_mode != "split":
-                    active_mode = "split"
-                    split_hold_until = t + 2.5
-                    keyframes.append({
-                        "time": round(t, 1),
-                        "mode": "split",
-                        "top_x": seat_top["x"],
-                        "top_y": seat_top["y"],
-                        "bottom_x": seat_bottom["x"],
-                        "bottom_y": seat_bottom["y"],
-                        "x": seat_top["x"],
-                        "y": seat_top["y"],
-                        "zoom": 1.15,
-                        "speaker": f"Debate Split: {seat_top['label']} & {seat_bottom['label']}"
-                    })
-                    last_kf_time = t
-                else:
-                    split_hold_until = max(split_hold_until, t + 2.5)
-
-            elif active_mode == "split":
-                if t >= split_hold_until:
-                    active_mode = "solo"
-                    keyframes.append({
-                        "time": round(t, 1),
-                        "mode": "solo",
-                        "x": pt["x"],
-                        "y": pt["y"],
-                        "zoom": 1.15,
-                        "speaker": pt["speaker"]
-                    })
-                    last_kf_time = t
-                    last_kf_x = pt["x"]
-
+            if not keyframes:
+                keyframes.append({
+                    "time": 0.0,
+                    "mode": "solo",
+                    "x": pt["x"],
+                    "y": pt["y"],
+                    "zoom": 1.15,
+                    "speaker": pt["speaker"]
+                })
+                last_kf_time = 0.0
+                last_kf_x = pt["x"]
             else:
-                if not keyframes:
+                shift = abs(pt["x"] - last_kf_x)
+                time_elapsed = t - last_kf_time
+                # Fast cut when speaker changes (shift >= 6.0% and time >= 0.5s debounce)
+                if shift >= 6.0 and time_elapsed >= self.min_shot_duration:
                     keyframes.append({
-                        "time": 0.0,
+                        "time": round(t, 1),
                         "mode": "solo",
                         "x": pt["x"],
                         "y": pt["y"],
                         "zoom": 1.15,
                         "speaker": pt["speaker"]
                     })
-                    last_kf_time = 0.0
+                    last_kf_time = t
                     last_kf_x = pt["x"]
-                else:
-                    shift = abs(pt["x"] - last_kf_x)
-                    time_elapsed = t - last_kf_time
-                    # Fast cut when speaker changes (shift >= 6.0% and time >= 0.5s)
-                    if shift >= 6.0 and time_elapsed >= self.min_shot_duration:
-                        keyframes.append({
-                            "time": round(t, 1),
-                            "mode": "solo",
-                            "x": pt["x"],
-                            "y": pt["y"],
-                            "zoom": 1.15,
-                            "speaker": pt["speaker"]
-                        })
-                        last_kf_time = t
-                        last_kf_x = pt["x"]
 
         if not keyframes:
             keyframes.append({

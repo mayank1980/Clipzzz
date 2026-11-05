@@ -362,6 +362,13 @@ class VideoClipViewSet(viewsets.ModelViewSet):
                 pass
             clip.rendered_file = None
 
+        disk_file = os.path.join(settings.MEDIA_ROOT, 'rendered_clips', f"clip_{clip.id}.mp4")
+        if os.path.exists(disk_file):
+            try:
+                os.remove(disk_file)
+            except Exception:
+                pass
+
         clip.render_status = 'rendering'
         clip.render_progress = 10
         clip.error_message = None
@@ -512,6 +519,13 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         except Exception:
             pass
         clip.rendered_clean_file = None
+
+        clean_disk_file = os.path.join(settings.MEDIA_ROOT, 'rendered_clips', 'clean', f"clip_{clip.id}_clean.mp4")
+        if os.path.exists(clean_disk_file):
+            try:
+                os.remove(clean_disk_file)
+            except Exception:
+                pass
 
         from .services.task_runner import render_clean_clip_async
         clip.clean_render_status = 'rendering'

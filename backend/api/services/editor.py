@@ -467,65 +467,14 @@ def render_shorts_clip(
             rel_ass = ass_path.replace(chr(92), '/')
         subtitles_filter = f",subtitles=filename='{rel_ass}'"
 
-    # Scan crop_keyframes for Dynamic Stacked Split intervals (Rule 1: Anti-Flicker min 2.8s hold)
-    split_intervals = []
-    current_split_start = None
-    last_split_kf = None
-
-    for kf in (crop_keyframes or []):
-        k_time = float(kf.get('time', 0.0))
-        k_mode = kf.get('mode', 'solo')
-        if k_mode == 'split' and current_split_start is None:
-            current_split_start = k_time
-            last_split_kf = kf
-        elif k_mode == 'solo' and current_split_start is not None:
-            if k_time > current_split_start:
-                split_intervals.append((current_split_start, k_time, last_split_kf))
-            current_split_start = None
-
-    if current_split_start is not None and duration > current_split_start:
-        split_intervals.append((current_split_start, duration, last_split_kf))
-
-    # Pass split_intervals to ASS generator for Rule 2 Subtitle Safe-Zone Clamping
     if has_overlay_text:
-        raw_split_pairs = [(st, et) for st, et, _ in split_intervals]
-        generate_ass_subtitle_file(active_segments, clip_start, clip_end, ass_path, caption_style or {}, channel_name=channel_name, split_intervals=raw_split_pairs)
+        generate_ass_subtitle_file(active_segments, clip_start, clip_end, ass_path, caption_style or {}, channel_name=channel_name)
 
     use_filter_complex = False
 
-    # Construct video filter graph
-    # Target resolution: 1080x1920 (9:16)
+    # Construct video filter graph: Dedicated 9:16 Portrait Shorts (1080x1920) matching main player
     if crop_mode == 'center_crop' or crop_mode == 'custom_crop':
-        if split_intervals:
-            use_filter_complex = True
-            zoom = max(1.0, min(3.0, float(crop_keyframes[0].get('zoom', crop_zoom))))
-            expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.04, zoom=zoom)
-            expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.04, zoom=zoom)
-
-            top_x = (last_split_kf.get('top_x', 30.0) if last_split_kf else 30.0) / 100.0
-            top_y = (last_split_kf.get('top_y', 32.0) if last_split_kf else 32.0) / 100.0
-            bottom_x = (last_split_kf.get('bottom_x', 70.0) if last_split_kf else 70.0) / 100.0
-            bottom_y = (last_split_kf.get('bottom_y', 32.0) if last_split_kf else 32.0) / 100.0
-
-            enable_expr = '+'.join([f"between(t,{st:.2f},{et:.2f})" for st, et, _ in split_intervals])
-            if has_overlay_text:
-                vf = (
-                    f"[0:v]crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920[solo];"
-                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*{top_x}':y='(ih-oh)*{top_y}',scale=1080:960[split_top];"
-                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*{bottom_x}':y='(ih-oh)*{bottom_y}',scale=1080:960[split_bot];"
-                    f"[split_top][split_bot]vstack=inputs=2[split_full];"
-                    f"[solo][split_full]overlay=0:0:enable='{enable_expr}'[v_stacked];"
-                    f"[v_stacked]subtitles=filename='{rel_ass}'[outv]"
-                )
-            else:
-                vf = (
-                    f"[0:v]crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920[solo];"
-                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*{top_x}':y='(ih-oh)*{top_y}',scale=1080:960[split_top];"
-                    f"[0:v]crop=w='ih*(9/16)/1.15':h='ih*0.5/1.15':x='(iw-ow)*{bottom_x}':y='(ih-oh)*{bottom_y}',scale=1080:960[split_bot];"
-                    f"[split_top][split_bot]vstack=inputs=2[split_full];"
-                    f"[solo][split_full]overlay=0:0:enable='{enable_expr}'[outv]"
-                )
-        elif crop_keyframes and len(crop_keyframes) > 0:
+        if crop_keyframes and len(crop_keyframes) > 0:
             zoom = max(1.0, min(3.0, float(crop_keyframes[0].get('zoom', crop_zoom))))
             expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.04, zoom=zoom)
             expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.04, zoom=zoom)
@@ -536,9 +485,7 @@ def render_shorts_clip(
             cy = max(0.0, min(100.0, float(crop_y))) / 100.0
             vf = f"crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*{cx}':y='(ih-oh)*{cy}',scale=1080:1920{subtitles_filter}"
     else:
-        # Default: Professional Blurred Background Fill
-        # Background: Fast downscale to 360x640, apply 1-pass blur, upscale to 1080x1920 (18x faster, eliminates CPU lag)
-        # Foreground: Scale to 1080:-1, overlay vertically centered
+        # Blurred Background Fill mode
         vf = (
             f"[0:v]split=2[bg][fg];"
             f"[bg]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=12:1,scale=1080:1920[blurred];"

@@ -511,21 +511,6 @@ def _run_clip_render(clip_id: str, clean: bool = False):
         output_filename = f"clip_{clip.id}{'_clean' if clean else ''}.mp4"
         output_path = os.path.join(rendered_dir, output_filename)
 
-        # Check if already rendered early and remains in system folder
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 10240:
-            print(f"[_run_clip_render] Existing rendered clip found on disk at {output_path}. Skipping render!")
-            rel_path = f"rendered_clips/{'clean/' if clean else ''}{output_filename}"
-            if clean:
-                clip.rendered_clean_file.name = rel_path
-                clip.clean_render_status = 'completed'
-                clip.save(update_fields=['rendered_clean_file', 'clean_render_status'])
-            else:
-                clip.rendered_file.name = rel_path
-                clip.render_status = 'completed'
-                clip.render_progress = 100
-                clip.save(update_fields=['rendered_file', 'render_status', 'render_progress'])
-            return
-
         active_caption_style = dict(clip.caption_style or {})
         if clean:
             active_caption_style['showCaptions'] = False
