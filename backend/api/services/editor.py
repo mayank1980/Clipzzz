@@ -1,6 +1,8 @@
 import os
 import re
+import json
 import math
+import hashlib
 import subprocess
 import threading
 import psutil
@@ -428,7 +430,6 @@ def compute_clip_render_hash(clip, mode: str = 'captioned') -> str:
     framing, captioning, and credit parameters that affect the rendered output.
     Used for instant zero-latency caching: avoids re-rendering if nothing changed.
     """
-    import hashlib
     components = [
         str(round(float(clip.start_time), 3)),
         str(round(float(clip.end_time), 3)),
