@@ -12,6 +12,21 @@ def extract_audio_from_video(video_path: str, output_audio_path: str) -> str:
     Finishes in ~1s instead of 40s.
     """
     os.makedirs(os.path.dirname(output_audio_path), exist_ok=True)
+
+    # 0. Reuse already extracted audio
+    if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1024 * 50:
+        return output_audio_path
+
+    # Defensive path check: if video_path doesn't exist, search for base filename without quality tag
+    if not os.path.exists(video_path):
+        v_dir = os.path.dirname(video_path)
+        v_base = os.path.splitext(os.path.basename(video_path))[0]
+        clean_base = re.sub(r'_(720p|1080p|480p)$', '', v_base)
+        for ext in ['.mp4', '.mkv', '.webm']:
+            cand = os.path.join(v_dir, f"{clean_base}{ext}")
+            if os.path.exists(cand) and os.path.getsize(cand) > 1024 * 10:
+                video_path = cand
+                break
     
     # 1. First try: Instant stream copy (0 re-encoding, sub-second)
     try:

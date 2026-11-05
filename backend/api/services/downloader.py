@@ -95,33 +95,33 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
                             'downloaded_bytes': os.path.getsize(cand),
                             'total_bytes': os.path.getsize(cand)
                         })
-                probe = probe_video_metadata(cand)
-                video_title = f"YouTube Video ({video_id})"
-                thumbnail = ""
-                try:
-                    meta_opts = {
-                        'quiet': True,
-                        'no_warnings': True,
-                        'remote_components': ['ejs:github'],
-        'extractor_args': {'youtube': {'player_client': ['tv_embedded', 'visionos', 'android']}}
-                    }
-                    with yt_dlp.YoutubeDL(meta_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        video_title = info.get('title', video_title)
-                        thumbnail = info.get('thumbnail', '')
-                except Exception:
-                    pass
+                    probe = probe_video_metadata(cand)
+                    video_title = f"YouTube Video ({video_id})"
+                    thumbnail = ""
+                    try:
+                        meta_opts = {
+                            'quiet': True,
+                            'no_warnings': True,
+                            'remote_components': ['ejs:github'],
+                            'extractor_args': {'youtube': {'player_client': ['tv_embedded', 'visionos', 'android']}}
+                        }
+                        with yt_dlp.YoutubeDL(meta_opts) as ydl:
+                            info = ydl.extract_info(url, download=False)
+                            video_title = info.get('title', video_title)
+                            thumbnail = info.get('thumbnail', '')
+                    except Exception:
+                        pass
 
-                return {
-                    'video_id': video_id,
-                    'title': video_title,
-                    'thumbnail': thumbnail,
-                    'duration': probe['duration'],
-                    'width': probe['width'],
-                    'height': probe['height'],
-                    'fps': probe['fps'],
-                    'file_path': cand,
-                }
+                    return {
+                        'video_id': video_id,
+                        'title': video_title,
+                        'thumbnail': thumbnail,
+                        'duration': probe['duration'],
+                        'width': probe['width'],
+                        'height': probe['height'],
+                        'fps': probe['fps'],
+                        'file_path': cand,
+                    }
 
     out_template = os.path.join(output_dir, f'%(id)s_{quality}.%(ext)s')
     last_update_time = [0.0]
@@ -281,13 +281,25 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
     duration = float(info.get('duration', 0.0))
     
     # Determine actual file path
-    output_path = os.path.join(output_dir, f"{video_id}.mp4")
-    if not os.path.exists(output_path):
+    output_path = None
+    for q_tag in [f"_{quality}", ""]:
+        for ext in ['mp4', 'mkv', 'webm']:
+            cand = os.path.join(output_dir, f"{video_id}{q_tag}.{ext}")
+            if os.path.exists(cand) and os.path.getsize(cand) > 1024 * 10:
+                output_path = cand
+                break
+        if output_path:
+            break
+
+    if not output_path or not os.path.exists(output_path):
         for ext in ['mp4', 'mkv', 'webm']:
             cand = os.path.join(output_dir, f"{video_id}.{ext}")
             if os.path.exists(cand):
                 output_path = cand
                 break
+
+    if not output_path or not os.path.exists(output_path):
+        raise FileNotFoundError(f"Downloaded video file not found in {output_dir} for {video_id}")
 
     probe = probe_video_metadata(output_path)
     if duration == 0.0:
