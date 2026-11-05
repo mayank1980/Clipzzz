@@ -385,7 +385,15 @@ def transcribe_with_gemini(audio_path: str, api_key: str) -> list:
         }
         """
 
-        model_candidates = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+        model_candidates = [
+            'gemini-2.5-flash-lite',
+            'gemini-flash-latest',
+            'gemini-3.5-flash',
+            'gemini-3.8-flash',
+            'gemini-3.7-flash',
+            'gemini-2.5-flash',
+            'gemini-pro-latest'
+        ]
         response = None
         for m in model_candidates:
             try:

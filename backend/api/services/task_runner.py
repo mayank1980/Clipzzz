@@ -269,9 +269,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 crop_zoom=crop_zoom,
                 crop_keyframes=crop_keyframes,
                 is_speaker_centered=is_speaker_centered,
-                caption_style=caption_style,
-                transcript_snippet=h.get('transcript_snippet', ''),
-                viral_analysis=h.get('viral_analysis', {})
+                caption_style=caption_style
             )
 
         # Complete!
