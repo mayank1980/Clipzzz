@@ -152,11 +152,13 @@ class VideoClip(models.Model):
 
     # Rendered video (with captions)
     rendered_file = models.FileField(upload_to='rendered_clips/%Y/%m/%d/', blank=True, null=True)
+    rendered_hash = models.CharField(max_length=64, blank=True, default='')
     render_status = models.CharField(max_length=30, choices=RENDER_STATUS_CHOICES, default='not_started')
     render_progress = models.IntegerField(default=0)
 
     # Rendered clean video (without captions)
     rendered_clean_file = models.FileField(upload_to='rendered_clips/clean/%Y/%m/%d/', blank=True, null=True)
+    rendered_clean_hash = models.CharField(max_length=64, blank=True, default='')
     clean_render_status = models.CharField(max_length=30, choices=RENDER_STATUS_CHOICES, default='not_started')
 
     error_message = models.TextField(blank=True, null=True)

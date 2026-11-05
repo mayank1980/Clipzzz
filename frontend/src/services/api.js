@@ -140,8 +140,8 @@ export const api = {
     return res.data;
   },
 
-  renderCleanClip: async (clipId) => {
-    const res = await client.post(`/clips/${clipId}/render_clean/`);
+  renderCleanClip: async (clipId, settings = {}) => {
+    const res = await client.post(`/clips/${clipId}/render_clean/`, settings);
     return res.data;
   },
 

@@ -177,21 +177,21 @@ def generate_ass_subtitle_file(
         alignment = 8
         margin_v = 280
 
-    # Custom drag-and-drop position support (yPercent, xPercent)
+    # Subtitle positioning: accurately map xPercent, yPercent or position
     y_pct = style.get('yPercent')
+    if y_pct is None:
+        pos = style.get('position', 'bottom')
+        y_pct = 20.0 if pos == 'top' else (50.0 if pos == 'center' else 75.0)
     x_pct = style.get('xPercent')
-    use_pos = False
-    custom_pos_tag = ""
-    if y_pct is not None:
-        try:
-            y_val = max(8.0, min(92.0, float(y_pct)))
-            x_val = max(10.0, min(90.0, float(x_pct))) if x_pct is not None else 50.0
-            pixel_x = int((x_val / 100.0) * 1080)
-            pixel_y = int((y_val / 100.0) * 1920)
-            custom_pos_tag = f"\\an5\\pos({pixel_x},{pixel_y})"
-            use_pos = True
-        except Exception as e:
-            print(f"[generate_ass_subtitle_file] custom pos error: {e}")
+    if x_pct is None:
+        x_pct = 50.0
+
+    y_val = max(8.0, min(92.0, float(y_pct)))
+    x_val = max(10.0, min(90.0, float(x_pct)))
+    pixel_x = int((x_val / 100.0) * 1080)
+    pixel_y = int((y_val / 100.0) * 1920)
+    custom_pos_tag = f"\\an5\\pos({pixel_x},{pixel_y})"
+    use_pos = True
 
     # Determine style properties according to captions.js presets
     preset = (style.get('preset') or style.get('templateId') or 'Karaoke').lower()
@@ -382,23 +382,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return output_ass_path
 
 
-def normalize_crop_coord(val: float, key: str = 'x', zoom: float = 1.25) -> float:
+def normalize_crop_coord(val: float, key: str = 'x', zoom: float = 1.08) -> float:
+    """
+    Direct linear normalization [0.0 to 1.0] matching VideoPlayer.jsx CSS viewport coordinates.
+    Zero artificial warping ensures 100% pixel-perfect match between preview and exported Short.
+    """
     pct = max(0.0, min(100.0, float(val))) / 100.0
-    if key == 'x':
-        z = max(1.0, float(zoom))
-        half_crop = 0.1582 / z
-        denom = max(0.1, 1.0 - (0.3164 / z))
-        cx = (pct - half_crop) / denom
-        return round(max(0.0, min(1.0, cx)), 4)
-    else:
-        return round(max(0.10, min(0.65, pct)), 4)
+    return round(pct, 4)
 
 
-def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.04, zoom: float = 1.25) -> str:
+def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.75, zoom: float = 1.08) -> str:
     """
     Constructs an FFmpeg piecewise expression for dynamic camera tracking across keyframes.
-    Precisely centers on the speaker's face with zero blank edge space.
-    Supports smooth linear panning (pan_dur=0.04s) between speakers.
+    Precisely centers on the active speaker matching VideoPlayer.jsx.
+    Uses smooth cinematic glide (pan_dur=0.75s) identical to the web preview.
     """
     if not keyframes:
         return f"{normalize_crop_coord(default_val, key, zoom)}"
@@ -425,6 +422,38 @@ def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', d
 
     return expr
 
+def compute_clip_render_hash(clip, mode: str = 'captioned') -> str:
+    """
+    Computes a deterministic SHA-256 signature representing all visual, timing,
+    framing, captioning, and credit parameters that affect the rendered output.
+    Used for instant zero-latency caching: avoids re-rendering if nothing changed.
+    """
+    import hashlib
+    components = [
+        str(round(float(clip.start_time), 3)),
+        str(round(float(clip.end_time), 3)),
+        str(clip.crop_mode),
+        str(round(float(clip.crop_x), 2)),
+        str(round(float(clip.crop_y), 2)),
+        str(round(float(clip.crop_zoom), 2)),
+        json.dumps(clip.crop_keyframes or [], sort_keys=True),
+        str(getattr(clip.project, 'channel_name', '') or ''),
+        mode,
+    ]
+    if mode == 'captioned':
+        components.append(json.dumps(clip.caption_style or {}, sort_keys=True))
+        transcript = getattr(clip.project, 'transcript_raw', []) or []
+        words = []
+        for seg in transcript:
+            for w in seg.get('words', []):
+                ws = float(w.get('start', 0.0))
+                we = float(w.get('end', 0.0))
+                if (clip.start_time <= ws <= clip.end_time) or (clip.start_time <= we <= clip.end_time):
+                    words.append(f"{w.get('word')}:{ws:.2f}:{we:.2f}")
+        components.append(','.join(words))
+
+    return hashlib.sha256(';'.join(components).encode('utf-8')).hexdigest()
+
 def render_shorts_clip(
     source_video_path: str,
     clip_start: float,
@@ -442,7 +471,7 @@ def render_shorts_clip(
 ) -> str:
     """
     Renders a vertical 9:16 (1080x1920) YouTube Short using FFmpeg with:
-    1. Smart blur-fill or custom cropped 9:16 framing
+    1. Smart blur-fill or custom cropped 9:16 framing (100% 1:1 match to web preview)
     2. Professional ASS subtitle burn-in
     3. Broadcast audio normalization (loudnorm)
     """
@@ -467,23 +496,22 @@ def render_shorts_clip(
             rel_ass = ass_path.replace(chr(92), '/')
         subtitles_filter = f",subtitles=filename='{rel_ass}'"
 
-    if has_overlay_text:
-        generate_ass_subtitle_file(active_segments, clip_start, clip_end, ass_path, caption_style or {}, channel_name=channel_name)
-
     use_filter_complex = False
 
     # Construct video filter graph: Dedicated 9:16 Portrait Shorts (1080x1920) matching main player
     if crop_mode == 'center_crop' or crop_mode == 'custom_crop':
+        effective_zoom = max(1.08, min(2.5, float(crop_zoom)))
         if crop_keyframes and len(crop_keyframes) > 0:
-            zoom = max(1.0, min(3.0, float(crop_keyframes[0].get('zoom', crop_zoom))))
-            expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.04, zoom=zoom)
-            expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.04, zoom=zoom)
-            vf = f"crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"
+            kf_zoom = crop_keyframes[0].get('zoom')
+            if kf_zoom:
+                effective_zoom = max(1.08, min(2.5, float(kf_zoom)))
+            expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.75, zoom=effective_zoom)
+            expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.75, zoom=effective_zoom)
+            vf = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"
         else:
-            zoom = max(1.0, min(3.0, float(crop_zoom)))
             cx = max(0.0, min(100.0, float(crop_x))) / 100.0
             cy = max(0.0, min(100.0, float(crop_y))) / 100.0
-            vf = f"crop=w='ih*(9/16)/{zoom}':h='ih/{zoom}':x='(iw-ow)*{cx}':y='(ih-oh)*{cy}',scale=1080:1920{subtitles_filter}"
+            vf = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*{cx:.4f}':y='(ih-oh)*{cy:.4f}',scale=1080:1920{subtitles_filter}"
     else:
         # Blurred Background Fill mode
         vf = (

@@ -1179,7 +1179,7 @@ export default function VideoPlayer({
             {selectedClip && (
               <div className="space-y-1.5 pt-1.5 border-t border-dark-800">
                 <button
-                  onClick={() => onOpenExport?.('captioned', true)}
+                  onClick={() => onOpenExport?.('captioned', false)}
                   className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold py-2 px-3 rounded-xl transition shadow-neon-sm flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer"
                   title="Render 1080x1920 Short with Subtitles"
                 >

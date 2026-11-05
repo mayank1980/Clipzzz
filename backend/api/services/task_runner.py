@@ -557,15 +557,20 @@ def _run_clip_render(clip_id: str, clean: bool = False):
         )
 
         rel_path = f"rendered_clips/{'clean/' if clean else ''}{output_filename}"
+        from .editor import compute_clip_render_hash
+        render_hash = compute_clip_render_hash(clip, mode='clean' if clean else 'captioned')
+
         if clean:
             clip.rendered_clean_file.name = rel_path
             clip.clean_render_status = 'completed'
-            clip.save(update_fields=['rendered_clean_file', 'clean_render_status'])
+            clip.rendered_clean_hash = render_hash
+            clip.save(update_fields=['rendered_clean_file', 'clean_render_status', 'rendered_clean_hash'])
         else:
             clip.rendered_file.name = rel_path
             clip.render_status = 'completed'
             clip.render_progress = 100
-            clip.save(update_fields=['rendered_file', 'render_status', 'render_progress'])
+            clip.rendered_hash = render_hash
+            clip.save(update_fields=['rendered_file', 'render_status', 'render_progress', 'rendered_hash'])
 
     except Exception as e:
         traceback.print_exc()

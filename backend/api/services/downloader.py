@@ -82,8 +82,9 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
 
     # 1. Check if video already exists locally (silent cache hit)
     if video_id and use_cache:
+        tags_to_check = [f"_{quality}", "_720p", "_1080p", "_480p", ""]
         for ext in ['mp4', 'mkv', 'webm']:
-            for q_tag in [f"_{quality}", ""]:
+            for q_tag in tags_to_check:
                 cand = os.path.join(output_dir, f"{video_id}{q_tag}.{ext}")
                 if os.path.exists(cand) and os.path.getsize(cand) > 1024 * 100:
                     print(f"[download_youtube_video] Local video cached at {cand}. Skipping download!")
@@ -179,11 +180,14 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
 
     # Format selection according to user quality preference
     if quality == '480p':
-        format_spec = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best[height<=720]/best'
+        format_spec = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo[height<=720]+bestaudio/best'
+        fallback_fmt = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
     elif quality == '1080p':
-        format_spec = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/bv*+ba/best[ext=mp4]/b/best'
+        format_spec = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/bv*+ba/best'
+        fallback_fmt = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
     else:  # '720p' (default: 4x faster and ideal for mobile shorts)
-        format_spec = 'bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
+        format_spec = 'bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo[height<=480]+bestaudio/best'
+        fallback_fmt = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
 
     # Resilient yt-dlp configuration with Node.js challenge solving & multi-tiered format selection
     ydl_opts = {
@@ -230,14 +234,14 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
 
         # Format availability fallback
         if 'Requested format is not available' in err_msg or 'format' in err_msg.lower():
-            print("[download_youtube_video] Format restriction detected. Retrying with universal format selector...")
+            print("[download_youtube_video] Format restriction detected. Retrying with format selector...")
             try:
                 fmt_opts = dict(ydl_opts)
-                fmt_opts['format'] = 'b/bv*+ba/best'
+                fmt_opts['format'] = fallback_fmt
                 with yt_dlp.YoutubeDL(fmt_opts) as ydl_fmt:
                     info = ydl_fmt.extract_info(url, download=True)
             except Exception as fmt_err:
-                print(f"[download_youtube_video] Universal format retry encountered: {fmt_err}")
+                print(f"[download_youtube_video] Format retry encountered: {fmt_err}")
                 err_msg = str(fmt_err)
 
         # Anti-bot / sign-in challenge fallback
@@ -251,13 +255,16 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
             for cl in fallback_clients:
                 try:
                     fallback_opts = dict(ydl_opts)
-                    fallback_opts['format'] = 'b/bv*+ba/best'
+                    fallback_opts['format'] = fallback_fmt
                     fallback_opts['extractor_args'] = {'youtube': {'player_client': cl}}
                     with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
                         info = ydl_fb.extract_info(url, download=True)
                     if info:
                         print(f"[download_youtube_video] Succeeded with client profile: {cl}")
                         break
+                except Exception as fb_err:
+                    print(f"[download_youtube_video] Client profile {cl} failed: {fb_err}")
+                    continue
                 except Exception as fb_err:
                     print(f"[download_youtube_video] Client profile {cl} failed: {fb_err}")
                     continue

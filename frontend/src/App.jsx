@@ -496,7 +496,7 @@ export default function App() {
             clips={activeProject.clips}
             selectedClip={selectedClip}
             onSelectClip={handleSelectClip}
-            onRenderClip={(clip, mode = 'captioned') => handleOpenExport(mode, true)}
+            onRenderClip={(clip, mode = 'captioned') => handleOpenExport(mode, false)}
             onDeleteClip={handleDeleteClip}
             onDeleteProject={handleDeleteCurrentProject}
             onCreateNew={() => setViewMode('wizard')}
@@ -524,7 +524,7 @@ export default function App() {
                 onTimeUpdate={setCurrentTime}
                 onSeek={handleSeek}
                 onUpdateClipBounds={handleUpdateClipBounds}
-                onOpenExport={(mode = 'captioned', force = true) => handleOpenExport(mode, force)}
+                onOpenExport={(mode = 'captioned', force = false) => handleOpenExport(mode, force)}
                 onOpenShortsKit={() => setIsShortsKitOpen(true)}
                 onDeleteClip={handleDeleteClip}
                 isCropInspectorOpen={isCropInspectorOpen}

@@ -358,7 +358,35 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         if update_ser.is_valid():
             update_ser.save()
 
-        # Delete any previous rendered file so new styling is always generated fresh
+        force = request.data.get('force', False)
+        if isinstance(force, str):
+            force = force.lower() in ('true', '1')
+
+        from .services.editor import compute_clip_render_hash
+        current_hash = compute_clip_render_hash(clip, mode='captioned')
+
+        disk_file = os.path.join(settings.MEDIA_ROOT, 'rendered_clips', f"clip_{clip.id}.mp4")
+        has_disk_file = os.path.exists(disk_file) and os.path.getsize(disk_file) > 1024
+
+        # Smart Cache: If parameters are identical and rendered video is on disk, reuse instantly
+        if not force and clip.rendered_hash == current_hash and has_disk_file:
+            rel_path = f"rendered_clips/clip_{clip.id}.mp4"
+            if not clip.rendered_file or clip.rendered_file.name != rel_path:
+                clip.rendered_file.name = rel_path
+            clip.render_status = 'completed'
+            clip.render_progress = 100
+            clip.error_message = None
+            clip.save(update_fields=['rendered_file', 'render_status', 'render_progress', 'error_message'])
+            return Response({
+                'status': 'completed',
+                'clip_id': str(clip.id),
+                'render_status': 'completed',
+                'render_progress': 100,
+                'cached': True,
+                'rendered_file': clip.rendered_file.url,
+            })
+
+        # Cache miss or explicit force re-render: clean up stale file and trigger render
         if clip.rendered_file:
             try:
                 old_path = clip.rendered_file.path
@@ -368,7 +396,6 @@ class VideoClipViewSet(viewsets.ModelViewSet):
                 pass
             clip.rendered_file = None
 
-        disk_file = os.path.join(settings.MEDIA_ROOT, 'rendered_clips', f"clip_{clip.id}.mp4")
         if os.path.exists(disk_file):
             try:
                 os.remove(disk_file)
@@ -385,6 +412,7 @@ class VideoClipViewSet(viewsets.ModelViewSet):
             'status': 'rendering_started',
             'clip_id': str(clip.id),
             'render_status': 'rendering',
+            'cached': False,
         })
 
     @action(detail=True, methods=['post'])
@@ -516,7 +544,32 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         if update_ser.is_valid():
             update_ser.save()
 
-        # Delete any previous rendered clean file so new styling is always generated fresh
+        force = request.data.get('force', False)
+        if isinstance(force, str):
+            force = force.lower() in ('true', '1')
+
+        from .services.editor import compute_clip_render_hash
+        current_hash = compute_clip_render_hash(clip, mode='clean')
+
+        clean_disk_file = os.path.join(settings.MEDIA_ROOT, 'rendered_clips', 'clean', f"clip_{clip.id}_clean.mp4")
+        has_disk_file = os.path.exists(clean_disk_file) and os.path.getsize(clean_disk_file) > 1024
+
+        # Smart Cache: If parameters are identical and clean rendered video is on disk, reuse instantly
+        if not force and clip.rendered_clean_hash == current_hash and has_disk_file:
+            rel_path = f"rendered_clips/clean/clip_{clip.id}_clean.mp4"
+            if not clip.rendered_clean_file or clip.rendered_clean_file.name != rel_path:
+                clip.rendered_clean_file.name = rel_path
+            clip.clean_render_status = 'completed'
+            clip.save(update_fields=['rendered_clean_file', 'clean_render_status'])
+            return Response({
+                'status': 'completed',
+                'clip_id': str(clip.id),
+                'clean_render_status': 'completed',
+                'cached': True,
+                'rendered_clean_file': clip.rendered_clean_file.url,
+            })
+
+        # Cache miss or explicit force re-render: clean up stale file and trigger render
         try:
             if clip.rendered_clean_file and clip.rendered_clean_file.name:
                 old_path = clip.rendered_clean_file.path
@@ -526,7 +579,6 @@ class VideoClipViewSet(viewsets.ModelViewSet):
             pass
         clip.rendered_clean_file = None
 
-        clean_disk_file = os.path.join(settings.MEDIA_ROOT, 'rendered_clips', 'clean', f"clip_{clip.id}_clean.mp4")
         if os.path.exists(clean_disk_file):
             try:
                 os.remove(clean_disk_file)
@@ -541,6 +593,7 @@ class VideoClipViewSet(viewsets.ModelViewSet):
             'status': 'clean_rendering_started',
             'clip_id': str(clip.id),
             'clean_render_status': 'rendering',
+            'cached': False,
         })
 
     @action(detail=True, methods=['get'])

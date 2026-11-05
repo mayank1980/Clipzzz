@@ -71,17 +71,19 @@ class VideoClipSerializer(serializers.ModelSerializer):
             'is_speaker_centered',
             'caption_style',
             'rendered_file',
+            'rendered_hash',
             'render_status',
             'render_progress',
             'rendered_clean_file',
+            'rendered_clean_hash',
             'clean_render_status',
             'error_message',
             'created_at',
             'updated_at',
         ]
         read_only_fields = [
-            'id', 'project', 'rendered_file', 'render_status', 'render_progress',
-            'rendered_clean_file', 'clean_render_status', 'created_at', 'updated_at'
+            'id', 'project', 'rendered_file', 'rendered_hash', 'render_status', 'render_progress',
+            'rendered_clean_file', 'rendered_clean_hash', 'clean_render_status', 'created_at', 'updated_at'
         ]
 
 

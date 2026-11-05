@@ -120,7 +120,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
     }
   };
 
-  const startRender = useCallback(async (modeToRender) => {
+  const startRender = useCallback(async (modeToRender, force = false) => {
     const activeClip = clipRef.current || clip;
     if (!activeClip) return;
     const mode = modeToRender || renderMode;
@@ -131,16 +131,35 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
     clearPolling();
 
     try {
+      let renderRes;
       if (mode === 'clean') {
-        await api.renderCleanClip(activeClip.id);
+        renderRes = await api.renderCleanClip(activeClip.id, { force });
       } else {
-        await api.renderClip(activeClip.id, {
+        renderRes = await api.renderClip(activeClip.id, {
           crop_mode: activeClip.crop_mode,
           crop_x: activeClip.crop_x,
           crop_y: activeClip.crop_y,
           crop_zoom: activeClip.crop_zoom,
           caption_style: activeClip.caption_style,
+          force,
         });
+      }
+
+      // Instant cache hit: video was already rendered with identical settings
+      if (renderRes?.cached || renderRes?.status === 'completed') {
+        const fileKey = mode === 'clean' ? 'rendered_clean_file' : 'rendered_file';
+        const fileUrl = renderRes[fileKey] || (mode === 'clean' ? activeClip.rendered_clean_file : activeClip.rendered_file);
+        if (fileUrl) {
+          clearPolling();
+          setStatus('completed');
+          setProgress(100);
+          const fullUrl = fileUrl.startsWith('http')
+            ? fileUrl
+            : `${API_BASE_URL}${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}?t=${Date.now()}`;
+          setRenderedUrl(fullUrl);
+          onRenderComplete?.(activeClip.id, fileUrl, mode);
+          return;
+        }
       }
 
       // Poll render status
@@ -443,7 +462,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
 
                   <button
                     type="button"
-                    onClick={() => startRender(renderMode)}
+                    onClick={() => startRender(renderMode, true)}
                     className="w-full bg-dark-950 hover:bg-dark-850 text-slate-400 hover:text-lime-neon border border-dark-800 hover:border-lime-neon/40 text-[10px] font-semibold py-1.5 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer mt-0.5"
                     title="Re-render video fresh"
                   >
@@ -464,7 +483,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
               </p>
               <div className="flex items-center justify-center gap-2">
                 <button
-                  onClick={() => startRender(renderMode)}
+                  onClick={() => startRender(renderMode, true)}
                   className="px-4 py-1.5 bg-lime-neon text-black font-extrabold rounded-xl text-xs hover:bg-lime-400 cursor-pointer"
                 >
                   Retry Render
