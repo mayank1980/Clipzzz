@@ -222,12 +222,13 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           const lowerMsg = msg.toLowerCase();
           if (statusRes.status === 'downloading' || lowerMsg.includes('download')) setPipelineStep(1);
           else if (statusRes.status === 'extracting_audio' || lowerMsg.includes('audio')) setPipelineStep(2);
-          else if (statusRes.status === 'transcribing' || lowerMsg.includes('dialogue') || lowerMsg.includes('transcrib')) setPipelineStep(3);
-          else if (statusRes.status === 'analyzing' || lowerMsg.includes('analyz') || lowerMsg.includes('scan')) setPipelineStep(4);
+          else if (statusRes.status === 'transcribing' || lowerMsg.includes('dialogue') || lowerMsg.includes('transcrib') || lowerMsg.includes('whisper')) setPipelineStep(3);
+          else if (lowerMsg.includes('assembling') || lowerMsg.includes('package') || lowerMsg.includes('resuming') || lowerMsg.includes('shorts package') || lowerMsg.includes('clip ') || lowerMsg.includes('validating') || lowerMsg.includes('clips ready')) setPipelineStep(5);
+          else if (statusRes.status === 'analyzing' || lowerMsg.includes('analyz') || lowerMsg.includes('scan') || lowerMsg.includes('gemini') || lowerMsg.includes('structuring')) setPipelineStep(4);
           else if (statusRes.status === 'ready') {
             clearInterval(interval);
-            setPipelineStep(5);
-            setStatusMessage('All clips generated successfully!');
+            setPipelineStep(6);
+            setStatusMessage('All 9:16 Shorts generated successfully!');
             setTimeout(async () => {
               const fullProject = await api.getProject(projectId);
               setIsLoading(false);
@@ -295,9 +296,12 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             <Sparkles className="w-8 h-8 text-lime-neon absolute inset-0 m-auto" />
           </div>
 
-          <div>
-            <h3 className="text-lg font-bold text-white mb-1.5">Clipzzz Engine at Work</h3>
-            <p className="text-xs font-semibold text-lime-neon">{statusMessage}</p>
+          <div className="bg-dark-950/80 border border-dark-800 rounded-2xl py-3 px-4 shadow-inner">
+            <h3 className="text-sm font-bold text-white mb-1 flex items-center justify-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-lime-neon animate-ping"></span>
+              Clipzzz Pipeline Active
+            </h3>
+            <p className="text-xs font-mono font-bold text-lime-neon tracking-wide">{statusMessage}</p>
           </div>
 
           {/* Live Timelapse Timer & Pipeline Progress */}
@@ -365,14 +369,15 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             </div>
           </div>
 
-          {/* 5-Step Pipeline Indicator */}
+          {/* 6-Step Granular Pipeline Indicator */}
           <div className="space-y-2.5 text-left bg-dark-950 p-4 rounded-2xl border border-dark-800 text-xs">
             {[
-              { step: 1, label: 'Download / Ingest Video' },
-              { step: 2, label: 'Extract High-Fidelity Audio' },
+              { step: 1, label: 'Download / Ingest Video File' },
+              { step: 2, label: 'Extract High-Fidelity Audio Stream' },
               { step: 3, label: 'Timestamped Speech-to-Text Transcription' },
-              { step: 4, label: clipCount === 0 ? 'Gemini AI Full-Timeline Scan (00:00 - End)' : `Gemini AI Selecting Top ${clipCount} Moments (${durationPref}s)` },
-              { step: 5, label: 'Ready for Studio Preview & Export' },
+              { step: 4, label: clippingMode === 'story_series' ? 'Gemini AI Story Arc & Hook Analysis' : (clipCount === 0 ? 'Gemini AI Full-Timeline Scan (00:00 - End)' : `Gemini AI Selecting Top ${clipCount} Moments`) },
+              { step: 5, label: 'Assemble 9:16 Shorts Packages & Word Timing' },
+              { step: 6, label: 'Ready for Studio Preview & Export' },
             ].map((s) => {
               const isPast = pipelineStep > s.step;
               const isCurrent = pipelineStep === s.step;

@@ -206,7 +206,8 @@ def analyze_highlights_with_gemini(
     api_key: str,
     target_count: int = 7,
     duration_preference: str = '30-60',
-    clipping_mode: str = 'viral_highlights'
+    clipping_mode: str = 'viral_highlights',
+    progress_callback = None
 ) -> List[Dict[str, Any]]:
     """
     Leverages Google Gemini API (or intelligent NLP semantic cutting) to extract
@@ -225,7 +226,12 @@ def analyze_highlights_with_gemini(
         intro_cutoff = 40.0 if total_duration > 90.0 else (total_duration * 0.10 if total_duration > 40.0 else 0.0)
 
     if not api_key or not transcript_segments:
+        if progress_callback:
+            progress_callback(80, "AI analyzing narrative arcs with semantic NLP engine...")
         return extract_smart_nlp_highlights(transcript_segments, total_duration, video_title, count, min_dur, max_dur, intro_cutoff, clipping_mode=clipping_mode)
+
+    if progress_callback:
+        progress_callback(78, "Structuring dialogue into indexed narrative sentences...")
 
     # Format COMPLETE transcript with sentence indices or exact seconds spanning the ENTIRE video
     sentence_map = {}
@@ -247,6 +253,10 @@ def analyze_highlights_with_gemini(
 
     # Pass full transcript (up to 3500 segments fits easily inside Gemini's 1M context window)
     transcript_text = "\n".join(formatted_transcript[:3500])
+
+    if progress_callback:
+        mode_label = "Story Arc & Episode Series" if clipping_mode == 'story_series' else "Viral Highlights"
+        progress_callback(80, f"Scanning video timeline with Gemini AI ({mode_label})...")
 
     if clipping_mode == 'story_series':
         prompt = f"""
@@ -405,6 +415,8 @@ def analyze_highlights_with_gemini(
 
         for m in model_candidates:
             try:
+                if progress_callback:
+                    progress_callback(81, f"Scanning timeline with Gemini AI ({m})...")
                 response = client.models.generate_content(
                     model=m,
                     contents=prompt,
@@ -415,14 +427,20 @@ def analyze_highlights_with_gemini(
                     )
                 )
                 if response and response.text:
+                    if progress_callback:
+                        progress_callback(84, f"Received analysis from {m}. Formatting story clips...")
                     break
             except Exception as model_err:
                 print(f"[ai_analyzer] Model {m} note: {model_err}, trying fallback model...")
+                if progress_callback:
+                    progress_callback(83, f"Trying fallback model ({m} unavailable)...")
                 continue
 
         if response and response.text:
             parsed = json.loads(response.text)
             clips = parsed.get('clips', [])
+            if progress_callback:
+                progress_callback(85, f"AI extracted {len(clips)} candidate moments. Refining boundaries & cushions...")
 
             valid_clips = []
             used_ranges = []

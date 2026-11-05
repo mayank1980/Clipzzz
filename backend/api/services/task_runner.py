@@ -232,9 +232,15 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.status = 'analyzing'
         project.progress = 78
         is_auto = (project.requested_clip_count == 0)
-        count_label = "Auto AI full-scan (00:00 to end)" if is_auto else f"top {project.requested_clip_count}"
-        project.status_message = f"Scanning video timeline for {count_label} moments..."
+        count_label = "full video" if is_auto else f"top {project.requested_clip_count}"
+        mode_label = "Story Arc Series" if getattr(project, 'clipping_mode', 'viral_highlights') == 'story_series' else "Viral Highlights"
+        project.status_message = f"Scanning video timeline with Gemini AI ({mode_label} • {count_label})..."
         project.save(update_fields=['status', 'progress', 'status_message'])
+
+        def update_ai_status(pct, msg):
+            project.progress = pct
+            project.status_message = msg
+            project.save(update_fields=['progress', 'status_message'])
 
         # Sentence-Indexed Audio Transcription for atomic narrative boundary snapping
         sentence_indexed_transcript = build_sentence_indexed_transcript(transcript)
@@ -246,11 +252,13 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             api_key=api_key,
             target_count=project.requested_clip_count,
             duration_preference=project.duration_preference,
-            clipping_mode=getattr(project, 'clipping_mode', 'viral_highlights')
+            clipping_mode=getattr(project, 'clipping_mode', 'viral_highlights'),
+            progress_callback=update_ai_status
         )
 
         # Step 5: Save generated clips with Smart Resume & Deduplication
         total_clips = len(highlights)
+        update_ai_status(85, f"Validating {total_clips} story clips and checking system folder cache...")
         existing_clips = list(project.clips.all().order_by('part_number', 'start_time'))
 
         # Check existing rendered files in system folder for all existing clips
@@ -342,14 +350,15 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             if idx in highlight_to_clip:
                 continue
 
-            pct = 80 + int(((idx + 1) / max(1, total_clips)) * 18)
-            project.progress = pct
-            project.status_message = f"Assembling shorts studio package (clip {idx + 1}/{total_clips})..."
-            project.save(update_fields=['progress', 'status_message'])
-
             c_start = float(h['start'])
             c_end = float(h['end'])
             c_dur = max(1.0, c_end - c_start)
+
+            pct = 85 + int(((idx + 1) / max(1, total_clips)) * 14)
+            clip_title = h.get('title', f"Clip {idx + 1}")
+            project.progress = pct
+            project.status_message = f"Assembling Shorts Package ({idx + 1}/{total_clips}): '{clip_title[:28]}' ({c_dur:.0f}s)..."
+            project.save(update_fields=['progress', 'status_message'])
 
             # Fast In-Memory Transcript Word Slicing (Instant array slice & 0.0s rebase)
             aligned_words = []

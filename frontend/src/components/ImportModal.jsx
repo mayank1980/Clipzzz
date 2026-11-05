@@ -92,7 +92,7 @@ export default function ImportModal({ isOpen, onClose, onProjectReady, apiKey, o
         } catch (pollErr) {
           console.error('Polling error', pollErr);
         }
-      }, 1800);
+      }, 1000);
 
     } catch (err) {
       console.error('Import error', err);
