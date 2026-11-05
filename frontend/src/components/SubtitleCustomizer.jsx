@@ -14,13 +14,19 @@ import {
 import CaptionTemplateGallery from './captions/CaptionTemplateGallery';
 import { CAPTION_PRESETS } from './captions/captionPresets';
 
-export default function SubtitleCustomizer({ captionStyle, onChangeStyle }) {
+export default function SubtitleCustomizer({
+  captionStyle,
+  onChangeStyle,
+  playbackRate = 1.0,
+  onChangePlaybackRate,
+}) {
   // Independent open/closed states for each accordion section
   const [openSections, setOpenSections] = useState({
     gallery: true,
     highlight: true,
     layout: false,
     sync: false,
+    speed: true,
   });
 
   const selectedPreset = captionStyle?.preset || captionStyle?.templateId || 'Karaoke';
@@ -314,6 +320,81 @@ export default function SubtitleCustomizer({ captionStyle, onChangeStyle }) {
                 >
                   +0.1s Later
                 </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Caption & Playback Speed */}
+        <div className="border border-dark-800 rounded-xl overflow-hidden bg-dark-950/40">
+          <button
+            onClick={() => toggleSection('speed')}
+            className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-dark-850 transition"
+          >
+            <span className="font-semibold text-slate-300 flex items-center gap-2">
+              <Zap className="w-3.5 h-3.5 text-lime-neon" />
+              Caption & Playback Speed
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono font-bold text-lime-neon bg-lime-neon/10 px-2 py-0.5 rounded border border-lime-neon/20">
+                {(playbackRate || 1.0).toFixed(2)}x
+              </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                  openSections.speed ? 'rotate-180' : ''
+                }`}
+              />
+            </div>
+          </button>
+          {openSections.speed && (
+            <div className="p-3 border-t border-dark-800 bg-dark-950 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-slate-400">Speed Dropdown</span>
+                <select
+                  value={playbackRate || 1.0}
+                  onChange={(e) => onChangePlaybackRate?.(parseFloat(e.target.value))}
+                  className="bg-dark-900 text-lime-neon font-black text-xs border border-dark-700 rounded-lg px-2.5 py-1 cursor-pointer focus:outline-none focus:border-lime-neon"
+                >
+                  {[0.1, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map((rate) => (
+                    <option key={rate} value={rate} className="bg-dark-900 text-white font-mono">
+                      {rate}x {rate === 1.0 ? '(Normal)' : rate === 0.1 ? '(Slow-Mo)' : rate === 2.0 ? '(Max 2x)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                  <span>Fine-tune Slider (0.1x to 2.0x)</span>
+                  <span className="text-lime-neon font-mono font-bold">{(playbackRate || 1.0).toFixed(2)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="2.0"
+                  step="0.05"
+                  value={playbackRate || 1.0}
+                  onChange={(e) => onChangePlaybackRate?.(parseFloat(e.target.value))}
+                  className="w-full accent-lime-neon cursor-pointer"
+                />
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="grid grid-cols-5 gap-1 pt-0.5">
+                {[0.1, 0.5, 1.0, 1.5, 2.0].map((rate) => (
+                  <button
+                    key={rate}
+                    type="button"
+                    onClick={() => onChangePlaybackRate?.(rate)}
+                    className={`py-1 rounded text-[10px] font-bold font-mono transition cursor-pointer ${
+                      Math.abs((playbackRate || 1.0) - rate) < 0.04
+                        ? 'bg-lime-neon text-black font-extrabold shadow-neon-sm'
+                        : 'bg-dark-900 text-slate-400 hover:text-white border border-dark-800'
+                    }`}
+                  >
+                    {rate}x
+                  </button>
+                ))}
               </div>
             </div>
           )}

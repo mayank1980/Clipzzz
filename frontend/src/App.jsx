@@ -32,6 +32,7 @@ export default function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [exportMode, setExportMode] = useState('captioned'); // 'captioned' | 'clean'
   const [exportForce, setExportForce] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
   const [isShortsKitOpen, setIsShortsKitOpen] = useState(false);
   const [isProjectsOpen, setIsProjectsOpen] = useState(false);
   const [editingSegment, setEditingSegment] = useState(null);
@@ -166,8 +167,11 @@ export default function App() {
     setCurrentTime(clip.start_time);
   };
 
-  const handleSeek = (time) => {
+  const handleSeek = (time, speed) => {
     setCurrentTime(time);
+    if (typeof speed === 'number' && speed > 0) {
+      setPlaybackRate(speed);
+    }
   };
 
   const handleUpdateClipBounds = async (newStart, newEnd) => {
@@ -531,6 +535,8 @@ export default function App() {
                 onToggleCropInspector={() => setIsCropInspectorOpen(!isCropInspectorOpen)}
                 onAutoTrack={handleAutoTrackClip}
                 onUpdateChannelName={handleUpdateChannelName}
+                playbackRate={playbackRate}
+                onChangePlaybackRate={setPlaybackRate}
               />
 
               {/* Floating/Docked Crop Inspector */}
@@ -564,6 +570,8 @@ export default function App() {
             <SubtitleCustomizer
               captionStyle={selectedClip?.caption_style}
               onChangeStyle={handleChangeCaptionStyle}
+              playbackRate={playbackRate}
+              onChangePlaybackRate={setPlaybackRate}
             />
 
             <TranscriptPanel

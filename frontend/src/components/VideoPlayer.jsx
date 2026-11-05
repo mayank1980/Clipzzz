@@ -6,6 +6,7 @@ import {
   VolumeX,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Crop,
   Download,
   FileText,
@@ -50,6 +51,8 @@ export default function VideoPlayer({
   onToggleCropInspector,
   onAutoTrack,
   onUpdateChannelName,
+  playbackRate: externalPlaybackRate,
+  onChangePlaybackRate,
 }) {
   const videoRef = useRef(null);
 
@@ -90,7 +93,9 @@ export default function VideoPlayer({
   const [duration, setDuration] = useState(0);
   const [timelineZoom, setTimelineZoom] = useState(100);
   const [localFrameTime, setLocalFrameTime] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [internalPlaybackRate, setInternalPlaybackRate] = useState(1.0);
+  const playbackRate = externalPlaybackRate !== undefined ? externalPlaybackRate : internalPlaybackRate;
+  const setPlaybackRate = onChangePlaybackRate || setInternalPlaybackRate;
   const [isAutoTracking, setIsAutoTracking] = useState(false);
 
   // Drag-and-drop subtitle positioning state
@@ -169,11 +174,21 @@ export default function VideoPlayer({
   };
 
   const handlePlaybackRateChange = (newRate) => {
-    setPlaybackRate(newRate);
+    const rate = Math.max(0.1, Math.min(2.0, parseFloat(newRate) || 1.0));
+    setPlaybackRate(rate);
     if (videoRef.current) {
-      videoRef.current.playbackRate = newRate;
+      videoRef.current.playbackRate = rate;
+      videoRef.current.defaultPlaybackRate = rate;
     }
   };
+
+  // Keep HTML5 video playbackRate strictly synchronized with user's selected speed
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackRate;
+      videoRef.current.defaultPlaybackRate = playbackRate;
+    }
+  }, [playbackRate, videoSrc, isPlaying]);
 
   const handleRunAutoTrack = async () => {
     if (!onAutoTrack) return;
@@ -198,6 +213,8 @@ export default function VideoPlayer({
     if (isPlaying) {
       videoRef.current.pause();
     } else {
+      videoRef.current.playbackRate = playbackRate;
+      videoRef.current.defaultPlaybackRate = playbackRate;
       videoRef.current.play();
     }
   };
@@ -212,6 +229,7 @@ export default function VideoPlayer({
     if (selectedClip) {
       if (curr >= selectedClip.end_time) {
         videoRef.current.currentTime = selectedClip.start_time;
+        videoRef.current.playbackRate = playbackRate;
       }
     }
   };
@@ -231,6 +249,7 @@ export default function VideoPlayer({
         // 2. Loop within clip bounds if a clip is active
         if (selectedClip && curr >= selectedClip.end_time) {
           videoRef.current.currentTime = selectedClip.start_time;
+          videoRef.current.playbackRate = playbackRate;
         }
 
         // 3. Throttle parent App.jsx re-renders to ~12 FPS (every 80ms) so CPU and UI thread stay 100% smooth
@@ -247,10 +266,12 @@ export default function VideoPlayer({
       animId = requestAnimationFrame(syncLoop);
     }
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying, selectedClip?.id, selectedClip?.start_time, selectedClip?.end_time]);
+  }, [isPlaying, selectedClip?.id, selectedClip?.start_time, selectedClip?.end_time, playbackRate]);
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
+    videoRef.current.playbackRate = playbackRate;
+    videoRef.current.defaultPlaybackRate = playbackRate;
     setDuration(videoRef.current.duration || project?.duration || 0);
     const target = (typeof currentTime === 'number' && !isNaN(currentTime) && currentTime > 0)
       ? currentTime
@@ -813,7 +834,13 @@ export default function VideoPlayer({
               ref={videoRef}
               src={videoSrc}
               onClick={togglePlay}
-              onPlay={() => setIsPlaying(true)}
+              onPlay={() => {
+                setIsPlaying(true);
+                if (videoRef.current) {
+                  videoRef.current.playbackRate = playbackRate;
+                  videoRef.current.defaultPlaybackRate = playbackRate;
+                }
+              }}
               onPause={() => setIsPlaying(false)}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
@@ -968,24 +995,26 @@ export default function VideoPlayer({
                     </button>
                   </div>
 
-                  {/* Playback Speed Pill */}
-                  <div className="flex items-center bg-dark-950 p-0.5 rounded-lg border border-dark-800 text-[10px] font-mono shrink-0">
-                    <span className="text-lime-neon px-0.5 text-[9px]">⚡</span>
-                    {[0.75, 1.0, 1.25, 1.5].map((spd) => (
-                      <button
-                        key={spd}
-                        type="button"
-                        onClick={() => handlePlaybackRateChange(spd)}
-                        className={`px-1 py-0.5 rounded font-bold transition cursor-pointer ${
-                          playbackRate === spd
-                            ? 'bg-lime-neon text-black font-extrabold shadow-neon-sm'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                        title={`Play video at ${spd}x speed`}
-                      >
-                        {spd}x
-                      </button>
-                    ))}
+                  {/* Playback & Caption Speed Dropdown (0.1x – 2.0x) */}
+                  <div className="relative flex items-center bg-dark-950 py-1 px-2 rounded-xl border border-dark-800 hover:border-lime-neon/50 text-[11px] font-mono shrink-0 transition group">
+                    <span className="text-lime-neon mr-1.5 text-xs">⚡</span>
+                    <select
+                      value={playbackRate}
+                      onChange={(e) => handlePlaybackRateChange(parseFloat(e.target.value))}
+                      className="bg-transparent text-lime-neon font-black text-xs cursor-pointer focus:outline-none appearance-none pr-5 z-10"
+                      title="Adjust caption & video playback speed (0.1x to 2.0x)"
+                    >
+                      <option value="0.1" className="bg-dark-900 text-white font-mono">0.1x (Slow-Mo)</option>
+                      <option value="0.25" className="bg-dark-900 text-white font-mono">0.25x</option>
+                      <option value="0.5" className="bg-dark-900 text-white font-mono">0.5x</option>
+                      <option value="0.75" className="bg-dark-900 text-white font-mono">0.75x</option>
+                      <option value="1.0" className="bg-dark-900 text-lime-neon font-bold font-mono">1.0x (Normal)</option>
+                      <option value="1.25" className="bg-dark-900 text-white font-mono">1.25x</option>
+                      <option value="1.5" className="bg-dark-900 text-white font-mono">1.5x (Fast)</option>
+                      <option value="1.75" className="bg-dark-900 text-white font-mono">1.75x</option>
+                      <option value="2.0" className="bg-dark-900 text-white font-mono">2.0x (Max)</option>
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-1.5 pointer-events-none group-hover:text-lime-neon transition-colors" />
                   </div>
                 </div>
 

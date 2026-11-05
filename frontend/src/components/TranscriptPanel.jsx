@@ -127,11 +127,11 @@ export default function TranscriptPanel({
                   <div
                     className="flex items-center bg-dark-900/90 rounded border border-dark-800 p-0.5 text-[8px] font-mono"
                     onClick={(e) => e.stopPropagation()}
-                    title="Change speed for this dialogue block"
+                    title="Change playback speed for this caption block"
                   >
                     <span className="text-lime-neon px-0.5">⚡</span>
-                    {[0.8, 1.0, 1.25, 1.5].map((spd) => {
-                      const isCur = segSpeed === spd;
+                    {[0.1, 0.5, 1.0, 1.5, 2.0].map((spd) => {
+                      const isCur = Math.abs(segSpeed - spd) < 0.05;
                       return (
                         <button
                           key={spd}
