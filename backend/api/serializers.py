@@ -100,6 +100,7 @@ class VideoProjectListSerializer(serializers.ModelSerializer):
             'channel_name',
             'target_ratio',
             'download_quality',
+            'use_cached_video',
             'auto_speaker_tracking',
             'requested_clip_count',
             'duration_preference',
@@ -142,6 +143,7 @@ class VideoProjectDetailSerializer(serializers.ModelSerializer):
             'channel_name',
             'target_ratio',
             'download_quality',
+            'use_cached_video',
             'auto_speaker_tracking',
             'requested_clip_count',
             'duration_preference',
@@ -167,6 +169,7 @@ class VideoImportSerializer(serializers.Serializer):
     gemini_api_key = serializers.CharField(required=False, allow_blank=True)
     target_ratio = serializers.ChoiceField(choices=['9:16'], default='9:16')
     download_quality = serializers.ChoiceField(choices=['720p', '1080p', '480p'], default='720p', required=False)
+    use_cached_video = serializers.BooleanField(default=True, required=False)
     auto_speaker_tracking = serializers.BooleanField(default=True)
     requested_clip_count = serializers.IntegerField(default=0, min_value=0, max_value=25)
     duration_preference = serializers.ChoiceField(choices=['0-30', '30-60', '60-80'], default='30-60')

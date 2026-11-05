@@ -113,7 +113,14 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 project.save(update_fields=['progress', 'download_progress', 'download_speed', 'download_eta', 'status_message'])
 
             dl_quality = getattr(project, 'download_quality', '720p') or '720p'
-            dl_res = download_youtube_video(project.youtube_url, media_videos_dir, update_dl_progress, quality=dl_quality)
+            use_cache = getattr(project, 'use_cached_video', True)
+            dl_res = download_youtube_video(
+                project.youtube_url,
+                media_videos_dir,
+                update_dl_progress,
+                quality=dl_quality,
+                use_cache=use_cache
+            )
             from .upload_kit import extract_channel_credit
             project.title = dl_res['title']
             project.channel_name = dl_res.get('channel_name') or extract_channel_credit(project.title)

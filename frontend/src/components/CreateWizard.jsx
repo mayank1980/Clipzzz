@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   BookOpen,
   Flame,
+  HardDrive,
+  RefreshCw,
 } from 'lucide-react';
 import { api } from '../services/api';
 import logoImg from '../assets/logo.png';
@@ -25,6 +27,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   // Settings requested by user
   const [targetRatio, setTargetRatio] = useState('9:16'); // '9:16'
   const [downloadQuality, setDownloadQuality] = useState('720p'); // '720p' (fast/recommended), '1080p', '480p'
+  const [useExistingCache, setUseExistingCache] = useState(true);
   const [autoSpeakerTracking, setAutoSpeakerTracking] = useState(true);
   const [clipCount, setClipCount] = useState(0); // 0 (Auto), 5, 7, 9, 11, 15
   const [durationPref, setDurationPref] = useState('30-60'); // '0-30', '30-60', '60-80'
@@ -78,6 +81,11 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         }
         if (res.default_quality) {
           setDownloadQuality(res.default_quality);
+        }
+        if (res.cached_video?.exists) {
+          setUseExistingCache(true);
+        } else {
+          setUseExistingCache(false);
         }
       } else {
         setInspectError(res?.error || 'Failed to inspect YouTube video.');
@@ -177,6 +185,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           youtube_url: youtubeUrl.trim(),
           target_ratio: targetRatio,
           download_quality: downloadQuality,
+          use_cached_video: useExistingCache,
           auto_speaker_tracking: autoSpeakerTracking,
           requested_clip_count: clipCount,
           duration_preference: durationPref,
@@ -187,6 +196,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         formData.append('video_file', selectedFile);
         formData.append('target_ratio', targetRatio);
         formData.append('download_quality', downloadQuality);
+        formData.append('use_cached_video', useExistingCache);
         formData.append('auto_speaker_tracking', autoSpeakerTracking);
         formData.append('requested_clip_count', clipCount);
         formData.append('duration_preference', durationPref);
@@ -593,6 +603,58 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                           </p>
                         )}
 
+                        {/* Cached Video Detected Prompt */}
+                        {videoInfo.cached_video?.exists && (
+                          <div className="mt-3 pt-3 border-t border-dark-800">
+                            <div className="p-3.5 rounded-2xl bg-dark-900 border-2 border-lime-neon/60 shadow-neon-sm">
+                              <div className="flex items-start gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-lime-neon/20 flex items-center justify-center text-lime-neon shrink-0 mt-0.5">
+                                  <HardDrive className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h5 className="text-xs font-black text-white flex items-center gap-2 flex-wrap">
+                                    <span>Existing Video Download Found on Disk!</span>
+                                    <span className="text-[10px] bg-lime-neon text-black font-extrabold px-2 py-0.5 rounded-full">
+                                      {videoInfo.cached_video.resolution} • {videoInfo.cached_video.size_mb >= 1000 ? `${(videoInfo.cached_video.size_mb / 1024).toFixed(1)} GB` : `${videoInfo.cached_video.size_mb} MB`}
+                                    </span>
+                                  </h5>
+                                  <p className="text-[11px] text-slate-300 mt-1 leading-snug">
+                                    You already have a downloaded copy saved locally. Would you like to use the exact same cached video (0s download), or download a fresh file in your chosen resolution?
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-dark-800">
+                                <button
+                                  type="button"
+                                  onClick={() => setUseExistingCache(true)}
+                                  className={`p-2.5 rounded-xl border text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer ${
+                                    useExistingCache
+                                      ? 'bg-lime-neon text-black border-lime-neon shadow-neon-sm'
+                                      : 'bg-dark-950 text-slate-300 border-dark-750 hover:bg-dark-850 hover:text-white'
+                                  }`}
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  <span>Yes, Use Cached Video (0s Download)</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setUseExistingCache(false)}
+                                  className={`p-2.5 rounded-xl border text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer ${
+                                    !useExistingCache
+                                      ? 'bg-lime-neon text-black border-lime-neon shadow-neon-sm'
+                                      : 'bg-dark-950 text-slate-300 border-dark-750 hover:bg-dark-850 hover:text-white'
+                                  }`}
+                                >
+                                  <RefreshCw className="w-4 h-4" />
+                                  <span>No, Download Fresh ({downloadQuality})</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Download Quality & File Size Selector */}
                         <div className="mt-3 pt-3 border-t border-dark-800">
                           <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
@@ -601,7 +663,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                               <span>Download Quality & File Size</span>
                             </label>
                             <span className="text-[10px] text-slate-400 font-medium">
-                              ⚡ 720p is 4x lighter &amp; downloads in under a minute
+                              {videoInfo.cached_video?.exists && useExistingCache
+                                ? `⚡ Using cached ${videoInfo.cached_video.resolution} file (select below to download fresh)`
+                                : '⚡ 720p is 4x lighter & downloads in under a minute'}
                             </span>
                           </div>
 
@@ -616,7 +680,12 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                                 <button
                                   key={q.id}
                                   type="button"
-                                  onClick={() => setDownloadQuality(q.id)}
+                                  onClick={() => {
+                                    setDownloadQuality(q.id);
+                                    if (videoInfo.cached_video?.exists) {
+                                      setUseExistingCache(false);
+                                    }
+                                  }}
                                   className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between relative cursor-pointer ${
                                     isSelected
                                       ? 'bg-lime-neon/15 border-lime-neon shadow-neon-sm'

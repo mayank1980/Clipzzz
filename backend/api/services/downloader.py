@@ -70,7 +70,7 @@ def probe_video_metadata(video_path: str) -> dict:
             'fps': 30.0
         }
 
-def download_youtube_video(url: str, output_dir: str, progress_callback=None, quality='720p') -> dict:
+def download_youtube_video(url: str, output_dir: str, progress_callback=None, quality='720p', use_cache=True) -> dict:
     """
     Downloads YouTube video via yt-dlp in configurable quality (720p, 1080p, 480p).
     Defaults to 720p HD for 4x faster downloads, significantly reduced file size, and optimal Shorts processing.
@@ -81,7 +81,7 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
     video_id = get_youtube_video_id(url)
 
     # 1. Check if video already exists locally (silent cache hit)
-    if video_id:
+    if video_id and use_cache:
         for ext in ['mp4', 'mkv', 'webm']:
             for q_tag in [f"_{quality}", ""]:
                 cand = os.path.join(output_dir, f"{video_id}{q_tag}.{ext}")
@@ -416,7 +416,39 @@ def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
         recommended_mode = "viral_highlights"
         reason = "Viral Highlights will detect and extract high-retention moments across the full timeline."
 
-    # 3. Dynamic size estimation per quality preset
+    # 3. Check for existing cached download on disk
+    cached_info = None
+    if video_id:
+        out_dirs = [
+            os.path.join(settings.MEDIA_ROOT, 'videos'),
+            os.path.join(settings.MEDIA_ROOT, 'source_videos'),
+        ]
+        for v_dir in out_dirs:
+            if not os.path.exists(v_dir):
+                continue
+            for f in os.listdir(v_dir):
+                if f.startswith(video_id) and f.endswith(('.mp4', '.mkv', '.webm')) and not f.endswith('.temp.mp4') and '.part' not in f:
+                    full_p = os.path.join(v_dir, f)
+                    if os.path.exists(full_p) and os.path.getsize(full_p) > 1024 * 500:
+                        pr = probe_video_metadata(full_p)
+                        size_mb = round(os.path.getsize(full_p) / (1024 * 1024), 1)
+                        h = pr.get('height', 1080)
+                        res_str = f"{h}p Full HD" if h >= 1080 else f"{h}p HD" if h >= 720 else f"{h}p SD"
+                        cached_info = {
+                            'exists': True,
+                            'file_name': f,
+                            'size_mb': size_mb,
+                            'resolution': res_str,
+                            'width': pr.get('width', 1920),
+                            'height': h,
+                        }
+                        if duration == 0.0 and pr.get('duration'):
+                            duration = pr['duration']
+                        break
+            if cached_info:
+                break
+
+    # 4. Dynamic size estimation per quality preset
     dur_mins = max(1.0, duration / 60.0) if duration > 0 else 10.0
     size_1080 = max(15, int(dur_mins * 24.5))
     size_720 = max(5, int(dur_mins * 7.2))
@@ -458,15 +490,16 @@ def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
         },
     ]
 
-    # 4. Trigger lightweight 720p background pre-downloading
-    def _bg_download():
-        try:
-            out_dir = os.path.join(settings.MEDIA_ROOT, 'source_videos')
-            download_youtube_video(url, out_dir, quality='720p')
-        except Exception as dl_e:
-            print(f"[inspect_and_classify_video] Pre-download thread note: {dl_e}")
+    # 5. Trigger lightweight 720p background pre-downloading only if video is NOT already cached
+    if not cached_info:
+        def _bg_download():
+            try:
+                out_dir = os.path.join(settings.MEDIA_ROOT, 'source_videos')
+                download_youtube_video(url, out_dir, quality='720p', use_cache=True)
+            except Exception as dl_e:
+                print(f"[inspect_and_classify_video] Pre-download thread note: {dl_e}")
 
-    threading.Thread(target=_bg_download, daemon=True).start()
+        threading.Thread(target=_bg_download, daemon=True).start()
 
     return {
         'success': True,
@@ -481,5 +514,6 @@ def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
         'recommendation_reason': reason,
         'qualities': qualities,
         'default_quality': '720p',
+        'cached_video': cached_info,
     }
 
