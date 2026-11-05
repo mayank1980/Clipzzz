@@ -161,7 +161,7 @@ class VideoImportSerializer(serializers.Serializer):
     youtube_url = serializers.URLField(required=False, allow_blank=True)
     video_file = serializers.FileField(required=False)
     gemini_api_key = serializers.CharField(required=False, allow_blank=True)
-    target_ratio = serializers.ChoiceField(choices=['9:16', '16:9', '1:1'], default='9:16')
+    target_ratio = serializers.ChoiceField(choices=['9:16'], default='9:16')
     auto_speaker_tracking = serializers.BooleanField(default=True)
     requested_clip_count = serializers.IntegerField(default=0, min_value=0, max_value=25)
     duration_preference = serializers.ChoiceField(choices=['0-30', '30-60', '60-80'], default='30-60')

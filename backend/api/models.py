@@ -62,7 +62,7 @@ class VideoProject(models.Model):
     channel_name = models.CharField(max_length=255, blank=True, default='')
     
     # User Project Preferences
-    target_ratio = models.CharField(max_length=20, default='9:16') # '9:16', '16:9', '1:1'
+    target_ratio = models.CharField(max_length=20, default='9:16') # Exclusively 9:16 Portrait Shorts
     auto_speaker_tracking = models.BooleanField(default=True)
     requested_clip_count = models.IntegerField(default=0) # 5, 7, 9, 11
     duration_preference = models.CharField(max_length=20, default='30-60') # '0-30', '30-60', '60-80'

@@ -4,8 +4,6 @@ import {
   UploadCloud,
   Sparkles,
   Smartphone,
-  Tv,
-  Square,
   UserCheck,
   Clock,
   Layers,
@@ -13,7 +11,6 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
-  Sliders,
   BookOpen,
   Flame,
 } from 'lucide-react';
@@ -609,68 +606,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             )}
           </div>
 
-          {/* Section 2: Aspect Ratio Framing (like CapCut) */}
-          <div className="bg-dark-900 border border-dark-750 rounded-3xl p-6 shadow-lg">
-            <label className="text-sm font-bold text-white mb-1.5 flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-lime-neon" />
-              2. Aspect Ratio & Framing
-            </label>
-            <p className="text-xs text-slate-400 mb-4">
-              Choose your target canvas format:
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                {
-                  id: '9:16',
-                  title: '9:16 Portrait',
-                  desc: 'YouTube Shorts, TikTok, Reels',
-                  icon: <Smartphone className="w-5 h-5" />,
-                  popular: true,
-                },
-                {
-                  id: '16:9',
-                  title: '16:9 Landscape',
-                  desc: 'YouTube Standard, Web Player',
-                  icon: <Tv className="w-5 h-5" />,
-                  popular: false,
-                },
-                {
-                  id: '1:1',
-                  title: '1:1 Square',
-                  desc: 'Instagram Feed, LinkedIn',
-                  icon: <Square className="w-5 h-5" />,
-                  popular: false,
-                },
-              ].map((fmt) => {
-                const isSelected = targetRatio === fmt.id;
-                return (
-                  <div
-                    key={fmt.id}
-                    onClick={() => setTargetRatio(fmt.id)}
-                    className={`relative p-4 rounded-2xl border cursor-pointer transition flex flex-col justify-between ${
-                      isSelected
-                        ? 'bg-dark-800 border-lime-neon shadow-neon-sm'
-                        : 'bg-dark-950 border-dark-700/80 hover:bg-dark-850'
-                    }`}
-                  >
-                    {fmt.popular && (
-                      <span className="absolute top-2.5 right-2.5 text-[9px] bg-lime-neon text-black font-extrabold px-1.5 py-0.5 rounded-full uppercase">
-                        Popular
-                      </span>
-                    )}
-                    <div className="text-lime-neon mb-3">{fmt.icon}</div>
-                    <div>
-                      <h4 className="text-xs font-bold text-white">{fmt.title}</h4>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{fmt.desc}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Section 3: Smart Speaker Tracking Feature */}
+          {/* Section 2: Smart Speaker Tracking Feature */}
           <div className="bg-dark-900 border border-dark-750 rounded-3xl p-6 shadow-lg flex items-center justify-between gap-4">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-lime-neon/15 border border-lime-neon/30 flex items-center justify-center text-lime-neon shrink-0">
@@ -678,13 +614,13 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
               </div>
               <div>
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  AI Smart Speaker Tracking
+                  2. AI Smart Speaker Tracking
                   <span className="text-[10px] bg-lime-neon/20 text-lime-neon font-bold px-2 py-0.5 rounded-full">
-                    Auto-Frame
+                    9:16 Portrait Shorts
                   </span>
                 </h4>
                 <p className="text-xs text-slate-400 mt-0.5 max-w-lg">
-                  Analyzes video frames with facial recognition to automatically center the active talking person inside the vertical 9:16 frame.
+                  Analyzes video frames with YuNet neural facial tracking to automatically center the active speaker inside the vertical 9:16 Shorts frame.
                 </p>
               </div>
             </div>
@@ -979,10 +915,10 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             <Sparkles className="w-5 h-5 fill-black" />
             <span>
               {clippingMode === 'story_series'
-                ? `Generate Complete Story Series (${targetRatio} • ${durationPref}s)`
+                ? `Generate Complete 9:16 Story Series (${durationPref}s)`
                 : clipCount === 0
-                ? `Generate Full-Timeline Viral Clips (${targetRatio} • ${durationPref}s)`
-                : `Generate ${clipCount} Solo Viral Clips (${targetRatio} • ${durationPref}s)`}
+                ? `Generate Full-Timeline 9:16 Shorts (${durationPref}s)`
+                : `Generate ${clipCount} 9:16 Shorts (${durationPref}s)`}
             </span>
             <ArrowRight className="w-4 h-4" />
           </button>
