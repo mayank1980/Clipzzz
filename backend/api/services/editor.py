@@ -2,25 +2,109 @@ import os
 import re
 import math
 import subprocess
+import threading
+import psutil
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 
-_NVENC_AVAILABLE = None
+# Concurrency limit: maximum 2 clips rendering simultaneously to ensure PC never stutters
+_RENDER_SEMAPHORE = threading.BoundedSemaphore(2)
 
-def get_nvenc_support() -> bool:
-    global _NVENC_AVAILABLE
-    if _NVENC_AVAILABLE is not None:
-        return _NVENC_AVAILABLE
+_DETECTED_ENCODER = None
+_ENCODER_ARGS = None
+
+def get_hardware_encoder() -> Tuple[str, List[str]]:
+    """
+    Detects the best hardware-accelerated video encoder available on the system:
+    1. NVIDIA GPU: h264_nvenc (-preset p4 -cq 23 -tune hq -b:v 6000k -maxrate 8500k)
+    2. Intel QuickSync: h264_qsv (-global_quality 23 -preset veryfast -b:v 6000k -maxrate 8500k)
+    3. Apple Silicon (macOS): h264_videotoolbox (-q:v 65 -b:v 6000k -maxrate 8500k)
+    4. Fallback: CPU libx264 (-preset veryfast -crf 22)
+    """
+    global _DETECTED_ENCODER, _ENCODER_ARGS
+    if _DETECTED_ENCODER is not None:
+        return _DETECTED_ENCODER, _ENCODER_ARGS
+
+    # 1. Test NVIDIA NVENC
     try:
         probe = subprocess.run(
             ['ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=0.1', '-c:v', 'h264_nvenc', '-f', 'null', '-'],
             capture_output=True,
             timeout=4
         )
-        _NVENC_AVAILABLE = (probe.returncode == 0)
+        if probe.returncode == 0:
+            _DETECTED_ENCODER = 'h264_nvenc'
+            _ENCODER_ARGS = [
+                '-c:v', 'h264_nvenc',
+                '-preset', 'p4',
+                '-tune', 'hq',
+                '-rc', 'vbr',
+                '-cq', '23',
+                '-b:v', '6000k',
+                '-maxrate', '8500k',
+                '-bufsize', '12000k'
+            ]
+            print("[editor] Enabled NVIDIA NVENC (p4/cq23) Hardware Acceleration!")
+            return _DETECTED_ENCODER, _ENCODER_ARGS
     except Exception:
-        _NVENC_AVAILABLE = False
-    return _NVENC_AVAILABLE
+        pass
+
+    # 2. Test Intel QuickSync (QSV)
+    try:
+        probe = subprocess.run(
+            ['ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=0.1', '-c:v', 'h264_qsv', '-f', 'null', '-'],
+            capture_output=True,
+            timeout=4
+        )
+        if probe.returncode == 0:
+            _DETECTED_ENCODER = 'h264_qsv'
+            _ENCODER_ARGS = [
+                '-c:v', 'h264_qsv',
+                '-global_quality', '23',
+                '-preset', 'veryfast',
+                '-b:v', '6000k',
+                '-maxrate', '8500k'
+            ]
+            print("[editor] Enabled Intel QuickSync (h264_qsv) Hardware Acceleration!")
+            return _DETECTED_ENCODER, _ENCODER_ARGS
+    except Exception:
+        pass
+
+    # 3. Test Apple VideoToolbox (macOS)
+    try:
+        probe = subprocess.run(
+            ['ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=0.1', '-c:v', 'h264_videotoolbox', '-f', 'null', '-'],
+            capture_output=True,
+            timeout=4
+        )
+        if probe.returncode == 0:
+            _DETECTED_ENCODER = 'h264_videotoolbox'
+            _ENCODER_ARGS = [
+                '-c:v', 'h264_videotoolbox',
+                '-q:v', '65',
+                '-b:v', '6000k',
+                '-maxrate', '8500k'
+            ]
+            print("[editor] Enabled Apple VideoToolbox Hardware Acceleration!")
+            return _DETECTED_ENCODER, _ENCODER_ARGS
+    except Exception:
+        pass
+
+    # 4. CPU Fallback (libx264)
+    cpu_threads = str(max(2, min(4, (os.cpu_count() or 4) - 1)))
+    _DETECTED_ENCODER = 'libx264'
+    _ENCODER_ARGS = [
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '22',
+        '-threads', cpu_threads
+    ]
+    print(f"[editor] Using CPU libx264 veryfast encoding (threads={cpu_threads})")
+    return _DETECTED_ENCODER, _ENCODER_ARGS
+
+def get_nvenc_support() -> bool:
+    enc, _ = get_hardware_encoder()
+    return enc == 'h264_nvenc'
 
 def hex_to_ass_color(hex_str: str, alpha: int = 0) -> str:
     """
@@ -479,30 +563,8 @@ def render_shorts_clip(
     else:
         cmd += ['-filter_complex', vf, '-map', '[outv]', '-map', '0:a?']
 
-    # Hardware Acceleration: Fast NVIDIA NVENC (3x-5x speedup) with libx264 veryfast fallback
-    has_nvenc = get_nvenc_support()
-    if has_nvenc:
-        v_codec_args = [
-            '-c:v', 'h264_nvenc',
-            '-preset', 'p2', # Fast NVENC preset for maximum speed
-            '-tune', 'hq',
-            '-rc', 'vbr',
-            '-cq', '23',
-            '-b:v', '6000k',
-            '-maxrate', '8500k',
-            '-bufsize', '12000k'
-        ]
-        print("[render_shorts_clip] Using Ultra-Fast NVIDIA NVENC (p2 preset) Hardware Acceleration!")
-    else:
-        # Cap CPU encoding threads so CPU cores remain free for browser and Windows UI
-        cpu_threads = str(max(2, min(4, (os.cpu_count() or 4) - 1)))
-        v_codec_args = [
-            '-c:v', 'libx264',
-            '-preset', 'veryfast',
-            '-crf', '22',
-            '-threads', cpu_threads
-        ]
-        print(f"[render_shorts_clip] Using CPU libx264 veryfast encoding (threads={cpu_threads})")
+    # Hardware Acceleration: Multi-Platform (NVIDIA NVENC, Intel QSV, Apple VideoToolbox, or CPU libx264)
+    enc_name, v_codec_args = get_hardware_encoder()
 
     # Output parameters with Constant Frame Rate (CFR 30fps) to eliminate playback stutter
     cmd += [
@@ -517,25 +579,37 @@ def render_shorts_clip(
     ]
 
     safe_cmd = ' '.join(str(c) for c in cmd).encode('ascii', errors='replace').decode('ascii')
-    print(f"[render_shorts_clip] Executing FFmpeg: {safe_cmd}")
+    print(f"[render_shorts_clip] Executing FFmpeg ({enc_name}): {safe_cmd}")
 
-    creationflags = 0
-    if os.name == 'nt':
-        # BELOW_NORMAL_PRIORITY_CLASS: gives Windows UI, mouse, browser, and OS top priority
-        # so the computer never lags or freezes during render!
-        creationflags = subprocess.BELOW_NORMAL_PRIORITY_CLASS
+    with _RENDER_SEMAPHORE:
+        creationflags = 0
+        if os.name == 'nt':
+            # BELOW_NORMAL_PRIORITY_CLASS: gives Windows UI, mouse, browser, and OS top priority
+            # so the computer never lags or freezes during render!
+            creationflags = subprocess.BELOW_NORMAL_PRIORITY_CLASS
 
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        creationflags=creationflags,
-        check=False
-    )
-    if proc.returncode != 0:
-        err_snippet = (proc.stderr or "").strip().splitlines()
-        tail_err = "\n".join(err_snippet[-10:]) if err_snippet else "Unknown FFmpeg error"
-        raise RuntimeError(f"FFmpeg render failed (code {proc.returncode}): {tail_err}")
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            creationflags=creationflags
+        )
+
+        try:
+            p = psutil.Process(proc.pid)
+            if os.name == 'nt':
+                p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+            else:
+                p.nice(10)
+        except Exception:
+            pass
+
+        stdout, stderr = proc.communicate()
+        if proc.returncode != 0:
+            err_snippet = (stderr or "").strip().splitlines()
+            tail_err = "\n".join(err_snippet[-10:]) if err_snippet else "Unknown FFmpeg error"
+            raise RuntimeError(f"FFmpeg render failed (code {proc.returncode}): {tail_err}")
 
     # Cleanup temp ASS file if exists
     if ass_path and os.path.exists(ass_path):

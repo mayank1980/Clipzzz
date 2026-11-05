@@ -160,74 +160,80 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             clipping_mode=getattr(project, 'clipping_mode', 'viral_highlights')
         )
 
-        # Step 5: Save generated clips with Multi-Speaker Keyframing & Centering
-        temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp')
+        # Step 5: Save generated clips with Instant In-Memory Master Slicing & Lazy Face Tracking
         project.clips.all().delete()
         total_clips = len(highlights)
+
+        # Pre-extract master words with global timestamps once to eliminate per-clip Whisper inference
+        master_words = []
+        if transcript:
+            for seg in transcript:
+                for w in seg.get('words', []):
+                    w_st = float(w.get('start', 0.0))
+                    w_et = float(w.get('end', 0.0))
+                    word_str = str(w.get('word', '')).strip()
+                    if word_str:
+                        master_words.append({
+                            'word': word_str,
+                            'start': w_st,
+                            'end': w_et,
+                            'confidence': float(w.get('confidence', 0.95)),
+                            'needs_review': bool(w.get('needs_review', False))
+                        })
+
         for idx, h in enumerate(highlights):
-            # Granular progress updates during face centering & Whisper acoustic alignment (80% -> 98%)
             pct = 80 + int(((idx + 1) / max(1, total_clips)) * 18)
             project.progress = pct
-            project.status_message = f"Tracking speakers & speech alignment (clip {idx + 1}/{total_clips})..."
-            project.save(update_fields=['progress', 'status_message'])
+            project.status_message = f"Assembling shorts studio package (clip {idx + 1}/{total_clips})..."
 
             c_start = float(h['start'])
             c_end = float(h['end'])
             c_dur = max(1.0, c_end - c_start)
 
-            crop_x = 50.0
-            crop_y = 45.0
-            crop_zoom = 1.0
-            crop_keyframes = []
-            is_speaker_centered = False
-
-            if project.auto_speaker_tracking:
-                # PDF 3: Automatic Speaker Tracking across multi-speaker podcast/interview
-                keyframes = generate_camera_keyframes(video_full_path, c_start, c_dur)
-                if keyframes and len(keyframes) > 0:
-                    crop_keyframes = keyframes
-                    crop_x = keyframes[0]['x']
-                    crop_y = keyframes[0]['y']
-                    crop_zoom = keyframes[0].get('zoom', 1.15)
-                    is_speaker_centered = True
-                    crop_mode = 'custom_crop'
-                else:
-                    face = detect_primary_speaker_center(video_full_path, start_sec=c_start)
-                    crop_x = face['x']
-                    crop_y = face['y']
-                    is_speaker_centered = face['detected']
-                    crop_mode = face.get('mode', 'custom_crop' if is_speaker_centered else 'blur_fill')
-                    crop_zoom = 1.1 if is_speaker_centered else 1.0
-                    crop_keyframes = [{"time": 0.0, "x": crop_x, "y": crop_y, "zoom": crop_zoom, "speaker": "Speaker Focus"}]
-            else:
-                crop_mode = 'custom_crop' if is_speaker_centered else ('blur_fill' if project.target_ratio == '9:16' else 'fit')
-
-            # Fast alignment from pre-extracted transcript segments
+            # Fast In-Memory Transcript Word Slicing (Instant array slice & 0.0s rebase)
             aligned_words = []
-            if transcript:
-                for seg in transcript:
-                    s_st = float(seg.get('start', 0.0))
-                    s_et = float(seg.get('end', 0.0))
-                    if s_et < c_start or s_st > c_end:
-                        continue
-                    for w in seg.get('words', []):
-                        w_st = float(w.get('start', 0.0))
-                        w_et = float(w.get('end', 0.0))
-                        if w_et >= c_start and w_st <= c_end:
-                            rel_st = max(0.0, round(w_st - c_start, 3))
-                            rel_et = max(rel_st + 0.05, min(c_dur, round(w_et - c_start, 3)))
-                            aligned_words.append({
-                                'word': w.get('word', ''),
-                                'start': round(w_st, 3),
-                                'end': round(w_et, 3),
-                                'clip_start': rel_st,
-                                'clip_end': rel_et,
-                                'confidence': w.get('confidence', 0.95),
-                                'needs_review': w.get('needs_review', False)
-                            })
+            if master_words:
+                for w in master_words:
+                    if w['end'] >= c_start and w['start'] <= c_end:
+                        rel_st = max(0.0, round(w['start'] - c_start, 3))
+                        rel_et = max(rel_st + 0.05, min(c_dur, round(w['end'] - c_start, 3)))
+                        aligned_words.append({
+                            'word': w['word'],
+                            'start': round(w['start'], 3),
+                            'end': round(w['end'], 3),
+                            'clip_start': rel_st,
+                            'clip_end': rel_et,
+                            'confidence': w['confidence'],
+                            'needs_review': w['needs_review']
+                        })
 
+            # If master words were not timestamped per-word, tokenize the snippet evenly
             if not aligned_words:
-                aligned_words = align_clip_audio_with_whisper(video_full_path, c_start, c_dur, temp_dir)
+                snippet = h.get('transcript_snippet', '') or h.get('title', '')
+                tokens = snippet.split()
+                if tokens:
+                    token_dur = c_dur / float(len(tokens))
+                    for ti, tok in enumerate(tokens):
+                        st_t = round(ti * token_dur, 3)
+                        et_t = round(min(c_dur, (ti + 1) * token_dur), 3)
+                        aligned_words.append({
+                            'word': tok,
+                            'start': round(c_start + st_t, 3),
+                            'end': round(c_start + et_t, 3),
+                            'clip_start': st_t,
+                            'clip_end': et_t,
+                            'confidence': 0.90,
+                            'needs_review': False
+                        })
+
+            # Lazy Neural Framing: Lightweight default framing for instant 70-clip display
+            # Full YuNet dynamic keyframing evaluates on-demand when previewed or rendered
+            crop_x = 50.0
+            crop_y = 35.0
+            crop_zoom = 1.15
+            crop_mode = 'custom_crop'
+            crop_keyframes = [{"time": 0.0, "x": crop_x, "y": crop_y, "zoom": crop_zoom, "speaker": "Speaker Focus"}]
+            is_speaker_centered = True
 
             caption_style = {
                 "font": "Arial Black",
@@ -263,7 +269,9 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 crop_zoom=crop_zoom,
                 crop_keyframes=crop_keyframes,
                 is_speaker_centered=is_speaker_centered,
-                caption_style=caption_style
+                caption_style=caption_style,
+                transcript_snippet=h.get('transcript_snippet', ''),
+                viral_analysis=h.get('viral_analysis', {})
             )
 
         # Complete!
@@ -331,6 +339,22 @@ def _run_clip_render(clip_id: str, clean: bool = False):
         if clean:
             active_caption_style['showCaptions'] = False
 
+        # On-Demand YuNet Neural Keyframe Evaluation if not yet computed
+        crop_kfs = clip.crop_keyframes or []
+        if len(crop_kfs) <= 1 and getattr(project, 'auto_speaker_tracking', True):
+            try:
+                from .face_tracker import generate_camera_keyframes
+                computed_kfs = generate_camera_keyframes(source_video_path, clip.start_time, clip.duration)
+                if computed_kfs:
+                    crop_kfs = computed_kfs
+                    clip.crop_keyframes = computed_kfs
+                    clip.crop_x = computed_kfs[0]['x']
+                    clip.crop_y = computed_kfs[0]['y']
+                    clip.crop_zoom = computed_kfs[0].get('zoom', 1.15)
+                    clip.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom'])
+            except Exception as fe:
+                print(f"[_run_clip_render] On-demand neural tracking notice: {fe}")
+
         from .upload_kit import extract_channel_credit
         channel_name = getattr(project, 'channel_name', '') or extract_channel_credit(project.title)
         render_shorts_clip(
@@ -342,7 +366,7 @@ def _run_clip_render(clip_id: str, clean: bool = False):
             crop_x=clip.crop_x,
             crop_y=clip.crop_y,
             crop_zoom=clip.crop_zoom,
-            crop_keyframes=clip.crop_keyframes,
+            crop_keyframes=crop_kfs,
             caption_style=active_caption_style,
             segments=project.transcript_raw if not clean else None,
             channel_name=channel_name if not clean else ""

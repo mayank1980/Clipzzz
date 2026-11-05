@@ -442,6 +442,21 @@ class VideoClipViewSet(viewsets.ModelViewSet):
                 out_name = f"clip_{clip.id}.mp4"
                 out_path = os.path.join(out_dir, out_name)
                 try:
+                    crop_kfs = clip.crop_keyframes or []
+                    if len(crop_kfs) <= 1 and getattr(clip.project, 'auto_speaker_tracking', True):
+                        try:
+                            from .services.face_tracker import generate_camera_keyframes
+                            computed_kfs = generate_camera_keyframes(clip.project.video_file.path, clip.start_time, clip.duration)
+                            if computed_kfs:
+                                crop_kfs = computed_kfs
+                                clip.crop_keyframes = computed_kfs
+                                clip.crop_x = computed_kfs[0]['x']
+                                clip.crop_y = computed_kfs[0]['y']
+                                clip.crop_zoom = computed_kfs[0].get('zoom', 1.15)
+                                clip.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom'])
+                        except Exception:
+                            pass
+
                     from .services.upload_kit import extract_channel_credit
                     channel_name = getattr(clip.project, 'channel_name', '') or extract_channel_credit(clip.project.title)
                     render_shorts_clip(
@@ -453,7 +468,7 @@ class VideoClipViewSet(viewsets.ModelViewSet):
                         crop_x=clip.crop_x,
                         crop_y=clip.crop_y,
                         crop_zoom=clip.crop_zoom,
-                        crop_keyframes=clip.crop_keyframes,
+                        crop_keyframes=crop_kfs,
                         caption_style=clip.caption_style,
                         segments=clip.project.transcript_raw,
                         channel_name=channel_name
