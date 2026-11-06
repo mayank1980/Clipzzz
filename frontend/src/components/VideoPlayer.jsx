@@ -70,6 +70,13 @@ export default function VideoPlayer({
     return parts[0] || 'Original Creator';
   }, [project?.channel_name, project?.title]);
 
+  // Video source URL
+  const videoSrc = project?.video_file
+    ? project.video_file.startsWith('http')
+      ? project.video_file
+      : `${API_BASE_URL}${project.video_file.startsWith('/') ? '' : '/'}${project.video_file}`
+    : '';
+
   const [isEditingChannel, setIsEditingChannel] = useState(false);
   const [channelInput, setChannelInput] = useState('');
 
@@ -199,13 +206,6 @@ export default function VideoPlayer({
       setIsAutoTracking(false);
     }
   };
-
-  // Video source URL
-  const videoSrc = project?.video_file
-    ? project.video_file.startsWith('http')
-      ? project.video_file
-      : `${API_BASE_URL}${project.video_file.startsWith('/') ? '' : '/'}${project.video_file}`
-    : '';
 
   // Synchronize play state
   const togglePlay = () => {
