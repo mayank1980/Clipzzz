@@ -217,13 +217,12 @@ def analyze_highlights_with_gemini(
     min_dur, max_dur = get_duration_range(duration_preference)
     is_auto = (target_count <= 0)
     if is_auto:
-        # Dynamically determine count based on total duration: ~1 viral clip per 2.5-3 minutes
-        count = max(5, min(25, int(total_duration / 160.0))) if total_duration > 0 else 8
-        # Full length scan: start from 00:00 to last timeline of video
+        # Full video coverage according to YouTube trends: ~1 high-retention viral moment per 75-90s
+        count = max(8, min(35, int(total_duration / 85.0))) if total_duration > 0 else 12
         intro_cutoff = 0.0
     else:
-        count = max(3, min(25, target_count))
-        intro_cutoff = 40.0 if total_duration > 90.0 else (total_duration * 0.10 if total_duration > 40.0 else 0.0)
+        count = max(3, min(30, target_count))
+        intro_cutoff = 30.0 if total_duration > 90.0 else 0.0
 
     if not api_key or not transcript_segments:
         if progress_callback:
@@ -273,125 +272,74 @@ def analyze_highlights_with_gemini(
     ---
 
     DETECTION OBJECTIVES & MANDATORY RULES:
-    1. Scan the whole video timeline from 00:00 to the end ({total_duration:.1f}s).
-    2. Detect ALL STORIES, PARANORMAL INCIDENTS, REAL-LIFE CASES, or NARRATIVE ARCS narrated throughout the video.
-    3. CRITICAL RULE FOR START POINTS (ZERO MID-STORY STARTS):
-       - Part 1 of ANY story MUST START AT THE EXACT FIRST SENTENCE where the narrative or topic is introduced.
-       - Look for the intro statement or question: e.g. "Toh yeh incident kab hua...", "Yeh baat hai 2018 ki...", "Ek baar kya hua tha mere dost ke saath...", "Basically we were going to...", "Acha ek aur incident bataata hoon...".
-       - NEVER START IN THE MIDDLE of an ongoing sentence, thought, or climax! The audience MUST hear the setup from the true starting point.
-    4. COMPLETE SEQUENTIAL MULTI-PART DIVISION (NO ARTIFICIAL 4-PART CAP):
-       - NEVER ARTIFICIALLY CAP A STORY AT 4 PARTS! Real narrative stories in podcasts typically run for 10, 15, or even 25+ minutes.
-       - Slicing a 10-minute story into ~55s clips yields 10 to 12 continuous parts!
-       - Slicing an entire podcast episode narration covering 20-30 minutes yields 15 to 25 continuous parts!
-       - Slice the ENTIRE continuous story into sequential chronological episodes: Part 1, Part 2, Part 3, Part 4, Part 5, Part 6, Part 7, Part 8, Part 9, Part 10... Part N until the speaker ACTUALLY reaches the conclusion/ending of the story!
-       - If the video is a single full-length story or incident narration, generate parts covering the FULL video from beginning to conclusion!
-       - Each part should be ~45s to 65s (Shorts format).
-       - Part 2 starts exactly where Part 1 ends, Part 3 starts where Part 2 ends. There must be zero dead gaps between consecutive parts of the same story.
-       - Assign each story its own distinct "story_id" (e.g. "story_1", "story_2", "story_3") and captivating "parent_story_title".
-       - Set "part_number" (1, 2, 3...) and "total_parts" (the TRUE total number of parts in THAT specific story, e.g. 8, 12, 16, 20).
-       - Set "start_sentence_id" and "end_sentence_id" corresponding to the integer sentence tags [N] in the transcript.
-       - Set "ending_type": classify strictly as "cliffhanger" (leaves viewer eager for next part), "punchline" (humorous or dramatic climax), or "takeaway" (lesson/resolution).
-       - Set "hook_title": a punchy 4-7 word headline for this episode.
+    1. FULL VIDEO TIMELINE COVERAGE:
+       - Scan the ENTIRE video timeline from 00:00 to the end ({total_duration:.1f}s).
+       - DO NOT ARTIFICIALLY CAP AT 3 OR 4 PARTS! Generate all sequential episodes: Part 1, Part 2, Part 3, Part 4, Part 5, Part 6... up to Part N until the narrative concludes!
+       - If the video contains multiple stories or a single long case/interview, cover the FULL duration across the entire timeline!
+    2. YOUTUBE TREND & AUDIENCE RETENTION OPTIMIZATION:
+       - The first 3 seconds of every part MUST hook the viewer with intense curiosity, suspense, or emotional investment.
+       - End each part with high suspense (cliffhanger) or a memorable takeaway/punchline so viewers binge the next episode.
+    3. ZERO MID-SENTENCE CUTS:
+       - Every part must start at the clean beginning of a thought/sentence and end cleanly.
+       - Part 2 starts where Part 1 ends, Part 3 starts where Part 2 ends.
 
     Return JSON:
     {{
       "clips": [
         {{
           "story_id": "story_1",
-          "parent_story_title": "The Haunted Farmhouse Encounter",
+          "parent_story_title": "Story Arc Title",
           "part_number": 1,
-          "total_parts": 12,
-          "title": "Part 1: The Midnight Call",
-          "start_sentence_id": 1,
-          "end_sentence_id": 14,
-          "start": 45.0,
-          "end": 98.5,
+          "total_parts": 10,
+          "title": "Part 1: The Setup",
+          "start": 10.0,
+          "end": 65.0,
           "ending_type": "cliffhanger",
-          "hook_title": "The Midnight Call Nobody Expected",
+          "hook_title": "The Shocking Beginning",
           "score": 96,
           "category": "Story Series",
-          "hook": "Spoken opening hook in the first 5 seconds",
-          "reason": "Initial incident setup leading to Part 2",
+          "hook": "Spoken opening hook in the first 3 seconds",
+          "reason": "High retention story opening matching YouTube trend",
           "retention_score": 95
-        }},
-        {{
-          "story_id": "story_1",
-          "parent_story_title": "The Haunted Farmhouse Encounter",
-          "part_number": 2,
-          "total_parts": 12,
-          "title": "Part 2: Strange Footsteps in the Dark",
-          "start_sentence_id": 15,
-          "end_sentence_id": 28,
-          "start": 98.5,
-          "end": 152.0,
-          "ending_type": "cliffhanger",
-          "hook_title": "Footsteps on the Locked Roof",
-          "score": 95,
-          "category": "Story Series",
-          "hook": "Spoken continuation hook",
-          "reason": "Rising tension and cliffhanger",
-          "retention_score": 94
-        }},
-        {{
-          "story_id": "story_1",
-          "parent_story_title": "The Haunted Farmhouse Encounter",
-          "part_number": 3,
-          "total_parts": 12,
-          "title": "Part 3: The Locked Basement",
-          "start_sentence_id": 29,
-          "end_sentence_id": 41,
-          "start": 152.0,
-          "end": 208.0,
-          "ending_type": "punchline",
-          "hook_title": "What Was Behind the Iron Door",
-          "score": 95,
-          "category": "Story Series",
-          "hook": "Next part hook",
-          "reason": "Escalation",
-          "retention_score": 93
         }}
       ]
     }}
-    (IMPORTANT: Continue generating all sequential parts: Part 4, Part 5, Part 6... until the story concludes completely!)
+    (Generate all sequential parts across the entire story timeline!)
     """
     else:
         prompt = f"""
-    You are an elite YouTube Shorts & Reels viral editor specializing in Indian podcasts, Hinglish creator content, and interviews.
+    You are an elite YouTube Shorts & Reels viral editor specializing in high-retention viral content.
 
     Video Title: "{video_title}"
     Total Duration: {total_duration:.1f}s ({total_duration/60:.1f} minutes)
     Target Clip Count: Exactly {count} clips
     Target Duration Range: {min_dur:.0f}s to {max_dur:.0f}s per clip
-    Minimum Start Cutoff: {intro_cutoff:.0f}s (SKIP THE INTRO / GREETINGS / SPONSORS)
 
     Timestamped Transcript:
     ---
     {transcript_text}
     ---
 
-    TASK: Select EXACTLY {count} distinct, non-overlapping VIRAL moments across the whole video.
-    CRITICAL RULES:
-    1. TIMELINE DISTRIBUTION ACROSS THE ENTIRE VIDEO:
-       - The video duration is {total_duration:.1f}s ({total_duration/60:.1f} minutes).
-       - You MUST distribute the {count} clips across the ENTIRE video (beginning, middle, second half, and ending).
-       - DO NOT pick all clips from just the first 10 minutes! Divide the video into {count} roughly equal time intervals and select the single strongest viral hook from each interval.
-    2. DIVERSITY: Distribute clips across different parts and distinct topics of the video. Do not take multiple clips from the same 2 minutes.
-    3. Clean Cut: Start at the exact beginning of a sentence. End on a punchy, complete thought. Never cut mid-sentence.
-    4. Hook: The first 3 seconds must create a curiosity gap (e.g. bold claim, question, surprising counter-intuitive insight).
-    5. Language: Punchy Roman **Hinglish** titles (max 6 words).
+    TASK: Select {count} high-retention VIRAL moments across the entire video ({total_duration:.1f}s) based on current YouTube Trends.
+
+    YOUTUBE TREND & RETENTION CRITERIA:
+    1. AUDIENCE ATTRACTING HOOKS: The first 3 seconds must have an irresistible hook (shock value, bold counter-intuitive statement, deep insight, hilarious punchline, or debate).
+    2. FULL TIMELINE DISTRIBUTION: Distribute the {count} clips across the entire video from beginning (00:00) through middle and climax/conclusion. Do not bunch clips into one section.
+    3. CLEAN COMPLETE THOUGHTS: Start at the exact beginning of a sentence. End cleanly on a complete takeaway or punchline.
+    4. Punchy Roman Hinglish / English titles (max 6 words).
 
     Return JSON:
     {{
       "clips": [
         {{
-          "title": "Short Punchy Hinglish Title (Max 6 words)",
-          "start": {intro_cutoff + 10.0:.1f},
+          "title": "Viral Moment Title (Max 6 words)",
+          "start": {intro_cutoff + 5.0:.1f},
           "end": {intro_cutoff + 55.0:.1f},
           "score": 96,
-          "category": "Mindset / Strategy / Story / Insight / Motivation",
-          "hook": "Spoken hook in the first 5 seconds",
-          "reason": "Explainable ranking: why this moment holds high viewer retention",
-          "retention_score": 93
+          "category": "Mindset / Story / Humor / Insight / Strategy",
+          "hook": "Spoken hook in the first 3 seconds",
+          "reason": "Why this moment matches YouTube trends and holds high retention",
+          "retention_score": 95
         }}
       ]
     }}

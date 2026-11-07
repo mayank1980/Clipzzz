@@ -243,19 +243,13 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           }
 
           const lowerMsg = msg.toLowerCase();
-          if (lowerMsg.includes('0 mb') || lowerMsg.includes('native') || lowerMsg.includes('dialogue') || lowerMsg.includes('transcrib') || lowerMsg.includes('whisper')) {
-            setPipelineStep(3);
-          } else if (lowerMsg.includes('analyz') || lowerMsg.includes('scan') || lowerMsg.includes('gemini') || lowerMsg.includes('storyline') || statusRes.status === 'analyzing') {
-            setPipelineStep(4);
-          } else if (lowerMsg.includes('assembling') || lowerMsg.includes('package') || lowerMsg.includes('shorts package') || lowerMsg.includes('clip ') || lowerMsg.includes('validating') || lowerMsg.includes('preview')) {
-            setPipelineStep(5);
-          } else if (statusRes.status === 'extracting_audio' || lowerMsg.includes('audio stream')) {
+          if (lowerMsg.includes('analyz') || lowerMsg.includes('scan') || lowerMsg.includes('gemini') || lowerMsg.includes('trend') || lowerMsg.includes('retention') || statusRes.status === 'analyzing') {
             setPipelineStep(2);
-          } else if (statusRes.status === 'downloading' || (lowerMsg.includes('download') && !lowerMsg.includes('0 mb'))) {
-            setPipelineStep(1);
-          } else if (statusRes.status === 'ready') {
+          } else if (lowerMsg.includes('assembling') || lowerMsg.includes('package') || lowerMsg.includes('shorts package') || lowerMsg.includes('clip ') || lowerMsg.includes('validating') || lowerMsg.includes('framing')) {
+            setPipelineStep(3);
+          } else if (statusRes.status === 'ready' || lowerMsg.includes('ready') || lowerMsg.includes('complete')) {
             clearInterval(interval);
-            setPipelineStep(6);
+            setPipelineStep(4);
             setStatusMessage('All 9:16 Shorts generated successfully!');
             setTimeout(async () => {
               const fullProject = await api.getProject(projectId);
@@ -266,6 +260,8 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             clearInterval(interval);
             setIsLoading(false);
             setErrorMessage(statusRes.error_message || 'Processing failed');
+          } else {
+            setPipelineStep(1);
           }
         } catch (pollErr) {
           console.error('Polling error', pollErr);
@@ -397,15 +393,17 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             </div>
           </div>
 
-          {/* 6-Step Granular Pipeline Indicator */}
+          {/* Streamlined 4-Step Viral Pipeline Indicator */}
           <div className="space-y-2.5 text-left bg-dark-950 p-4 rounded-2xl border border-dark-800 text-xs">
             {[
-              { step: 1, label: 'Fast Cloud Metadata Probe & Ingest (0 MB Download)' },
-              { step: 2, label: 'Instant Sub-Second Dialogue & Captions Extraction' },
-              { step: 3, label: 'Timestamped Word Alignment & Speech Processing' },
-              { step: 4, label: clippingMode === 'story_series' ? 'Gemini AI Story Arc, Hook & Suspense Detection' : (clipCount === 0 ? 'Gemini AI Full-Timeline Scan (00:00 - End)' : `Gemini AI Selecting Top ${clipCount} Moments`) },
-              { step: 5, label: 'Assemble 9:16 Shorts Packages & Studio Framing' },
-              { step: 6, label: 'Ready for Live Studio Preview & 1080x1920 Export' },
+              { step: 1, label: `Fast Stream Ingest & Resolution Optimization (${downloadQuality})` },
+              { step: 2, label: clippingMode === 'story_series'
+                  ? 'AI Viral Trend Engine: Full-Timeline Story Arc & Suspense Detection'
+                  : (clipCount === 0
+                      ? 'AI Viral Trend Engine: Full-Video Scan for Top Audience-Attracting Moments'
+                      : `AI Viral Trend Engine: Selecting Top ${clipCount} High-Retention Hooks`) },
+              { step: 3, label: 'Assemble 9:16 Portrait Shorts & Smart Speaker Framing' },
+              { step: 4, label: 'Ready for Live Studio Preview & 1080x1920 HD Export' },
             ].map((s) => {
               const isPast = pipelineStep > s.step;
               const isCurrent = pipelineStep === s.step;

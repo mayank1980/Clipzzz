@@ -104,6 +104,11 @@ export default function VideoPlayer({
   const playbackRate = externalPlaybackRate !== undefined ? externalPlaybackRate : internalPlaybackRate;
   const setPlaybackRate = onChangePlaybackRate || setInternalPlaybackRate;
   const [isAutoTracking, setIsAutoTracking] = useState(false);
+  const [isVideoError, setIsVideoError] = useState(false);
+
+  useEffect(() => {
+    setIsVideoError(false);
+  }, [videoSrc]);
 
   // Drag-and-drop subtitle positioning state
   const phoneContainerRef = useRef(null);
@@ -215,7 +220,13 @@ export default function VideoPlayer({
     } else {
       videoRef.current.playbackRate = playbackRate;
       videoRef.current.defaultPlaybackRate = playbackRate;
-      videoRef.current.play();
+      const playPromise = videoRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('Playback error caught:', err);
+          setIsPlaying(false);
+        });
+      }
     }
   };
 
@@ -834,6 +845,7 @@ export default function VideoPlayer({
               ref={videoRef}
               src={videoSrc}
               onClick={togglePlay}
+              onError={() => setIsVideoError(true)}
               onPlay={() => {
                 setIsPlaying(true);
                 if (videoRef.current) {
@@ -865,6 +877,15 @@ export default function VideoPlayer({
               }
               playsInline
             />
+
+            {/* Video Load Error / Connecting Fallback */}
+            {isVideoError && (
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-dark-950/90 text-center p-4 space-y-2 select-none">
+                <AlertCircle className="w-8 h-8 text-amber-400 mx-auto animate-pulse" />
+                <p className="text-xs font-bold text-white">Connecting Media Stream...</p>
+                <p className="text-[10px] text-slate-400 max-w-[200px]">Video file is being initialized or backend server is starting.</p>
+              </div>
+            )}
 
             {/* Top Floating Control Bar: Speaker Badge on Left & Attribution Credit on Right (Zero Overlapping) */}
             <div className="absolute top-3 left-3 right-3 z-20 pointer-events-none flex items-center justify-between gap-1.5 select-none">
