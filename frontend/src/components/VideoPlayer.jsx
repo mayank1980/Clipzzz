@@ -566,32 +566,11 @@ export default function VideoPlayer({
       }
 
       const curKf = keyframes[curIdx];
-      const prevKf = curIdx > 0 ? keyframes[curIdx - 1] : null;
-
-      if (!prevKf) {
-        activeCropX = curKf.x;
-        activeCropY = curKf.y;
-        activeCropZoom = curKf.zoom || 1.0;
-        activeSpeakerLabel = curKf.speaker || '';
-      } else {
-        // Fluid, responsive camera glide over 0.45s from previous speaker to current speaker
-        const panDur = 0.45;
-        const dt = clipCurrentTime - curKf.time;
-        if (dt >= 0 && dt < panDur) {
-          const progress = dt / panDur;
-          // Smooth Hermite cubic ease-in-out curve (smoothstep)
-          const easeRatio = progress * progress * (3 - 2 * progress);
-          activeCropX = prevKf.x + (curKf.x - prevKf.x) * easeRatio;
-          activeCropY = prevKf.y + (curKf.y - prevKf.y) * easeRatio;
-          activeCropZoom = (prevKf.zoom || 1.0) + ((curKf.zoom || 1.0) - (prevKf.zoom || 1.0)) * easeRatio;
-          activeSpeakerLabel = curKf.speaker || '';
-        } else {
-          activeCropX = curKf.x;
-          activeCropY = curKf.y;
-          activeCropZoom = curKf.zoom || 1.0;
-          activeSpeakerLabel = curKf.speaker || '';
-        }
-      }
+      // Clean, instantaneous broadcast cuts on speaker turns (zero shaky panning across walls)
+      activeCropX = curKf.x;
+      activeCropY = curKf.y;
+      activeCropZoom = curKf.zoom || 1.0;
+      activeSpeakerLabel = curKf.speaker || '';
     }
   }
 
@@ -869,9 +848,7 @@ export default function VideoPlayer({
                       left: `${(-((3.1605 * effectiveZoom - 1) * (cropX / 100)) * 100).toFixed(2)}%`,
                       top: `${(-((effectiveZoom - 1) * (cropY / 100)) * 100).toFixed(2)}%`,
                       objectFit: 'fill',
-                      transition: isCropInspectorOpen
-                        ? 'none'
-                        : 'left 0.08s ease-out, top 0.08s ease-out, width 0.08s ease-out, height 0.08s ease-out',
+                      transition: 'none',
                     }
                   : {}
               }

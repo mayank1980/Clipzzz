@@ -393,11 +393,10 @@ def normalize_crop_coord(val: float, key: str = 'x', zoom: float = 1.08) -> floa
     return round(pct, 4)
 
 
-def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.75, zoom: float = 1.08) -> str:
+def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.0, zoom: float = 1.08) -> str:
     """
-    Constructs an FFmpeg piecewise expression for dynamic camera tracking across keyframes.
-    Precisely centers on the active speaker matching VideoPlayer.jsx.
-    Uses smooth cinematic glide (pan_dur=0.75s) identical to the web preview.
+    Constructs an FFmpeg piecewise step expression for clean, broadcast-grade camera cuts.
+    Holds rock-solid on each speaker without shaky panning across background walls.
     """
     if not keyframes:
         return f"{normalize_crop_coord(default_val, key, zoom)}"
@@ -416,11 +415,13 @@ def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', d
         v_prev = normalize_crop_coord(prev_k.get(key, default_val), key, zoom)
         v_curr = normalize_crop_coord(curr_k.get(key, default_val), key, zoom)
 
-        t_end = round(t_switch + pan_dur, 2)
-        diff = round(v_curr - v_prev, 4)
-
-        lerp_expr = f"{v_prev}+({diff})*(t-{t_switch})/{pan_dur}"
-        expr = f"if(lt(t,{t_switch}),{v_prev},if(lt(t,{t_end}),{lerp_expr},{expr}))"
+        if pan_dur > 0.0:
+            t_end = round(t_switch + pan_dur, 2)
+            diff = round(v_curr - v_prev, 4)
+            lerp_expr = f"{v_prev}+({diff})*(t-{t_switch})/{pan_dur}"
+            expr = f"if(lt(t,{t_switch}),{v_prev},if(lt(t,{t_end}),{lerp_expr},{expr}))"
+        else:
+            expr = f"if(lt(t,{t_switch}),{v_prev},{expr})"
 
     return expr
 
@@ -506,8 +507,8 @@ def render_shorts_clip(
             kf_zoom = crop_keyframes[0].get('zoom')
             if kf_zoom:
                 effective_zoom = max(1.08, min(2.5, float(kf_zoom)))
-            expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.75, zoom=effective_zoom)
-            expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.75, zoom=effective_zoom)
+            expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.0, zoom=effective_zoom)
+            expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.0, zoom=effective_zoom)
             vf = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"
         else:
             cx = max(0.0, min(100.0, float(crop_x))) / 100.0

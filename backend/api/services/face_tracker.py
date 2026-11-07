@@ -73,9 +73,9 @@ class AutoCameraEngine:
     6. Centroid-Radius spatial clustering for physical studio seats.
     """
 
-    def __init__(self, smoothing_alpha: float = 0.35, min_shot_duration: float = 2.2):
+    def __init__(self, smoothing_alpha: float = 0.35, min_shot_duration: float = 4.5):
         self.alpha = smoothing_alpha
-        self.min_shot_duration = min_shot_duration  # Rock-solid 2.2s cinematic hold per speaker (eliminates shaking)
+        self.min_shot_duration = min_shot_duration  # Rock-solid 4.5s minimum hold per speaker (eliminates shaking)
         self.current_focal_x = 50.0
         self.current_focal_y = 35.0
 
@@ -531,9 +531,26 @@ class AutoCameraEngine:
                 seat_totals[nearest_s["id"]] += (1.0 + motion)
 
         dominant_seat = max(speaker_seats, key=lambda s: seat_totals[s["id"]])
+        total_speech = sum(seat_totals.values())
+        dominant_ratio = (seat_totals[dominant_seat["id"]] / total_speech) if total_speech > 0 else 1.0
+
+        # Hero Character Lock: If one speaker owns the conversation (>= 60% of speech),
+        # keep the camera 100% rock-solid and stable on the main speaker for the entire clip!
+        if dominant_ratio >= 0.60:
+            self.current_focal_x = dominant_seat["x"]
+            self.current_focal_y = dominant_seat["y"]
+            return [{
+                "time": 0.0,
+                "mode": "solo",
+                "x": dominant_seat["x"],
+                "y": dominant_seat["y"],
+                "zoom": 1.15,
+                "speaker": dominant_seat["label"]
+            }]
+
         current_seat = dominant_seat
         last_switch_time = 0.0
-        min_dwell = self.min_shot_duration  # Rock-solid minimum hold per speaker (2.2s)
+        min_dwell = max(4.5, self.min_shot_duration)  # Rock-solid minimum hold per speaker (4.5s)
 
         speech_streak = {s["id"]: 0 for s in speaker_seats}
         focal_track = []
@@ -555,7 +572,7 @@ class AutoCameraEngine:
                 # Accumulate sustained speech streaks (ignore single-frame blips or breathing)
                 for s in speaker_seats:
                     sid = s["id"]
-                    if seat_present[sid] and seat_motion[sid] >= 1.6:
+                    if seat_present[sid] and seat_motion[sid] >= 1.8:
                         speech_streak[sid] += 1
                     else:
                         speech_streak[sid] = 0
@@ -571,12 +588,11 @@ class AutoCameraEngine:
                     c_motion = seat_motion[best_candidate["id"]]
                     c_present = seat_present[best_candidate["id"]]
 
-                    # Switch ONLY when the other speaker takes over with sustained speech (3+ consecutive frames, ~1s)
-                    # or the current speaker leaves the frame while the candidate speaks
+                    # Switch ONLY when the other speaker takes over with sustained speech (5+ consecutive frames, ~1.8s)
                     should_switch = False
-                    if c_streak >= 3 and c_motion >= 2.0 and c_motion > 1.35 * curr_motion:
+                    if c_streak >= 5 and c_motion >= 2.2 and c_motion > 1.4 * curr_motion:
                         should_switch = True
-                    elif not curr_present and c_present and c_streak >= 2:
+                    elif not curr_present and c_present and c_streak >= 4:
                         should_switch = True
 
                     if should_switch:
