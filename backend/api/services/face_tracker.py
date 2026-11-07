@@ -38,9 +38,9 @@ class AutoCameraEngine:
     5. Centroid-Radius spatial clustering for physical studio seats.
     """
 
-    def __init__(self, smoothing_alpha: float = 0.35, min_shot_duration: float = 0.5):
+    def __init__(self, smoothing_alpha: float = 0.35, min_shot_duration: float = 0.4):
         self.alpha = smoothing_alpha
-        self.min_shot_duration = min_shot_duration  # 0.5s debounce sweet spot for debates
+        self.min_shot_duration = min_shot_duration  # 0.4s debounce for fast-paced dialogues and debates
         # Sticky memory default focal coordinates
         self.current_focal_x = 50.0
         self.current_focal_y = 35.0
@@ -185,7 +185,7 @@ class AutoCameraEngine:
 
         return results
 
-    def cluster_speaker_seats(self, all_faces: List[Dict[str, Any]], max_spread: float = 7.0) -> List[Dict[str, Any]]:
+    def cluster_speaker_seats(self, all_faces: List[Dict[str, Any]], max_spread: float = 12.0) -> List[Dict[str, Any]]:
         """
         Centroid-Radius clustering: groups face detections into distinct physical chairs/seats.
         """
@@ -222,16 +222,16 @@ class AutoCameraEngine:
             med_x = float(np.median(c_xs))
             med_y = float(np.median(c_ys))
 
-            # Clamping to [16.0, 84.0] guarantees ZERO black borders in 9:16 portrait
-            clamped_x = round(max(16.0, min(84.0, med_x)), 1)
-            clamped_y = round(max(22.0, min(42.0, med_y)), 1)
+            # Clamping to [18.0, 82.0] guarantees full face visibility and zero black borders
+            clamped_x = round(max(18.0, min(82.0, med_x)), 1)
+            clamped_y = round(max(22.0, min(38.0, med_y)), 1)
 
-            if clamped_x < 38.0:
-                label = "Speaker Left"
-            elif clamped_x > 62.0:
-                label = "Speaker Right"
+            if clamped_x < 42.0:
+                label = "Speaker 1 (Left)"
+            elif clamped_x > 58.0:
+                label = "Speaker 2 (Right)"
             else:
-                label = "Center Speaker"
+                label = "Active Speaker"
 
             speaker_seats.append({
                 "id": idx,
@@ -323,14 +323,14 @@ class AutoCameraEngine:
         video_path: str,
         start_sec: float,
         duration: float = 30.0,
-        sample_interval: float = 0.65
+        sample_interval: float = 0.35
     ) -> List[Dict[str, Any]]:
         """
         Responsive Multi-Speaker Camera Tracking Engine with:
         1. YuNet neural face detection (Zero wall false-positives).
         2. Sticky Memory (Holds last speaker framing if face obscured, never snaps to empty wall).
-        3. Dynamic Debounce (0.5s): cuts to interrupting debater within 500ms.
-        4. Auto Stacked Split-Screen: converts rapid 2-speaker debate dialogue to top/bottom split.
+        3. Dynamic Fast-Paced Debounce (0.4s): rapidly follows active speaker in fast back-and-forth dialogue.
+        4. Centroid-Radius spatial clustering for physical speaker seats.
         """
         if not os.path.exists(video_path):
             return [{"time": 0.0, "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
@@ -338,7 +338,7 @@ class AutoCameraEngine:
         frame_w = 640
         frame_h = 360
         frame_sz = frame_w * frame_h * 3
-        fps = 1.0 / max(0.4, sample_interval)
+        fps = 1.0 / max(0.2, sample_interval)
 
         sampled_timeline: List[Dict[str, Any]] = []
 
@@ -415,7 +415,7 @@ class AutoCameraEngine:
         focal_track = []
         current_seat = speaker_seats[0]
         last_switch_time = 0.0
-        min_dwell = self.min_shot_duration  # 0.5s debate debounce
+        min_dwell = self.min_shot_duration  # 0.4s debounce for fast speech
 
         for st in sampled_timeline:
             t = st["time"]
@@ -437,12 +437,12 @@ class AutoCameraEngine:
                     best_other_seat = max(other_seats, key=lambda s: seat_scores[s["id"]])
                     other_score = seat_scores[best_other_seat["id"]]
 
-                    # Fast 0.5s debounce switch for debates & dialogue:
-                    # When candidate speaker demonstrates active dialogue exceeding previous speaker
+                    # Fast, responsive speaker cut for rapid back-and-forth dialogue:
+                    # Switch when candidate speaker demonstrates active mouth movement (>= 1.5) exceeding previous speaker
                     time_since_switch = t - last_switch_time
                     is_valid_candidate = (
-                        other_score > 7.0 and
-                        (other_score > 1.20 * max(3.0, curr_score)) and
+                        other_score >= 1.5 and
+                        (other_score > 1.12 * max(0.8, curr_score)) and
                         time_since_switch >= min_dwell
                     )
 
@@ -493,10 +493,10 @@ class AutoCameraEngine:
             else:
                 shift = abs(pt["x"] - last_kf_x)
                 time_elapsed = t - last_kf_time
-                # Fast cut when speaker changes (shift >= 6.0% and time >= 0.5s debounce)
-                if shift >= 6.0 and time_elapsed >= self.min_shot_duration:
+                # Fast cut when speaker changes (shift >= 5.0% and time >= 0.4s debounce)
+                if shift >= 5.0 and time_elapsed >= self.min_shot_duration:
                     keyframes.append({
-                        "time": round(t, 1),
+                        "time": round(t, 2),
                         "mode": "solo",
                         "x": pt["x"],
                         "y": pt["y"],

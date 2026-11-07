@@ -574,8 +574,8 @@ export default function VideoPlayer({
         activeCropZoom = curKf.zoom || 1.0;
         activeSpeakerLabel = curKf.speaker || '';
       } else {
-        // Fluid, cinematic camera glide over 0.75s from previous keyframe to current keyframe
-        const panDur = 0.75;
+        // Fluid, responsive camera glide over 0.45s from previous speaker to current speaker
+        const panDur = 0.45;
         const dt = clipCurrentTime - curKf.time;
         if (dt >= 0 && dt < panDur) {
           const progress = dt / panDur;

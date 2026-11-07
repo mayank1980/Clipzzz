@@ -348,6 +348,19 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             crop_keyframes = [{"time": 0.0, "x": crop_x, "y": crop_y, "zoom": crop_zoom, "speaker": "Speaker Focus"}]
             is_speaker_centered = True
 
+            # Automatic Multi-Speaker Neural Keyframing on clip creation
+            if getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
+                try:
+                    from .face_tracker import generate_camera_keyframes
+                    computed_kfs = generate_camera_keyframes(video_full_path, c_start, c_dur)
+                    if computed_kfs:
+                        crop_keyframes = computed_kfs
+                        crop_x = computed_kfs[0]['x']
+                        crop_y = computed_kfs[0]['y']
+                        crop_zoom = computed_kfs[0].get('zoom', 1.15)
+                except Exception as track_err:
+                    print(f"[_run_video_pipeline] Auto-tracking notice for clip {idx + 1}: {track_err}")
+
             caption_style = {
                 "font": "Arial Black",
                 "fontSize": 24,
