@@ -73,9 +73,9 @@ class AutoCameraEngine:
     6. Centroid-Radius spatial clustering for physical studio seats.
     """
 
-    def __init__(self, smoothing_alpha: float = 0.35, min_shot_duration: float = 0.32):
+    def __init__(self, smoothing_alpha: float = 0.35, min_shot_duration: float = 2.2):
         self.alpha = smoothing_alpha
-        self.min_shot_duration = min_shot_duration
+        self.min_shot_duration = min_shot_duration  # Rock-solid 2.2s cinematic hold per speaker (eliminates shaking)
         self.current_focal_x = 50.0
         self.current_focal_y = 35.0
 
@@ -254,6 +254,7 @@ class AutoCameraEngine:
     def cluster_speaker_seats(self, all_faces: List[Dict[str, Any]], max_spread: float = 12.0) -> List[Dict[str, Any]]:
         """
         Centroid-Radius clustering: groups face detections into distinct physical chairs/seats.
+        Filters false-positive edge noise and merges nearby clusters belonging to the same person.
         Mathematically projects each seat's 16:9 median into accurate 9:16 portrait viewport crop_x.
         """
         if not all_faces:
@@ -285,13 +286,27 @@ class AutoCameraEngine:
             else:
                 clusters.append([f])
 
-        min_cluster_len = max(2, int(len(all_faces) * 0.03)) if len(clusters) > 1 else 1
+        # Filter out transient edge noise (must have at least 8% of total face detections)
+        min_cluster_len = max(4, int(len(all_faces) * 0.08)) if len(clusters) > 1 else 1
         valid_clusters = [c for c in clusters if len(c) >= min_cluster_len]
         if not valid_clusters:
             valid_clusters = clusters
 
+        # Merge clusters within 18.0% of each other (same physical human body)
+        merged_clusters: List[List[Dict[str, Any]]] = []
+        for c in valid_clusters:
+            if not merged_clusters:
+                merged_clusters.append(c)
+            else:
+                prev_cent = float(np.mean([item['cx'] for item in merged_clusters[-1]]))
+                curr_cent = float(np.mean([item['cx'] for item in c]))
+                if abs(curr_cent - prev_cent) < 18.0:
+                    merged_clusters[-1].extend(c)
+                else:
+                    merged_clusters.append(c)
+
         speaker_seats = []
-        for idx, c in enumerate(valid_clusters):
+        for idx, c in enumerate(merged_clusters):
             c_xs = [f["cx"] for f in c]
             c_ys = [f["cy"] for f in c]
             med_x = float(np.median(c_xs))
@@ -490,7 +505,7 @@ class AutoCameraEngine:
             return [{"time": 0.0, "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
         # 1. Discover physical speaker seats
-        speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=8.0)
+        speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=12.0)
 
         # Solo speaker edge case: If only 1 seat exists, lock onto them unconditionally!
         # Lip motion is NOT required for solo speaker (e.g. reading letter, listening, or voiceover).
@@ -507,71 +522,77 @@ class AutoCameraEngine:
                 "speaker": solo["label"]
             }]
 
-        # 2. Build continuous focal track with fast debate debounce & presence scoring
-        focal_track = []
-        current_seat = speaker_seats[0]
+        # 2. Identify primary dominant speaker of the clip (overall speech volume + presence)
+        seat_totals = {s["id"]: 0.0 for s in speaker_seats}
+        for st in sampled_timeline:
+            for f in st["faces"]:
+                nearest_s = min(speaker_seats, key=lambda s: abs(s["raw_x"] - f["cx"]))
+                motion = f.get("lip_motion", 0.0)
+                seat_totals[nearest_s["id"]] += (1.0 + motion)
+
+        dominant_seat = max(speaker_seats, key=lambda s: seat_totals[s["id"]])
+        current_seat = dominant_seat
         last_switch_time = 0.0
-        min_dwell = self.min_shot_duration  # 0.32s debounce for fast speech
+        min_dwell = self.min_shot_duration  # Rock-solid minimum hold per speaker (2.2s)
+
+        speech_streak = {s["id"]: 0 for s in speaker_seats}
+        focal_track = []
 
         for st in sampled_timeline:
             t = st["time"]
             faces = st["faces"]
 
             if faces:
-                seat_scores = {s["id"]: 0.0 for s in speaker_seats}
-                seat_face_counts = {s["id"]: 0 for s in speaker_seats}
+                seat_motion = {s["id"]: 0.0 for s in speaker_seats}
+                seat_present = {s["id"]: False for s in speaker_seats}
 
                 for f in faces:
-                    # Match face to nearest seat using raw 16:9 coordinates
                     nearest_s = min(speaker_seats, key=lambda s: abs(s["raw_x"] - f["cx"]))
                     motion = f.get("lip_motion", 0.0)
-                    area_weight = 1.0 + 0.15 * min(2.0, f.get("area", 1000) / 10000.0)
+                    seat_motion[nearest_s["id"]] = max(seat_motion[nearest_s["id"]], motion)
+                    seat_present[nearest_s["id"]] = True
 
-                    # Presence score: being visible gives a baseline score of 5.0
-                    # This handles edge cases where someone is reading a letter or silent:
-                    # if they are the visible person on screen, presence alone wins!
-                    presence_score = 5.0
-                    total_score = presence_score + (motion * 1.5 * area_weight)
+                # Accumulate sustained speech streaks (ignore single-frame blips or breathing)
+                for s in speaker_seats:
+                    sid = s["id"]
+                    if seat_present[sid] and seat_motion[sid] >= 1.6:
+                        speech_streak[sid] += 1
+                    else:
+                        speech_streak[sid] = 0
 
-                    seat_scores[nearest_s["id"]] = max(seat_scores[nearest_s["id"]], total_score)
-                    seat_face_counts[nearest_s["id"]] += 1
-
-                curr_score = seat_scores[current_seat["id"]]
-                curr_count = seat_face_counts[current_seat["id"]]
+                curr_motion = seat_motion[current_seat["id"]]
+                curr_present = seat_present[current_seat["id"]]
+                time_since_switch = t - last_switch_time
                 other_seats = [s for s in speaker_seats if s["id"] != current_seat["id"]]
 
-                if other_seats:
-                    best_other = max(other_seats, key=lambda s: seat_scores[s["id"]])
-                    other_score = seat_scores[best_other["id"]]
-                    other_count = seat_face_counts[best_other["id"]]
-                    time_since_switch = t - last_switch_time
+                if other_seats and time_since_switch >= min_dwell:
+                    best_candidate = max(other_seats, key=lambda s: (speech_streak[s["id"]], seat_motion[s["id"]]))
+                    c_streak = speech_streak[best_candidate["id"]]
+                    c_motion = seat_motion[best_candidate["id"]]
+                    c_present = seat_present[best_candidate["id"]]
 
-                    # Switch condition 1: Cut to visible speaker (e.g. cut to person reading letter)
-                    # Current seat has NO face in frame, but other seat HAS a face
-                    is_cut_to_visible = (curr_count == 0 and other_count > 0 and time_since_switch >= min_dwell)
+                    # Switch ONLY when the other speaker takes over with sustained speech (3+ consecutive frames, ~1s)
+                    # or the current speaker leaves the frame while the candidate speaks
+                    should_switch = False
+                    if c_streak >= 3 and c_motion >= 2.0 and c_motion > 1.35 * curr_motion:
+                        should_switch = True
+                    elif not curr_present and c_present and c_streak >= 2:
+                        should_switch = True
 
-                    # Switch condition 2: Both visible, other person begins actively speaking
-                    is_active_speech_switch = (
-                        other_score > 6.0 and
-                        (other_score > 1.12 * max(5.0, curr_score)) and
-                        time_since_switch >= min_dwell
-                    )
-
-                    if is_cut_to_visible or is_active_speech_switch:
-                        current_seat = best_other
+                    if should_switch:
+                        current_seat = best_candidate
                         last_switch_time = t
+                        speech_streak = {s["id"]: 0 for s in speaker_seats}
 
                 chosen_x = current_seat["x"]
                 chosen_y = current_seat["y"]
                 chosen_label = current_seat["label"]
 
-                # Update Sticky Memory
                 self.current_focal_x = chosen_x
                 self.current_focal_y = chosen_y
 
             else:
-                # STICKY MEMORY: Zero faces detected (speaker turned, sneezed, or looks down to read)
-                # NEVER snap to empty center wall!
+                # STICKY MEMORY: Hold rock-solid on current speaker if face temporarily obscured
                 chosen_x = self.current_focal_x
                 chosen_y = self.current_focal_y
                 chosen_label = current_seat.get("label", "Speaker Focus")
@@ -586,10 +607,11 @@ class AutoCameraEngine:
 
         keyframes = []
         last_kf_time = -999.0
-        last_kf_x = -999.0
+        last_seat_id = -1
 
         for pt in focal_track:
             t = pt["time"]
+            seat_id = pt["seat_id"]
             if not keyframes:
                 keyframes.append({
                     "time": 0.0,
@@ -600,12 +622,11 @@ class AutoCameraEngine:
                     "speaker": pt["speaker"]
                 })
                 last_kf_time = 0.0
-                last_kf_x = pt["x"]
+                last_seat_id = seat_id
             else:
-                shift = abs(pt["x"] - last_kf_x)
                 time_elapsed = t - last_kf_time
-                # Fast cut when speaker changes (shift >= 4.0% and time >= min_shot_duration)
-                if shift >= 4.0 and time_elapsed >= self.min_shot_duration:
+                # Emit a keyframe ONLY when switching to a different physical speaker seat after min_dwell
+                if seat_id != last_seat_id and time_elapsed >= min_dwell:
                     keyframes.append({
                         "time": round(t, 2),
                         "mode": "solo",
@@ -615,7 +636,7 @@ class AutoCameraEngine:
                         "speaker": pt["speaker"]
                     })
                     last_kf_time = t
-                    last_kf_x = pt["x"]
+                    last_seat_id = seat_id
 
         if not keyframes:
             keyframes.append({
