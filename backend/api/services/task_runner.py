@@ -431,10 +431,11 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         all_retained_ids = [c.id for c in highlight_to_clip.values() if hasattr(c, 'id')]
         project.clips.exclude(id__in=all_retained_ids).delete()
 
-        # Step 5: Acquire optimized preview video if not already present on disk
-        if not video_full_path or not os.path.exists(video_full_path):
+        # Step 5: Acquire full video ONLY if user explicitly enabled download_full_video (Fallback Mode)
+        should_download_full = getattr(project, 'download_full_video', False)
+        if should_download_full and (not video_full_path or not os.path.exists(video_full_path)):
             if project.source_type == 'youtube' and project.youtube_url:
-                project.status_message = "Preparing video stream for instant Shorts preview..."
+                project.status_message = f"Downloading full {project.download_quality} video (Fallback Mode)..."
                 project.progress = 90
                 project.save(update_fields=['status_message', 'progress'])
 
@@ -444,7 +445,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                         project.download_speed = meta.get('speed', '')
                         project.download_eta = meta.get('eta', '')
                     speed_txt = f" ({meta.get('speed')})" if meta and meta.get('speed') else ""
-                    project.status_message = f"Optimizing video preview: {pct}%{speed_txt}"
+                    project.status_message = f"Downloading {project.download_quality} video (Fallback): {pct}%{speed_txt}"
                     project.save(update_fields=['download_progress', 'download_speed', 'download_eta', 'status_message'])
 
                 dl_quality = getattr(project, 'download_quality', '720p') or '720p'
@@ -462,7 +463,13 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                     video_full_path = dl_res['file_path']
                     project.save(update_fields=['video_file'])
                 except Exception as dl_err:
-                    print(f"[_run_video_pipeline] Video preview preparation note: {dl_err}")
+                    print(f"[_run_video_pipeline] Fallback video download note: {dl_err}")
+        else:
+            # Live Cloud Streaming: 0 MB full-video download! Everything runs live!
+            if not video_full_path:
+                project.status_message = "Live cloud streaming active (0 MB local disk storage)."
+                project.progress = 95
+                project.save(update_fields=['status_message', 'progress'])
 
         # Complete!
         project.status = 'ready'

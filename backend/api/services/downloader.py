@@ -166,7 +166,7 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
 
             details = [s for s in [size_str, speed_str, eta_str] if s]
             details_txt = f" ({' · '.join(details)})" if details else ""
-            msg = f"Downloading YouTube video: {pct}%{details_txt}"
+            msg = f"Downloading {quality} video (Fallback): {pct}%{details_txt}"
 
             meta = {
                 'download_pct': pct,
@@ -178,15 +178,15 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
             }
             progress_callback(pct, msg, meta)
 
-    # Format selection according to user quality preference
+    # Format selection according to user quality preference (capped to 30fps MP4 to avoid oversized 60fps bloat)
     if quality == '480p':
-        format_spec = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo[height<=720]+bestaudio/best'
+        format_spec = 'bestvideo[height<=480][fps<=30][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]'
         fallback_fmt = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
     elif quality == '1080p':
-        format_spec = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/bv*+ba/best'
+        format_spec = 'bestvideo[height<=1080][fps<=30][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/bv*+ba/best'
         fallback_fmt = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
-    else:  # '720p' (default: 4x faster and ideal for mobile shorts)
-        format_spec = 'bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo[height<=480]+bestaudio/best'
+    else:  # '720p' (default: 4x faster, compact and ideal for mobile shorts)
+        format_spec = 'bestvideo[height<=720][fps<=30][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best'
         fallback_fmt = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
 
     # Resilient yt-dlp configuration with Node.js challenge solving & multi-tiered format selection

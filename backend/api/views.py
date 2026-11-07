@@ -244,6 +244,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
         gemini_api_key = serializer.validated_data.get('gemini_api_key', '').strip()
         target_ratio = serializer.validated_data.get('target_ratio', '9:16')
         download_quality = serializer.validated_data.get('download_quality', '720p')
+        download_full_video = serializer.validated_data.get('download_full_video', False)
         use_cached_video = serializer.validated_data.get('use_cached_video', True)
         auto_speaker_tracking = serializer.validated_data.get('auto_speaker_tracking', True)
         requested_clip_count = serializer.validated_data.get('requested_clip_count', 7)
@@ -260,14 +261,15 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
                 title='Importing YouTube Video...',
                 target_ratio=target_ratio,
                 download_quality=download_quality,
+                download_full_video=download_full_video,
                 use_cached_video=use_cached_video,
                 auto_speaker_tracking=auto_speaker_tracking,
                 requested_clip_count=requested_clip_count,
                 duration_preference=duration_preference,
                 clipping_mode=clipping_mode,
-                status='downloading',
+                status='downloading' if download_full_video else 'analyzing',
                 progress=5,
-                status_message='Connecting to YouTube...'
+                status_message='Connecting to YouTube (Download Fallback)...' if download_full_video else 'Connecting to YouTube (Live Cloud Streaming • 0 MB)...'
             )
         elif video_file:
             project = VideoProject.objects.create(
@@ -277,6 +279,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
                 title=video_file.name,
                 target_ratio=target_ratio,
                 download_quality=download_quality,
+                download_full_video=download_full_video,
                 use_cached_video=use_cached_video,
                 auto_speaker_tracking=auto_speaker_tracking,
                 requested_clip_count=requested_clip_count,

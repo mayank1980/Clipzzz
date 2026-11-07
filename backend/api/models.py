@@ -64,6 +64,7 @@ class VideoProject(models.Model):
     # User Project Preferences
     target_ratio = models.CharField(max_length=20, default='9:16') # Exclusively 9:16 Portrait Shorts
     download_quality = models.CharField(max_length=20, default='720p') # '720p', '1080p', '480p'
+    download_full_video = models.BooleanField(default=False) # Fallback mode: only download full file if explicitly requested
     use_cached_video = models.BooleanField(default=True)
     auto_speaker_tracking = models.BooleanField(default=True)
     requested_clip_count = models.IntegerField(default=0) # 5, 7, 9, 11

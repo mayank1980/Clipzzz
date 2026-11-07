@@ -15,6 +15,9 @@ import {
   Flame,
   HardDrive,
   RefreshCw,
+  Zap,
+  Download,
+  X,
 } from 'lucide-react';
 import { api } from '../services/api';
 import logoImg from '../assets/logo.png';
@@ -27,6 +30,8 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   // Settings requested by user
   const [targetRatio, setTargetRatio] = useState('9:16'); // '9:16'
   const [downloadQuality, setDownloadQuality] = useState('720p'); // '720p' (fast/recommended), '1080p', '480p'
+  const [downloadFullVideo, setDownloadFullVideo] = useState(false); // Live Streaming (0 MB) by default; Fallback Download only if confirmed
+  const [showDownloadConfirmModal, setShowDownloadConfirmModal] = useState(false);
   const [useExistingCache, setUseExistingCache] = useState(true);
   const [autoSpeakerTracking, setAutoSpeakerTracking] = useState(true);
   const [clipCount, setClipCount] = useState(0); // 0 (Auto), 5, 7, 9, 11, 15
@@ -185,6 +190,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           youtube_url: youtubeUrl.trim(),
           target_ratio: targetRatio,
           download_quality: downloadQuality,
+          download_full_video: downloadFullVideo,
           use_cached_video: useExistingCache,
           auto_speaker_tracking: autoSpeakerTracking,
           requested_clip_count: clipCount,
@@ -196,6 +202,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         formData.append('video_file', selectedFile);
         formData.append('target_ratio', targetRatio);
         formData.append('download_quality', downloadQuality);
+        formData.append('download_full_video', downloadFullVideo);
         formData.append('use_cached_video', useExistingCache);
         formData.append('auto_speaker_tracking', autoSpeakerTracking);
         formData.append('requested_clip_count', clipCount);
@@ -393,12 +400,12 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           {/* 6-Step Granular Pipeline Indicator */}
           <div className="space-y-2.5 text-left bg-dark-950 p-4 rounded-2xl border border-dark-800 text-xs">
             {[
-              { step: 1, label: 'Download / Ingest Video File' },
-              { step: 2, label: 'Extract High-Fidelity Audio Stream' },
-              { step: 3, label: 'Timestamped Speech-to-Text Transcription' },
-              { step: 4, label: clippingMode === 'story_series' ? 'Gemini AI Story Arc & Hook Analysis' : (clipCount === 0 ? 'Gemini AI Full-Timeline Scan (00:00 - End)' : `Gemini AI Selecting Top ${clipCount} Moments`) },
-              { step: 5, label: 'Assemble 9:16 Shorts Packages & Word Timing' },
-              { step: 6, label: 'Ready for Studio Preview & Export' },
+              { step: 1, label: 'Fast Cloud Metadata Probe & Ingest (0 MB Download)' },
+              { step: 2, label: 'Instant Sub-Second Dialogue & Captions Extraction' },
+              { step: 3, label: 'Timestamped Word Alignment & Speech Processing' },
+              { step: 4, label: clippingMode === 'story_series' ? 'Gemini AI Story Arc, Hook & Suspense Detection' : (clipCount === 0 ? 'Gemini AI Full-Timeline Scan (00:00 - End)' : `Gemini AI Selecting Top ${clipCount} Moments`) },
+              { step: 5, label: 'Assemble 9:16 Shorts Packages & Studio Framing' },
+              { step: 6, label: 'Ready for Live Studio Preview & 1080x1920 Export' },
             ].map((s) => {
               const isPast = pipelineStep > s.step;
               const isCurrent = pipelineStep === s.step;
@@ -660,20 +667,94 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                           </div>
                         )}
 
-                        {/* Download Quality & File Size Selector */}
+                        {/* Stream Ingestion Mode & Resolution Quality */}
                         <div className="mt-3 pt-3 border-t border-dark-800">
                           <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
                             <label className="text-[11px] font-extrabold text-white flex items-center gap-1.5 uppercase tracking-wider">
                               <Sparkles className="w-3.5 h-3.5 text-lime-neon" />
-                              <span>Download Quality & File Size</span>
+                              <span>Stream Mode & Video Quality</span>
                             </label>
-                            <span className="text-[10px] text-slate-400 font-medium">
-                              {videoInfo.cached_video?.exists && useExistingCache
-                                ? `⚡ Using cached ${videoInfo.cached_video.resolution} file (select below to download fresh)`
-                                : '⚡ 720p is 4x lighter & downloads in under a minute'}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {!downloadFullVideo ? (
+                                <span className="text-[10px] bg-lime-neon/15 text-lime-neon border border-lime-neon/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                  <Zap className="w-3 h-3" /> Live Cloud (0 MB Local)
+                                </span>
+                              ) : (
+                                <span className="text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                  <Download className="w-3 h-3" /> Offline Fallback Active
+                                </span>
+                              )}
+                            </div>
                           </div>
 
+                          {/* Mode Toggle: Live Cloud (0 MB) vs Offline Fallback */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                            <button
+                              type="button"
+                              onClick={() => setDownloadFullVideo(false)}
+                              className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
+                                !downloadFullVideo
+                                  ? 'bg-lime-neon/15 border-lime-neon text-white shadow-neon-sm'
+                                  : 'bg-dark-950 border-dark-750 text-slate-400 hover:text-slate-200 hover:bg-dark-900'
+                              }`}
+                            >
+                              <div
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                  !downloadFullVideo
+                                    ? 'bg-lime-neon text-black font-black'
+                                    : 'bg-dark-800 text-slate-400'
+                                }`}
+                              >
+                                <Zap className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-black">Live Cloud Mode</span>
+                                  <span className="text-[8px] bg-lime-neon text-black font-extrabold px-1.5 py-0.2 rounded-full uppercase">
+                                    0 MB
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate">No full video download • Instant AI</p>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!downloadFullVideo) {
+                                  setShowDownloadConfirmModal(true);
+                                } else {
+                                  setDownloadFullVideo(false);
+                                }
+                              }}
+                              className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
+                                downloadFullVideo
+                                  ? 'bg-amber-500/15 border-amber-400 text-amber-200 shadow-sm'
+                                  : 'bg-dark-950 border-dark-750 text-slate-400 hover:text-slate-200 hover:bg-dark-900'
+                              }`}
+                            >
+                              <div
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                  downloadFullVideo
+                                    ? 'bg-amber-400 text-black font-black'
+                                    : 'bg-dark-800 text-slate-400'
+                                }`}
+                              >
+                                <Download className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-black">Download Fallback</span>
+                                  <span className="text-[8px] bg-dark-800 text-slate-300 font-mono px-1.5 py-0.2 rounded-full">
+                                    Backup
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate">Save full file locally to disk</p>
+                              </div>
+                            </button>
+                          </div>
+
+                          {/* Quality Selection Grid */}
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             {(videoInfo.qualities || [
                               { id: '720p', label: '720p HD', sub: 'Fast & Crisp', tag: 'Recommended (4x Faster)', size_mb: Math.max(15, Math.round((videoInfo.duration || 600) * 0.12)), time_est: '~45s', recommended: true },
@@ -722,6 +803,81 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                             })}
                           </div>
                         </div>
+
+                        {/* Offline Fallback Download Confirmation Modal */}
+                        {showDownloadConfirmModal && (
+                          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                            <div className="bg-dark-900 border border-dark-700 rounded-3xl p-6 max-w-lg w-full shadow-2xl relative space-y-5 text-left">
+                              <button
+                                type="button"
+                                onClick={() => setShowDownloadConfirmModal(false)}
+                                className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-xl bg-dark-800 hover:bg-dark-750"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+
+                              <div className="flex items-start gap-3.5">
+                                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                                  <Download className="w-5 h-5" />
+                                </div>
+                                <div>
+                                  <h3 className="text-base font-extrabold text-white">Confirm Full Video Download?</h3>
+                                  <p className="text-xs text-slate-400 mt-0.5">Offline Fallback Mode Configuration</p>
+                                </div>
+                              </div>
+
+                              <div className="bg-dark-950 p-4 rounded-2xl border border-dark-800 space-y-3 text-xs">
+                                <div className="flex items-center gap-2 text-lime-neon font-bold">
+                                  <Zap className="w-4 h-4" />
+                                  <span>Live Cloud Mode (Default & Recommended):</span>
+                                </div>
+                                <p className="text-slate-300 pl-6">
+                                  Processes dialogue, Gemini AI hooks, and renders 9:16 Shorts directly from cloud streams with <strong>0 MB downloaded to local disk</strong>.
+                                </p>
+
+                                <div className="border-t border-dark-800 pt-3">
+                                  <div className="flex items-center gap-2 text-amber-400 font-bold mb-1">
+                                    <Download className="w-4 h-4" />
+                                    <span>Offline Fallback Download:</span>
+                                  </div>
+                                  <p className="text-slate-300 pl-6">
+                                    Downloads the entire full-length source video ({downloadQuality} • ~{
+                                      (videoInfo.qualities?.find(q => q.id === downloadQuality)?.size_mb || 250) >= 1000
+                                        ? `${((videoInfo.qualities?.find(q => q.id === downloadQuality)?.size_mb || 250) / 1024).toFixed(1)} GB`
+                                        : `${(videoInfo.qualities?.find(q => q.id === downloadQuality)?.size_mb || 250)} MB`
+                                    }) locally to your storage before finishing. Only required if your network restricts live streaming.
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDownloadFullVideo(false);
+                                    setShowDownloadConfirmModal(false);
+                                  }}
+                                  className="flex-1 py-3 px-4 rounded-xl bg-lime-neon text-black font-extrabold text-xs hover:bg-lime-400 transition flex items-center justify-center gap-2 shadow-neon-sm cursor-pointer"
+                                >
+                                  <Zap className="w-4 h-4" />
+                                  <span>No, Keep Live Cloud (0 MB Disk)</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDownloadFullVideo(true);
+                                    setShowDownloadConfirmModal(false);
+                                  }}
+                                  className="py-3 px-4 rounded-xl bg-dark-800 border border-amber-500/50 text-amber-300 hover:bg-dark-750 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                  <Download className="w-4 h-4" />
+                                  <span>Yes, Download Full Video</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
