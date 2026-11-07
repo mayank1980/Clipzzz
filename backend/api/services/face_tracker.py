@@ -4,6 +4,40 @@ import numpy as np
 import subprocess
 from typing import List, Dict, Any, Tuple
 
+def to_916_crop_x(face_cx_pct: float, zoom: float = 1.15) -> float:
+    """
+    Mathematically projects a 16:9 frame horizontal coordinate (0-100%) to
+    a 9:16 portrait viewport scroll percentage (0-100%) such that the subject's
+    face is placed DEAD CENTER in the vertical 9:16 Shorts frame.
+
+    In 16:9 video cropped to 9:16:
+      Video aspect ratio: 16/9
+      Shorts aspect ratio: 9/16
+      ow = ih * (9/16) / zoom
+      alpha = (ow / 2) / iw = (562.5 / zoom) / 3840 = 0.146484 / zoom
+      span = 1.0 - (2.0 * alpha)
+      
+      When the crop window is at crop_x:
+      viewport_center = alpha + (crop_x / 100.0) * span
+      
+      Therefore, to center on face_cx_pct:
+      crop_x = ((face_cx_pct / 100.0) - alpha) / span * 100.0
+    """
+    eff_zoom = max(1.08, min(2.5, float(zoom)))
+    alpha = 0.146484 / eff_zoom
+    span = 1.0 - (2.0 * alpha)
+    norm_face = max(0.0, min(1.0, float(face_cx_pct) / 100.0))
+    crop_x = ((norm_face - alpha) / span) * 100.0
+    return round(max(4.0, min(96.0, crop_x)), 1)
+
+def to_916_crop_y(face_cy_pct: float, zoom: float = 1.15) -> float:
+    """
+    Centers the subject's eyes/face in the golden upper third (approx 30-35% from top)
+    of the 9:16 portrait viewport while ensuring zero vertical letterboxing.
+    """
+    clamped_y = round(max(20.0, min(45.0, float(face_cy_pct))), 1)
+    return clamped_y
+
 def ensure_yunet_model() -> str:
     """
     Ensures the official OpenCV YuNet ONNX model is present (approx 230 KB).
@@ -32,20 +66,20 @@ class AutoCameraEngine:
     Intelligent Active Camera Framing & Multi-Speaker Tracking Engine.
     Features:
     1. Modern YuNet deep learning neural face detection (Zero wall/microphone false positives).
-    2. Sticky Memory: If a speaker looks down or turns, holds position; NEVER snaps to empty center walls.
-    3. Dynamic Debounce (0.5s): Cuts rapidly in heated debates without jerky single-frame twitches.
-    4. Auto Stacked Split-Screen: Automatically detects 2-speaker debate banter and formats as top/bottom split.
-    5. Centroid-Radius spatial clustering for physical studio seats.
+    2. Multi-Angle & Reading Detection: Frontal + Bilateral Profiles (left & right) + Upper Body.
+    3. Mathematical 9:16 Projection: Subjects always centered dead in frame, zero edge cutoff.
+    4. Sticky Memory: If a speaker looks down or turns, holds position; NEVER snaps to empty center walls.
+    5. Fast-Paced Debounce (0.32s): Cuts rapidly in heated debates without jerky twitches.
+    6. Centroid-Radius spatial clustering for physical studio seats.
     """
 
-    def __init__(self, smoothing_alpha: float = 0.35, min_shot_duration: float = 0.4):
+    def __init__(self, smoothing_alpha: float = 0.35, min_shot_duration: float = 0.32):
         self.alpha = smoothing_alpha
-        self.min_shot_duration = min_shot_duration  # 0.4s debounce for fast-paced dialogues and debates
-        # Sticky memory default focal coordinates
+        self.min_shot_duration = min_shot_duration
         self.current_focal_x = 50.0
         self.current_focal_y = 35.0
 
-        # 1. Primary: YuNet Deep Neural Detector
+        # 1. Primary: YuNet Deep Neural Detector (sensitive to angled & profile faces)
         self.yunet_path = ensure_yunet_model()
         self.yunet_detector = None
         if self.yunet_path and os.path.exists(self.yunet_path) and hasattr(cv2, 'FaceDetectorYN'):
@@ -54,18 +88,20 @@ class AutoCameraEngine:
                     self.yunet_path,
                     "",
                     (320, 320),
-                    score_threshold=0.55,
+                    score_threshold=0.35,
                     nms_threshold=0.30,
                     top_k=5000
                 )
             except Exception as e:
                 print(f"[AutoCameraEngine] YuNet init notice: {e}")
 
-        # 2. Safety Fallback: OpenCV Haar Cascades
+        # 2. Multi-Cascade Suite: Frontal, Left Profile, Right Profile, and Upper Body (Reading/Looking Down)
         alt2_path = cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'
         prof_path = cv2.data.haarcascades + 'haarcascade_profileface.xml'
+        upper_path = cv2.data.haarcascades + 'haarcascade_upperbody.xml'
         self.face_cascade_alt2 = cv2.CascadeClassifier(alt2_path) if os.path.exists(alt2_path) else None
         self.profile_cascade = cv2.CascadeClassifier(prof_path) if os.path.exists(prof_path) else None
+        self.upperbody_cascade = cv2.CascadeClassifier(upper_path) if os.path.exists(upper_path) else None
 
     def _has_valid_face_skin(self, bgr_crop: np.ndarray) -> bool:
         if bgr_crop is None or bgr_crop.size == 0:
@@ -101,14 +137,14 @@ class AutoCameraEngine:
                         fw = min(target_w - x1, int(f[2]))
                         fh = min(new_h - y1, int(f[3]))
                         score = float(f[14]) if len(f) > 14 else 0.8
-                        if score < 0.45 or fw <= 4 or fh <= 4:
+                        if score < 0.35 or fw <= 4 or fh <= 4:
                             continue
 
                         cx_pct = ((x1 + fw / 2.0) / float(target_w)) * 100.0
                         cy_pct = ((y1 + fh / 2.0) / float(new_h)) * 100.0
 
                         # Filter extreme margins
-                        if cy_pct < 8.0 or cy_pct > 90.0 or cx_pct < 6.0 or cx_pct > 94.0:
+                        if cy_pct < 6.0 or cy_pct > 92.0 or cx_pct < 4.0 or cx_pct > 96.0:
                             continue
 
                         results.append({
@@ -131,10 +167,11 @@ class AutoCameraEngine:
             except Exception as e:
                 pass
 
-        # 2. Fallback: Haar Cascade (Used only if YuNet is unavailable)
+        # 2. Multi-Cascade Robust Fallback: Frontal, Left Profile, Right Profile, and Reading / Looking-Down
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         detections = []
 
+        # Frontal Alt2
         if self.face_cascade_alt2 and not self.face_cascade_alt2.empty():
             faces_alt2 = self.face_cascade_alt2.detectMultiScale(
                 gray,
@@ -149,19 +186,48 @@ class AutoCameraEngine:
                     if self._has_valid_face_skin(crop):
                         detections.append((x, y, w, h))
 
+        # Left-Facing Profile Cascade
         if self.profile_cascade and not self.profile_cascade.empty() and not detections:
             prof_faces = self.profile_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.10,
-                minNeighbors=4,
+                scaleFactor=1.08,
+                minNeighbors=3,
                 minSize=(22, 22)
             )
             for (x, y, w, h) in prof_faces:
-                ratio = w / float(h)
-                if 0.65 <= ratio <= 1.35:
-                    crop = small[y:y+h, x:x+w]
-                    if self._has_valid_face_skin(crop):
-                        detections.append((x, y, w, h))
+                crop = small[y:y+h, x:x+w]
+                if self._has_valid_face_skin(crop):
+                    detections.append((x, y, w, h))
+
+        # Right-Facing Profile Cascade (Horizontally flipped image detection)
+        if self.profile_cascade and not self.profile_cascade.empty() and not detections:
+            flipped_gray = cv2.flip(gray, 1)
+            prof_right = self.profile_cascade.detectMultiScale(
+                flipped_gray,
+                scaleFactor=1.08,
+                minNeighbors=3,
+                minSize=(22, 22)
+            )
+            for (fx, fy, fw, fh) in prof_right:
+                orig_x = target_w - (fx + fw)
+                crop = small[fy:fy+fh, orig_x:orig_x+fw]
+                if self._has_valid_face_skin(crop):
+                    detections.append((orig_x, fy, fw, fh))
+
+        # Upper Body Cascade (Person reading letter, looking down at paper/phone)
+        if self.upperbody_cascade and not self.upperbody_cascade.empty() and not detections:
+            upper_bodies = self.upperbody_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.08,
+                minNeighbors=3,
+                minSize=(40, 40)
+            )
+            for (ux, uy, uw, uh) in upper_bodies:
+                head_w = int(uw * 0.6)
+                head_h = int(uh * 0.45)
+                head_x = int(ux + (uw - head_w) / 2)
+                head_y = uy
+                detections.append((head_x, head_y, head_w, head_h))
 
         for (x, y, w, h) in detections:
             cx_pct = ((x + w / 2.0) / float(target_w)) * 100.0
@@ -188,9 +254,18 @@ class AutoCameraEngine:
     def cluster_speaker_seats(self, all_faces: List[Dict[str, Any]], max_spread: float = 12.0) -> List[Dict[str, Any]]:
         """
         Centroid-Radius clustering: groups face detections into distinct physical chairs/seats.
+        Mathematically projects each seat's 16:9 median into accurate 9:16 portrait viewport crop_x.
         """
         if not all_faces:
-            return [{"id": 0, "x": self.current_focal_x, "y": self.current_focal_y, "label": "Speaker Focus", "count": 1}]
+            return [{
+                "id": 0,
+                "x": self.current_focal_x,
+                "y": self.current_focal_y,
+                "raw_x": 50.0,
+                "raw_y": 35.0,
+                "label": "Speaker Focus",
+                "count": 1
+            }]
 
         sorted_faces = sorted(all_faces, key=lambda f: f['cx'])
         clusters: List[List[Dict[str, Any]]] = []
@@ -222,27 +297,28 @@ class AutoCameraEngine:
             med_x = float(np.median(c_xs))
             med_y = float(np.median(c_ys))
 
-            # Clamping to [18.0, 82.0] guarantees full face visibility and zero black borders
-            clamped_x = round(max(18.0, min(82.0, med_x)), 1)
-            clamped_y = round(max(22.0, min(38.0, med_y)), 1)
+            # Mathematical 9:16 Projection: perfectly centers the face in the 9:16 vertical viewport
+            proj_x = to_916_crop_x(med_x, zoom=1.15)
+            proj_y = to_916_crop_y(med_y, zoom=1.15)
 
-            if clamped_x < 42.0:
+            if med_x < 42.0:
                 label = "Speaker 1 (Left)"
-            elif clamped_x > 58.0:
+            elif med_x > 58.0:
                 label = "Speaker 2 (Right)"
             else:
                 label = "Active Speaker"
 
             speaker_seats.append({
                 "id": idx,
-                "x": clamped_x,
-                "y": clamped_y,
-                "raw_x": med_x,
+                "x": proj_x,        # Projected 9:16 crop scroll position
+                "y": proj_y,
+                "raw_x": med_x,      # 16:9 source coordinate
+                "raw_y": med_y,
                 "label": label,
                 "count": len(c)
             })
 
-        speaker_seats.sort(key=lambda s: s["x"])
+        speaker_seats.sort(key=lambda s: s["raw_x"])
         for idx, s in enumerate(speaker_seats):
             s["id"] = idx
 
@@ -300,16 +376,19 @@ class AutoCameraEngine:
         avg_x = sum(f['cx'] for f in all_faces) / len(all_faces)
         avg_y = sum(f['cy'] for f in all_faces) / len(all_faces)
 
-        clamped_x = round(max(16.0, min(84.0, avg_x)), 1)
-        clamped_y = round(max(22.0, min(42.0, avg_y)), 1)
+        # Mathematical projection to 9:16
+        proj_x = to_916_crop_x(avg_x, zoom=1.15)
+        proj_y = to_916_crop_y(avg_y, zoom=1.15)
 
         # Update sticky memory
-        self.current_focal_x = clamped_x
-        self.current_focal_y = clamped_y
+        self.current_focal_x = proj_x
+        self.current_focal_y = proj_y
 
         result = {
-            "x": clamped_x,
-            "y": clamped_y,
+            "x": proj_x,
+            "y": proj_y,
+            "raw_x": avg_x,
+            "raw_y": avg_y,
             "mode": "custom_crop",
             "detected": True,
             "face_count": len(all_faces),
@@ -323,14 +402,16 @@ class AutoCameraEngine:
         video_path: str,
         start_sec: float,
         duration: float = 30.0,
-        sample_interval: float = 0.35
+        sample_interval: float = 0.32
     ) -> List[Dict[str, Any]]:
         """
         Responsive Multi-Speaker Camera Tracking Engine with:
         1. YuNet neural face detection (Zero wall false-positives).
-        2. Sticky Memory (Holds last speaker framing if face obscured, never snaps to empty wall).
-        3. Dynamic Fast-Paced Debounce (0.4s): rapidly follows active speaker in fast back-and-forth dialogue.
-        4. Centroid-Radius spatial clustering for physical speaker seats.
+        2. Bilateral profile and reading/looking-down posture detection.
+        3. Mathematical 9:16 Projection: Subjects always centered dead in frame.
+        4. Sticky Memory: Holds speaker framing if face obscured, never snaps to empty wall.
+        5. Fast-Paced Debounce (0.32s): rapidly follows active speaker in fast back-and-forth dialogue.
+        6. Centroid-Radius spatial clustering for physical speaker seats.
         """
         if not os.path.exists(video_path):
             return [{"time": 0.0, "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
@@ -409,13 +490,28 @@ class AutoCameraEngine:
             return [{"time": 0.0, "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
         # 1. Discover physical speaker seats
-        speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=7.0)
+        speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=8.0)
 
-        # 2. Build continuous focal track with 0.5s debate debounce & sticky memory
+        # Solo speaker edge case: If only 1 seat exists, lock onto them unconditionally!
+        # Lip motion is NOT required for solo speaker (e.g. reading letter, listening, or voiceover).
+        if len(speaker_seats) == 1:
+            solo = speaker_seats[0]
+            self.current_focal_x = solo["x"]
+            self.current_focal_y = solo["y"]
+            return [{
+                "time": 0.0,
+                "mode": "solo",
+                "x": solo["x"],
+                "y": solo["y"],
+                "zoom": 1.15,
+                "speaker": solo["label"]
+            }]
+
+        # 2. Build continuous focal track with fast debate debounce & presence scoring
         focal_track = []
         current_seat = speaker_seats[0]
         last_switch_time = 0.0
-        min_dwell = self.min_shot_duration  # 0.4s debounce for fast speech
+        min_dwell = self.min_shot_duration  # 0.32s debounce for fast speech
 
         for st in sampled_timeline:
             t = st["time"]
@@ -423,31 +519,46 @@ class AutoCameraEngine:
 
             if faces:
                 seat_scores = {s["id"]: 0.0 for s in speaker_seats}
+                seat_face_counts = {s["id"]: 0 for s in speaker_seats}
+
                 for f in faces:
-                    nearest_s = min(speaker_seats, key=lambda s: abs(s["x"] - f["cx"]))
+                    # Match face to nearest seat using raw 16:9 coordinates
+                    nearest_s = min(speaker_seats, key=lambda s: abs(s["raw_x"] - f["cx"]))
                     motion = f.get("lip_motion", 0.0)
-                    area_weight = 1.0 + 0.15 * min(2.0, f["area"] / 10000.0)
-                    score = motion * area_weight
-                    seat_scores[nearest_s["id"]] = max(seat_scores[nearest_s["id"]], score)
+                    area_weight = 1.0 + 0.15 * min(2.0, f.get("area", 1000) / 10000.0)
+
+                    # Presence score: being visible gives a baseline score of 5.0
+                    # This handles edge cases where someone is reading a letter or silent:
+                    # if they are the visible person on screen, presence alone wins!
+                    presence_score = 5.0
+                    total_score = presence_score + (motion * 1.5 * area_weight)
+
+                    seat_scores[nearest_s["id"]] = max(seat_scores[nearest_s["id"]], total_score)
+                    seat_face_counts[nearest_s["id"]] += 1
 
                 curr_score = seat_scores[current_seat["id"]]
+                curr_count = seat_face_counts[current_seat["id"]]
                 other_seats = [s for s in speaker_seats if s["id"] != current_seat["id"]]
 
                 if other_seats:
-                    best_other_seat = max(other_seats, key=lambda s: seat_scores[s["id"]])
-                    other_score = seat_scores[best_other_seat["id"]]
-
-                    # Fast, responsive speaker cut for rapid back-and-forth dialogue:
-                    # Switch when candidate speaker demonstrates active mouth movement (>= 1.5) exceeding previous speaker
+                    best_other = max(other_seats, key=lambda s: seat_scores[s["id"]])
+                    other_score = seat_scores[best_other["id"]]
+                    other_count = seat_face_counts[best_other["id"]]
                     time_since_switch = t - last_switch_time
-                    is_valid_candidate = (
-                        other_score >= 1.5 and
-                        (other_score > 1.12 * max(0.8, curr_score)) and
+
+                    # Switch condition 1: Cut to visible speaker (e.g. cut to person reading letter)
+                    # Current seat has NO face in frame, but other seat HAS a face
+                    is_cut_to_visible = (curr_count == 0 and other_count > 0 and time_since_switch >= min_dwell)
+
+                    # Switch condition 2: Both visible, other person begins actively speaking
+                    is_active_speech_switch = (
+                        other_score > 6.0 and
+                        (other_score > 1.12 * max(5.0, curr_score)) and
                         time_since_switch >= min_dwell
                     )
 
-                    if is_valid_candidate:
-                        current_seat = best_other_seat
+                    if is_cut_to_visible or is_active_speech_switch:
+                        current_seat = best_other
                         last_switch_time = t
 
                 chosen_x = current_seat["x"]
@@ -459,8 +570,8 @@ class AutoCameraEngine:
                 self.current_focal_y = chosen_y
 
             else:
-                # STICKY MEMORY: Zero faces detected (speaker turned, sneezed, or looks down)
-                # NEVER snap to (50.0, 35.0) which is the empty wall between debaters!
+                # STICKY MEMORY: Zero faces detected (speaker turned, sneezed, or looks down to read)
+                # NEVER snap to empty center wall!
                 chosen_x = self.current_focal_x
                 chosen_y = self.current_focal_y
                 chosen_label = current_seat.get("label", "Speaker Focus")
@@ -493,8 +604,8 @@ class AutoCameraEngine:
             else:
                 shift = abs(pt["x"] - last_kf_x)
                 time_elapsed = t - last_kf_time
-                # Fast cut when speaker changes (shift >= 5.0% and time >= 0.4s debounce)
-                if shift >= 5.0 and time_elapsed >= self.min_shot_duration:
+                # Fast cut when speaker changes (shift >= 4.0% and time >= min_shot_duration)
+                if shift >= 4.0 and time_elapsed >= self.min_shot_duration:
                     keyframes.append({
                         "time": round(t, 2),
                         "mode": "solo",

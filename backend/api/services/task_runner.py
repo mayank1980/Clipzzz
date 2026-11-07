@@ -283,6 +283,22 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 matched.hook_title = h.get('hook_title') or h.get('part_hook') or matched.title
                 matched.save(update_fields=['title', 'score', 'ending_type', 'hook_title'])
 
+                # Automatically enhance framing & multi-speaker keyframes for matched clips if missing or default
+                if (not matched.crop_keyframes or len(matched.crop_keyframes) <= 1 or matched.crop_x == 50.0) and video_full_path and os.path.exists(video_full_path):
+                    try:
+                        from .face_tracker import generate_camera_keyframes
+                        computed_kfs = generate_camera_keyframes(video_full_path, matched.start_time, matched.duration)
+                        if computed_kfs:
+                            matched.crop_keyframes = computed_kfs
+                            matched.crop_x = computed_kfs[0]['x']
+                            matched.crop_y = computed_kfs[0]['y']
+                            matched.crop_zoom = computed_kfs[0].get('zoom', 1.15)
+                            matched.crop_mode = 'custom_crop'
+                            matched.is_speaker_centered = True
+                            matched.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom', 'crop_mode', 'is_speaker_centered'])
+                    except Exception as e:
+                        print(f"[task_runner] Re-tracking matched clip notice: {e}")
+
         already_created_count = len(highlight_to_clip)
         if already_created_count > 0:
             resume_part = already_created_count + 1
