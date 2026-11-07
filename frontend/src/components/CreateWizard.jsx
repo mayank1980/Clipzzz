@@ -236,12 +236,17 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           }
 
           const lowerMsg = msg.toLowerCase();
-          if (statusRes.status === 'downloading' || lowerMsg.includes('download')) setPipelineStep(1);
-          else if (statusRes.status === 'extracting_audio' || lowerMsg.includes('audio')) setPipelineStep(2);
-          else if (statusRes.status === 'transcribing' || lowerMsg.includes('dialogue') || lowerMsg.includes('transcrib') || lowerMsg.includes('whisper')) setPipelineStep(3);
-          else if (lowerMsg.includes('assembling') || lowerMsg.includes('package') || lowerMsg.includes('resuming') || lowerMsg.includes('shorts package') || lowerMsg.includes('clip ') || lowerMsg.includes('validating') || lowerMsg.includes('clips ready')) setPipelineStep(5);
-          else if (statusRes.status === 'analyzing' || lowerMsg.includes('analyz') || lowerMsg.includes('scan') || lowerMsg.includes('gemini') || lowerMsg.includes('structuring')) setPipelineStep(4);
-          else if (statusRes.status === 'ready') {
+          if (lowerMsg.includes('0 mb') || lowerMsg.includes('native') || lowerMsg.includes('dialogue') || lowerMsg.includes('transcrib') || lowerMsg.includes('whisper')) {
+            setPipelineStep(3);
+          } else if (lowerMsg.includes('analyz') || lowerMsg.includes('scan') || lowerMsg.includes('gemini') || lowerMsg.includes('storyline') || statusRes.status === 'analyzing') {
+            setPipelineStep(4);
+          } else if (lowerMsg.includes('assembling') || lowerMsg.includes('package') || lowerMsg.includes('shorts package') || lowerMsg.includes('clip ') || lowerMsg.includes('validating') || lowerMsg.includes('preview')) {
+            setPipelineStep(5);
+          } else if (statusRes.status === 'extracting_audio' || lowerMsg.includes('audio stream')) {
+            setPipelineStep(2);
+          } else if (statusRes.status === 'downloading' || (lowerMsg.includes('download') && !lowerMsg.includes('0 mb'))) {
+            setPipelineStep(1);
+          } else if (statusRes.status === 'ready') {
             clearInterval(interval);
             setPipelineStep(6);
             setStatusMessage('All 9:16 Shorts generated successfully!');
@@ -337,8 +342,8 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
               </div>
             </div>
 
-            {/* Video Download Ingest Progress Bar (Shown during Ingestion/Download) */}
-            {(downloadProgress > 0 || pipelineStep === 1 || (statusMessage && statusMessage.toLowerCase().includes('download'))) && (
+            {/* Video Download Ingest Progress Bar (Shown ONLY when an actual media stream is downloading) */}
+            {downloadProgress > 0 && !statusMessage?.toLowerCase().includes('0 mb') && (
               <div className="space-y-1.5 bg-dark-950 p-3.5 rounded-2xl border border-cyan-500/30 shadow-lg">
                 <div className="flex justify-between items-center text-[11px] font-mono">
                   <span className="font-bold text-cyan-400 flex items-center gap-1.5">

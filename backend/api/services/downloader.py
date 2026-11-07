@@ -341,6 +341,102 @@ def find_cookie_file():
     return None
 
 
+def fetch_youtube_metadata_fast(url: str) -> dict:
+    """
+    Sub-second metadata extraction with 0 bytes of video downloaded.
+    Extracts title, channel, duration, thumbnail, and dimensions.
+    """
+    video_id = get_youtube_video_id(url)
+    out = {
+        'video_id': video_id,
+        'title': f'YouTube Video ({video_id})',
+        'channel_name': '',
+        'thumbnail': f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg" if video_id else '',
+        'duration': 0.0,
+        'width': 1920,
+        'height': 1080,
+        'fps': 30.0,
+    }
+    cookie_file = find_cookie_file()
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+        'remote_components': ['ejs:github'],
+        'extractor_args': {'youtube': {'player_client': ['tv_embedded', 'visionos', 'android']}},
+    }
+    if cookie_file:
+        ydl_opts['cookiefile'] = cookie_file
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info:
+                out['video_id'] = info.get('id', video_id)
+                out['title'] = info.get('title', out['title'])
+                out['channel_name'] = info.get('uploader') or info.get('channel') or info.get('creator') or ''
+                out['thumbnail'] = info.get('thumbnail') or out['thumbnail']
+                out['duration'] = float(info.get('duration', 0.0) or 0.0)
+                out['width'] = int(info.get('width', 1920) or 1920)
+                out['height'] = int(info.get('height', 1080) or 1080)
+                out['fps'] = float(info.get('fps', 30.0) or 30.0)
+    except Exception as e:
+        print(f"[fetch_youtube_metadata_fast] Metadata probe note: {e}")
+
+    return out
+
+
+def download_youtube_audio_fast(url: str, output_path: str, progress_callback=None) -> str:
+    """
+    Lightning-fast audio stream download (~10-15 MB) for speech recognition.
+    Takes 2-4 seconds instead of waiting for a 1.2 GB video.
+    """
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    cookie_file = find_cookie_file()
+    base_target = output_path.replace('.mp3', '')
+
+    ydl_opts = {
+        'format': 'ba/bestaudio/best',
+        'outtmpl': base_target + '.%(ext)s',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '128',
+        }],
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+        'remote_components': ['ejs:github'],
+    }
+    if cookie_file:
+        ydl_opts['cookiefile'] = cookie_file
+
+    if progress_callback:
+        def hook(d):
+            if d['status'] == 'downloading':
+                tot = d.get('total_bytes') or d.get('total_bytes_estimate') or 1
+                dl = d.get('downloaded_bytes', 0)
+                pct = int((dl / max(1, tot)) * 100)
+                progress_callback(pct, f"Downloading audio stream: {pct}% (~12 MB)")
+        ydl_opts['progress_hooks'] = [hook]
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(url, download=True)
+    except Exception as e:
+        print(f"[download_youtube_audio_fast] Audio extraction note: {e}")
+
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
+        return output_path
+
+    for ext in ['.mp3', '.m4a', '.webm', '.opus']:
+        cand = base_target + ext
+        if os.path.exists(cand) and os.path.getsize(cand) > 1024:
+            return cand
+
+    return output_path
+
+
 def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
     """
     On-the-spot video inspection, metadata extraction, AI content classification,
@@ -496,17 +592,6 @@ def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
             'recommended': False,
         },
     ]
-
-    # 5. Trigger lightweight 720p background pre-downloading only if video is NOT already cached
-    if not cached_info:
-        def _bg_download():
-            try:
-                out_dir = os.path.join(settings.MEDIA_ROOT, 'source_videos')
-                download_youtube_video(url, out_dir, quality='720p', use_cache=True)
-            except Exception as dl_e:
-                print(f"[inspect_and_classify_video] Pre-download thread note: {dl_e}")
-
-        threading.Thread(target=_bg_download, daemon=True).start()
 
     return {
         'success': True,

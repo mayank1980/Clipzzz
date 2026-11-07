@@ -3,7 +3,12 @@ import threading
 import traceback
 from django.conf import settings
 from ..models import VideoProject, VideoClip
-from .downloader import download_youtube_video, probe_video_metadata
+from .downloader import (
+    download_youtube_video,
+    probe_video_metadata,
+    fetch_youtube_metadata_fast,
+    download_youtube_audio_fast
+)
 from .transcription import (
     extract_audio_from_video,
     get_native_youtube_transcript,
@@ -84,7 +89,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
 
         if video_full_path:
             project.status_message = 'Existing video file found on disk. Skipping download.'
-            project.progress = 40
+            project.progress = 20
             project.download_progress = 100
             project.save(update_fields=['status_message', 'progress', 'download_progress'])
             from .upload_kit import extract_channel_credit
@@ -98,41 +103,25 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 project.fps = probe['fps']
                 project.save()
         elif project.source_type == 'youtube' and project.youtube_url:
-            project.status = 'downloading'
+            # Fast Metadata Ingestion: Instant probe without downloading large video files
+            project.status = 'analyzing'
             project.progress = 10
-            project.status_message = 'Fetching video from YouTube...'
+            project.status_message = 'Fetching YouTube video details (0 MB download)...'
             project.save(update_fields=['status', 'progress', 'status_message'])
 
-            def update_dl_progress(pct, msg, meta=None):
-                project.progress = min(40, 10 + int(pct * 0.3))
-                project.download_progress = pct
-                if meta:
-                    project.download_speed = meta.get('speed', '')
-                    project.download_eta = meta.get('eta', '')
-                project.status_message = msg
-                project.save(update_fields=['progress', 'download_progress', 'download_speed', 'download_eta', 'status_message'])
-
-            dl_quality = getattr(project, 'download_quality', '720p') or '720p'
-            use_cache = getattr(project, 'use_cached_video', True)
-            dl_res = download_youtube_video(
-                project.youtube_url,
-                media_videos_dir,
-                update_dl_progress,
-                quality=dl_quality,
-                use_cache=use_cache
-            )
+            meta = fetch_youtube_metadata_fast(project.youtube_url)
             from .upload_kit import extract_channel_credit
-            project.title = dl_res['title']
-            project.channel_name = dl_res.get('channel_name') or extract_channel_credit(project.title)
-            project.duration = dl_res['duration']
-            project.width = dl_res['width']
-            project.height = dl_res['height']
-            project.fps = dl_res['fps']
-            project.thumbnail_url = dl_res['thumbnail']
-            rel_video_path = os.path.relpath(dl_res['file_path'], settings.MEDIA_ROOT).replace('\\', '/')
-            project.video_file.name = rel_video_path
-            project.save()
-            video_full_path = dl_res['file_path']
+            project.title = meta['title']
+            project.channel_name = meta.get('channel_name') or extract_channel_credit(project.title)
+            project.duration = meta['duration']
+            project.width = meta['width']
+            project.height = meta['height']
+            project.fps = meta['fps']
+            if meta.get('thumbnail'):
+                project.thumbnail_url = meta['thumbnail']
+            project.progress = 18
+            project.status_message = 'Loaded video details. Checking dialogue captions...'
+            project.save(update_fields=['title', 'channel_name', 'duration', 'width', 'height', 'fps', 'thumbnail_url', 'progress', 'status_message'])
         else:
             video_full_path = project.video_file.path
             from .upload_kit import extract_channel_credit
@@ -145,7 +134,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             project.fps = probe['fps']
             project.save()
 
-        # Step 2: Check for existing Dialogue Transcript (from project or previous project)
+        # Step 2: Fast Transcript Resolution (Native captions first - 0 MB download!)
         transcript = []
         if project.transcript_raw and isinstance(project.transcript_raw, list) and len(project.transcript_raw) > 0:
             transcript = project.transcript_raw
@@ -156,89 +145,76 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 project.transcript_raw = transcript
                 project.save(update_fields=['transcript_raw'])
 
-        # Step 3: Fast Audio Extraction (reuse if already extracted)
         audio_filename = f"{project.id}.mp3"
         audio_full_path = os.path.join(settings.MEDIA_ROOT, 'audio', audio_filename)
-        if os.path.exists(audio_full_path) and os.path.getsize(audio_full_path) > 1024:
-            project.status_message = 'Existing audio stream found. Skipping audio extraction.'
-            project.progress = 55
-            project.audio_file.name = f"audio/{audio_filename}"
-            project.save(update_fields=['status_message', 'progress', 'audio_file'])
-        else:
-            # Check if previous project with same youtube_url has audio stream
-            prev_audio = None
-            if project.source_type == 'youtube' and project.youtube_url:
-                prev_proj = VideoProject.objects.filter(youtube_url=project.youtube_url).exclude(id=project.id).order_by('-created_at').first()
-                if prev_proj and prev_proj.audio_file and prev_proj.audio_file.name:
-                    cand_a = os.path.join(settings.MEDIA_ROOT, prev_proj.audio_file.name)
-                    if os.path.exists(cand_a) and os.path.getsize(cand_a) > 1024:
-                        prev_audio = cand_a
 
-            if prev_audio:
-                import shutil
-                shutil.copy2(prev_audio, audio_full_path)
-                project.status_message = 'Existing audio stream restored from cache. Skipping audio extraction.'
-                project.progress = 55
-                project.audio_file.name = f"audio/{audio_filename}"
-                project.save(update_fields=['status_message', 'progress', 'audio_file'])
-            else:
-                project.status = 'extracting_audio'
-                project.progress = 55
-                project.status_message = 'Extracting audio stream...'
-                project.save(update_fields=['status', 'progress', 'status_message'])
-                extract_audio_from_video(video_full_path, audio_full_path)
-                project.audio_file.name = f"audio/{audio_filename}"
-                project.save(update_fields=['audio_file'])
-
-        # Step 2 (Cont.): Speech transcription only if transcript is missing
         if not transcript:
             if project.source_type == 'youtube' and project.youtube_url:
                 project.status = 'transcribing'
-                project.progress = 56
-                project.status_message = 'Checking for native YouTube dialogue captions...'
+                project.progress = 22
+                project.status_message = 'Checking for native YouTube dialogue captions (0 MB download)...'
                 project.save(update_fields=['status', 'progress', 'status_message'])
                 transcript = get_native_youtube_transcript(project.youtube_url)
 
-            if not transcript:
-                project.status = 'transcribing'
-                project.progress = 58
-                project.status_message = 'Transcribing dialogue with faster-whisper...'
-                project.save(update_fields=['status', 'progress', 'status_message'])
-                transcript = transcribe_with_whisper(audio_full_path)
+            if transcript:
+                project.transcript_raw = transcript
+                project.progress = 48
+                project.status_message = f'Loaded native captions ({len(transcript)} segments) instantly with 0 MB downloaded!'
+                project.save(update_fields=['transcript_raw', 'progress', 'status_message'])
+            else:
+                # Speech transcription required: download ONLY audio stream (~10-15 MB)
+                if not os.path.exists(audio_full_path) or os.path.getsize(audio_full_path) < 1024:
+                    if project.source_type == 'youtube' and project.youtube_url:
+                        project.status = 'downloading'
+                        project.progress = 25
+                        project.status_message = 'Downloading lightweight audio stream (~12 MB)...'
+                        project.save(update_fields=['status', 'progress', 'status_message'])
+                        download_youtube_audio_fast(project.youtube_url, audio_full_path)
+                        project.audio_file.name = f"audio/{audio_filename}"
+                        project.save(update_fields=['audio_file'])
+                    elif video_full_path and os.path.exists(video_full_path):
+                        project.status = 'extracting_audio'
+                        project.progress = 25
+                        project.status_message = 'Extracting audio stream...'
+                        project.save(update_fields=['status', 'progress', 'status_message'])
+                        extract_audio_from_video(video_full_path, audio_full_path)
+                        project.audio_file.name = f"audio/{audio_filename}"
+                        project.save(update_fields=['audio_file'])
 
-            if not transcript:
-                project.progress = 62
-                project.status_message = 'Aligning dialogue with Shruti acoustic ASR engine...'
-                project.save(update_fields=['progress', 'status_message'])
-                transcript = transcribe_with_shruti(audio_full_path)
+                if os.path.exists(audio_full_path):
+                    project.status = 'transcribing'
+                    project.progress = 32
+                    project.status_message = 'Transcribing dialogue with faster-whisper...'
+                    project.save(update_fields=['status', 'progress', 'status_message'])
+                    transcript = transcribe_with_whisper(audio_full_path)
 
-            if not transcript and api_key:
-                project.progress = 66
-                project.status_message = 'Transcribing dialogue with Gemini Multimodal AI...'
-                project.save(update_fields=['progress', 'status_message'])
-                transcript = transcribe_with_gemini(audio_full_path, api_key)
+                if not transcript and os.path.exists(audio_full_path):
+                    project.progress = 38
+                    project.status_message = 'Aligning dialogue with Shruti acoustic ASR engine...'
+                    project.save(update_fields=['progress', 'status_message'])
+                    transcript = transcribe_with_shruti(audio_full_path)
 
-            if not transcript and groq_key:
-                project.progress = 68
-                project.status_message = 'Transcribing with Groq Whisper API...'
-                project.save(update_fields=['progress', 'status_message'])
-                transcript = transcribe_with_groq(audio_full_path, groq_key)
+                if not transcript and api_key and os.path.exists(audio_full_path):
+                    project.progress = 42
+                    project.status_message = 'Transcribing dialogue with Gemini Multimodal AI...'
+                    project.save(update_fields=['progress', 'status_message'])
+                    transcript = transcribe_with_gemini(audio_full_path, api_key)
 
-            if not transcript:
-                transcript = generate_fallback_transcript(project.duration, project.title)
+                if not transcript:
+                    transcript = generate_fallback_transcript(project.duration, project.title)
 
-            project.transcript_raw = transcript
-            project.progress = 72
-            project.status_message = f'Loaded dialogue ({len(transcript)} segments). Analyzing viral highlights...'
-            project.save(update_fields=['transcript_raw', 'progress', 'status_message'])
+                project.transcript_raw = transcript
+                project.progress = 48
+                project.status_message = f'Loaded dialogue ({len(transcript)} segments). Analyzing viral highlights...'
+                project.save(update_fields=['transcript_raw', 'progress', 'status_message'])
         else:
-            project.progress = 72
+            project.progress = 48
             project.status_message = f'Using cached dialogue ({len(transcript)} segments). Analyzing viral highlights...'
             project.save(update_fields=['progress', 'status_message'])
 
-        # Step 4: AI Highlight Detection & Viral Scoring
+        # Step 3: AI Highlight Detection & Viral Scoring
         project.status = 'analyzing'
-        project.progress = 78
+        project.progress = 55
         is_auto = (project.requested_clip_count == 0)
         count_label = "full video" if is_auto else f"top {project.requested_clip_count}"
         mode_label = "Story Arc Series" if getattr(project, 'clipping_mode', 'viral_highlights') == 'story_series' else "Viral Highlights"
@@ -454,6 +430,39 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         # Delete only orphan clips that were not matched to any highlight
         all_retained_ids = [c.id for c in highlight_to_clip.values() if hasattr(c, 'id')]
         project.clips.exclude(id__in=all_retained_ids).delete()
+
+        # Step 5: Acquire optimized preview video if not already present on disk
+        if not video_full_path or not os.path.exists(video_full_path):
+            if project.source_type == 'youtube' and project.youtube_url:
+                project.status_message = "Preparing video stream for instant Shorts preview..."
+                project.progress = 90
+                project.save(update_fields=['status_message', 'progress'])
+
+                def update_dl_progress(pct, msg, meta=None):
+                    project.download_progress = pct
+                    if meta:
+                        project.download_speed = meta.get('speed', '')
+                        project.download_eta = meta.get('eta', '')
+                    speed_txt = f" ({meta.get('speed')})" if meta and meta.get('speed') else ""
+                    project.status_message = f"Optimizing video preview: {pct}%{speed_txt}"
+                    project.save(update_fields=['download_progress', 'download_speed', 'download_eta', 'status_message'])
+
+                dl_quality = getattr(project, 'download_quality', '720p') or '720p'
+                use_cache = getattr(project, 'use_cached_video', True)
+                try:
+                    dl_res = download_youtube_video(
+                        project.youtube_url,
+                        media_videos_dir,
+                        update_dl_progress,
+                        quality=dl_quality,
+                        use_cache=use_cache
+                    )
+                    rel_video_path = os.path.relpath(dl_res['file_path'], settings.MEDIA_ROOT).replace('\\', '/')
+                    project.video_file.name = rel_video_path
+                    video_full_path = dl_res['file_path']
+                    project.save(update_fields=['video_file'])
+                except Exception as dl_err:
+                    print(f"[_run_video_pipeline] Video preview preparation note: {dl_err}")
 
         # Complete!
         project.status = 'ready'
