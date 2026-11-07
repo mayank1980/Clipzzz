@@ -30,7 +30,7 @@ export default function App() {
   // Modals
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
-  const [exportMode, setExportMode] = useState('captioned'); // 'captioned' | 'clean'
+  const [exportMode, setExportMode] = useState('clean'); // Defaulted to 'clean' while captions are paused
   const [exportForce, setExportForce] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [isShortsKitOpen, setIsShortsKitOpen] = useState(false);
@@ -406,7 +406,7 @@ export default function App() {
     }
   };
 
-  const handleOpenExport = async (mode = 'captioned', force = false) => {
+  const handleOpenExport = async (mode = 'clean', force = false) => {
     // Immediately persist latest transcript & clip caption styling before starting render
     if (activeProject?.id && activeProject.transcript_raw) {
       try {
@@ -500,7 +500,7 @@ export default function App() {
             clips={activeProject.clips}
             selectedClip={selectedClip}
             onSelectClip={handleSelectClip}
-            onRenderClip={(clip, mode = 'captioned') => handleOpenExport(mode, false)}
+            onRenderClip={(clip, mode = 'clean') => handleOpenExport(mode, false)}
             onDeleteClip={handleDeleteClip}
             onDeleteProject={handleDeleteCurrentProject}
             onCreateNew={() => setViewMode('wizard')}
@@ -528,7 +528,7 @@ export default function App() {
                 onTimeUpdate={setCurrentTime}
                 onSeek={handleSeek}
                 onUpdateClipBounds={handleUpdateClipBounds}
-                onOpenExport={(mode = 'captioned', force = false) => handleOpenExport(mode, force)}
+                onOpenExport={(mode = 'clean', force = false) => handleOpenExport(mode, force)}
                 onOpenShortsKit={() => setIsShortsKitOpen(true)}
                 onDeleteClip={handleDeleteClip}
                 isCropInspectorOpen={isCropInspectorOpen}
@@ -565,14 +565,17 @@ export default function App() {
 
           </div>
 
-          {/* RIGHT COLUMN: Video Settings (Caption.js Templates) + Transcript Sync */}
+          {/* RIGHT COLUMN: Dialogue Transcript (Captions customizer paused) */}
           <div className="w-80 lg:w-96 flex flex-col shrink-0 bg-dark-900 overflow-hidden relative">
+            {/* 
+            CAPTIONS & SUBTITLE CUSTOMIZER TEMPORARILY DISABLED PER USER REQUEST
             <SubtitleCustomizer
               captionStyle={selectedClip?.caption_style}
               onChangeStyle={handleChangeCaptionStyle}
               playbackRate={playbackRate}
               onChangePlaybackRate={setPlaybackRate}
             />
+            */}
 
             <TranscriptPanel
               transcript={activeProject.transcript_raw}
@@ -584,7 +587,8 @@ export default function App() {
               onUpdateSegment={handleUpdateTranscriptSegment}
             />
 
-            {/* Slide-over Caption Edit Modal / Drawer (Docked strictly on Right Side, keeping video visible) */}
+            {/* 
+            Slide-over Caption Edit Modal / Drawer (Paused with captions)
             {editingSegment && (
               <CaptionEditDrawer
                 isOpen={Boolean(editingSegment)}
@@ -595,6 +599,7 @@ export default function App() {
                 onSaveToBackend={handleSaveTranscriptToBackend}
               />
             )}
+            */}
           </div>
         </div>
       ) : (

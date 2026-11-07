@@ -18,8 +18,8 @@ import {
 import { api, API_BASE_URL } from '../services/api';
 import logoImg from '../assets/logo.png';
 
-export default function ExportModal({ isOpen, onClose, clip, initialMode = 'captioned', forceRender = false, onRenderComplete }) {
-  const [renderMode, setRenderMode] = useState(initialMode); // 'captioned' | 'clean'
+export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clean', forceRender = false, onRenderComplete }) {
+  const [renderMode, setRenderMode] = useState(initialMode); // 'clean' default while captions are paused
   const [status, setStatus] = useState('idle'); // idle, rendering, completed, failed
   const [progress, setProgress] = useState(0);
   const [renderedUrl, setRenderedUrl] = useState('');
@@ -236,7 +236,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
     if (hasTriggeredRef.current) return;
     hasTriggeredRef.current = true;
 
-    const targetMode = initialMode || 'captioned';
+    const targetMode = initialMode || 'clean';
     setRenderMode(targetMode);
 
     if (targetMode === 'clean') {
@@ -286,7 +286,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
                 CLIPZZZ <span className="text-[10px] bg-lime-neon text-black font-extrabold px-1.5 py-0.2 rounded-full">AI</span>
               </h2>
               <p className="text-[10px] text-slate-400 font-medium leading-tight">
-                {isCleanMode ? 'Clean Short Export (No Captions)' : '9:16 Shorts Export Studio'}
+                9:16 Shorts Export Studio
               </p>
             </div>
           </div>
@@ -311,10 +311,10 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
               <div className="space-y-1">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-lime-neon/15 border border-lime-neon/30 text-lime-neon text-[10px] font-extrabold uppercase tracking-wider">
                   <Sparkles className="w-3 h-3 fill-lime-neon" />
-                  {isCleanMode ? 'CLEAN SHORT • NO CAPTIONS' : 'CLIPZZZ AI STUDIO'}
+                  CLIPZZZ AI STUDIO • 1080x1920 HD
                 </div>
                 <h3 className="text-base font-black text-white tracking-wide">
-                  {isCleanMode ? 'Your Clean Video is Rendering...' : 'Your Video is Rendering...'}
+                  Your 9:16 Short is Rendering...
                 </h3>
                 <p className="text-xs text-slate-300 font-medium max-w-xs mx-auto leading-tight">
                   {isCleanMode
@@ -384,63 +384,30 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'capt
                     {clip.title}
                   </h3>
                   <p className="text-[10px] text-slate-400 font-mono">
-                    1080 × 1920 MP4 • {isCleanMode ? 'Clean (No Captions)' : 'With Dynamic Captions'}
+                    1080 × 1920 Full HD MP4 • Ready to Share
                   </p>
                 </div>
 
                 <div className="space-y-1.5 pt-1">
-                  {/* Clean Mode Primary Button */}
-                  {isCleanMode ? (
-                    <>
-                      <a
-                        href={api.getClipCleanDownloadUrl(clip.id)}
-                        download
-                        className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs py-2.5 px-3 rounded-xl transition shadow-neon flex items-center justify-center gap-2 cursor-pointer"
-                        title="Download clean 9:16 short without burned-in subtitles"
-                      >
-                        <Film className="w-4 h-4 text-black stroke-[2.5]" />
-                        <span>Download Clean Short (No Captions)</span>
-                      </a>
+                  <a
+                    href={api.getClipCleanDownloadUrl(clip.id)}
+                    download
+                    className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs py-2.5 px-3 rounded-xl transition shadow-neon flex items-center justify-center gap-2 cursor-pointer"
+                    title="Download 9:16 short"
+                  >
+                    <Download className="w-4 h-4 text-black stroke-[2.5]" />
+                    <span>Download 9:16 Short (1080x1920 MP4)</span>
+                  </a>
 
-                      <button
-                        type="button"
-                        onClick={() => startRender('captioned')}
-                        className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white border border-dark-700 hover:border-lime-neon/50 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
-                        title="Render captioned version with dynamic animated subtitles"
-                      >
-                        <Download className="w-3.5 h-3.5 text-lime-neon" />
-                        <span>{hasCaptionedReady ? 'Switch to Captions Short' : 'Render Short (With Captions)'}</span>
-                      </button>
-                    </>
-                  ) : (
-                    /* Captioned Mode Primary Button */
-                    <>
-                      <a
-                        href={api.getClipDownloadUrl(clip.id)}
-                        download
-                        className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs py-2.5 px-3 rounded-xl transition shadow-neon flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Download className="w-4 h-4 stroke-[2.5]" />
-                        <span>Download Video MP4 (With Captions)</span>
-                      </a>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (hasCleanReady) {
-                            window.location.href = api.getClipCleanDownloadUrl(clip.id);
-                          } else {
-                            startRender('clean');
-                          }
-                        }}
-                        className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white border border-dark-700 hover:border-lime-neon/50 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
-                        title="Download or render clean 9:16 short without subtitles"
-                      >
-                        <Film className="w-3.5 h-3.5 text-lime-neon" />
-                        <span>{hasCleanReady ? 'Download Clean Short (No Captions)' : 'Render & Download Clean (No Captions)'}</span>
-                      </button>
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => startRender('clean', true)}
+                    className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white border border-dark-700 hover:border-lime-neon/50 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                    title="Re-render 9:16 short"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-lime-neon" />
+                    <span>Re-Render Short (1080x1920 HD)</span>
+                  </button>
 
                   <div className="grid grid-cols-2 gap-2">
                     <a

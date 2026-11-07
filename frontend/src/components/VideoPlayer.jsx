@@ -884,7 +884,8 @@ export default function VideoPlayer({
               )}
             </div>
 
-            {/* Interactive Draggable Caption Overlay (Drag anywhere to reposition) */}
+            {/* CAPTIONS TEMPORARILY DISABLED: Commented out per user request */}
+            {/*
             {!hideCaptionsPreview && captionStyle?.showCaptions !== false && (activeCue || !isPlaying) && (
               <div
                 onMouseDown={(e) => startCaptionDrag(e, phoneContainerRef)}
@@ -907,7 +908,6 @@ export default function VideoPlayer({
                 }`}
                 title="Click and drag to position caption anywhere on video"
               >
-                {/* Floating position badge while dragging or hovering */}
                 <div
                   className={`flex items-center gap-1 bg-black/90 text-lime-neon border border-lime-neon/30 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold shadow-md transition-opacity duration-150 mb-1 select-none pointer-events-none ${
                     isDraggingCaption ? 'opacity-100 ring-1 ring-lime-neon' : 'opacity-0 group-hover:opacity-100'
@@ -939,6 +939,7 @@ export default function VideoPlayer({
                 </div>
               </div>
             )}
+            */}
           </div>
 
           {/* DOCKED TIMELINE & CONTROL DECK: Placed neatly in the empty space on the right! */}
@@ -1178,58 +1179,27 @@ export default function VideoPlayer({
               )}
             </div>
 
-            {/* Live Preview Without Captions Toggle */}
-            <div className="pt-0.5">
-              <button
-                type="button"
-                onClick={() => setHideCaptionsPreview((prev) => !prev)}
-                className={`w-full py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border cursor-pointer ${
-                  hideCaptionsPreview
-                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
-                    : 'bg-dark-950 hover:bg-dark-850 text-slate-300 hover:text-white border-dark-800 hover:border-dark-700'
-                }`}
-                title={hideCaptionsPreview ? 'Click to show animated captions on video' : 'Click to preview video without captions'}
-              >
-                {hideCaptionsPreview ? (
-                  <>
-                    <EyeOff className="w-4 h-4 text-amber-400" />
-                    <span>Captions: OFF (Previewing Clean)</span>
-                  </>
-                ) : (
-                  <>
-                    <Eye className="w-4 h-4 text-lime-neon" />
-                    <span>Preview Without Captions</span>
-                  </>
-                )}
-              </button>
-            </div>
-
             {/* Render & Shorts Kit Action Buttons */}
             {selectedClip && (
               <div className="space-y-1.5 pt-1.5 border-t border-dark-800">
-                <button
-                  onClick={() => onOpenExport?.('captioned', false)}
-                  className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold py-2 px-3 rounded-xl transition shadow-neon-sm flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer"
-                  title="Render 1080x1920 Short with Subtitles"
-                >
-                  <Download className="w-4 h-4 stroke-[2.5]" />
-                  <span>Render Short (With Captions)</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={() => {
                     if (selectedClip?.clean_render_status === 'completed' && selectedClip?.rendered_clean_file) {
                       window.location.href = api.getClipCleanDownloadUrl(selectedClip.id);
                     } else {
-                      onOpenExport?.('clean');
+                      onOpenExport?.('clean', false);
                     }
                   }}
-                  className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white font-bold border border-dark-700 hover:border-lime-neon/50 py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer text-center"
-                  title="Render and download clean 9:16 short without burned-in captions/subtitles"
+                  className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold py-2.5 px-3 rounded-xl transition shadow-neon-sm flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer"
+                  title="Render and download 9:16 Short (1080x1920 HD)"
                 >
-                  <Film className="w-3.5 h-3.5 text-lime-neon" />
-                  <span>Download Clean (No Captions)</span>
+                  <Download className="w-4 h-4 stroke-[2.5]" />
+                  <span>
+                    {selectedClip?.clean_render_status === 'completed' && selectedClip?.rendered_clean_file
+                      ? 'Download 9:16 Short (HD)'
+                      : 'Render 9:16 Short (HD)'}
+                  </span>
                 </button>
 
                 <div className="grid grid-cols-2 gap-2 pt-0.5">
