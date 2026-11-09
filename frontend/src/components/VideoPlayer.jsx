@@ -28,6 +28,7 @@ import {
   X,
   Trash2,
   Move,
+  AlertCircle,
 } from 'lucide-react';
 import { api, API_BASE_URL } from '../services/api';
 
@@ -533,7 +534,7 @@ export default function VideoPlayer({
     ? selectedClip.duration
     : duration || 1;
 
-  // Dynamic Real-Time Keyframe Camera Tracking (PDF 3: Multi-Speaker Framing)
+  // Dynamic Real-Time Keyframe Camera Tracking (Multi-Speaker Framing)
   let activeCropX = cropSettings?.x ?? 50.0;
   let activeCropY = cropSettings?.y ?? 45.0;
   let activeCropZoom = cropSettings?.zoom ?? 1.0;
@@ -543,18 +544,17 @@ export default function VideoPlayer({
     ? [...cropSettings.keyframes].sort((a, b) => (a.time || 0) - (b.time || 0))
     : null;
 
-  // When Crop Inspector is open, prioritize user's direct manual coordinates for instant real-time feedback
-  if (isCropInspectorOpen) {
+  if (cropSettings?.mode === 'manual_crop') {
     activeCropX = cropSettings?.x ?? 50.0;
     activeCropY = cropSettings?.y ?? 45.0;
     activeCropZoom = cropSettings?.zoom ?? 1.0;
-    activeSpeakerLabel = 'Manual Framing Focus';
+    activeSpeakerLabel = 'Manual Framing';
   } else if (keyframes && keyframes.length > 0) {
     if (keyframes.length === 1) {
       activeCropX = keyframes[0].x ?? activeCropX;
       activeCropY = keyframes[0].y ?? activeCropY;
       activeCropZoom = keyframes[0].zoom ?? activeCropZoom;
-      activeSpeakerLabel = keyframes[0].speaker || '';
+      activeSpeakerLabel = keyframes[0].speaker || 'Speaker Focus';
     } else {
       let curIdx = 0;
       for (let i = 0; i < keyframes.length; i++) {
@@ -570,8 +570,13 @@ export default function VideoPlayer({
       activeCropX = curKf.x;
       activeCropY = curKf.y;
       activeCropZoom = curKf.zoom || 1.0;
-      activeSpeakerLabel = curKf.speaker || '';
+      activeSpeakerLabel = curKf.speaker || 'Speaker Focus';
     }
+  } else {
+    activeCropX = cropSettings?.x ?? 50.0;
+    activeCropY = cropSettings?.y ?? 45.0;
+    activeCropZoom = cropSettings?.zoom ?? 1.0;
+    activeSpeakerLabel = 'Speaker Focus';
   }
 
   // Mathematical 9:16 Porting for 16:9 horizontal video:
@@ -823,6 +828,7 @@ export default function VideoPlayer({
             <video
               ref={videoRef}
               src={videoSrc}
+              preload="auto"
               onClick={togglePlay}
               onError={() => setIsVideoError(true)}
               onPlay={() => {

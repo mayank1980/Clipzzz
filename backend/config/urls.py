@@ -53,6 +53,9 @@ def stream_video(request, path):
         response['Content-Length'] = str(length)
         response['Content-Range'] = f'bytes {first_byte}-{last_byte}/{file_size}'
         response['Accept-Ranges'] = 'bytes'
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+        response['Access-Control-Allow-Headers'] = '*'
         return response
     else:
         def full_iterator(file_name, chunk_size=65536):
@@ -69,6 +72,9 @@ def stream_video(request, path):
         )
         response['Content-Length'] = str(file_size)
         response['Accept-Ranges'] = 'bytes'
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+        response['Access-Control-Allow-Headers'] = '*'
         return response
 
 urlpatterns = [

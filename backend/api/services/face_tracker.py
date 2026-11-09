@@ -14,28 +14,30 @@ def to_916_crop_x(face_cx_pct: float, zoom: float = 1.15) -> float:
       Video aspect ratio: 16/9
       Shorts aspect ratio: 9/16
       ow = ih * (9/16) / zoom
-      alpha = (ow / 2) / iw = (562.5 / zoom) / 3840 = 0.146484 / zoom
-      span = 1.0 - (2.0 * alpha)
+      beta = ow / iw = ((9/16)^2) / zoom = (81/256) / zoom = 0.31640625 / zoom
+      half_beta = beta / 2.0
+      span = 1.0 - beta
       
       When the crop window is at crop_x:
-      viewport_center = alpha + (crop_x / 100.0) * span
+      viewport_center = half_beta + (crop_x / 100.0) * span
       
       Therefore, to center on face_cx_pct:
-      crop_x = ((face_cx_pct / 100.0) - alpha) / span * 100.0
+      crop_x = ((face_cx_pct / 100.0) - half_beta) / span * 100.0
     """
     eff_zoom = max(1.08, min(2.5, float(zoom)))
-    alpha = 0.146484 / eff_zoom
-    span = 1.0 - (2.0 * alpha)
+    beta = 0.31640625 / eff_zoom
+    half_beta = beta / 2.0
+    span = 1.0 - beta
     norm_face = max(0.0, min(1.0, float(face_cx_pct) / 100.0))
-    crop_x = ((norm_face - alpha) / span) * 100.0
-    return round(max(4.0, min(96.0, crop_x)), 1)
+    crop_x = ((norm_face - half_beta) / span) * 100.0
+    return round(max(0.0, min(100.0, crop_x)), 1)
 
 def to_916_crop_y(face_cy_pct: float, zoom: float = 1.15) -> float:
     """
     Centers the subject's eyes/face in the golden upper third (approx 30-35% from top)
     of the 9:16 portrait viewport while ensuring zero vertical letterboxing.
     """
-    clamped_y = round(max(20.0, min(45.0, float(face_cy_pct))), 1)
+    clamped_y = round(max(25.0, min(45.0, float(face_cy_pct))), 1)
     return clamped_y
 
 def ensure_yunet_model() -> str:
@@ -498,17 +500,75 @@ class AutoCameraEngine:
 
         # Sticky Memory fallback: Never snap to empty wall if video unreadable
         if not sampled_timeline:
-            return [{"time": 0.0, "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
+            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
         all_faces = [f for st in sampled_timeline for f in st["faces"]]
         if not all_faces:
-            return [{"time": 0.0, "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
+            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
-        # 1. Discover physical speaker seats
-        speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=12.0)
+        # 1. Shot-Aware Dynamic Framing:
+        # Every frame is evaluated for the active speaker (solo shot or multi-speaker debate).
+        # We compute exact 9:16 portrait coordinates and apply deadband hysteresis to ensure
+        # rock-solid shots with zero shaking and zero edge cutoff.
+        speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=14.0)
 
-        # Solo speaker edge case: If only 1 seat exists, lock onto them unconditionally!
-        # Lip motion is NOT required for solo speaker (e.g. reading letter, listening, or voiceover).
+        raw_track = []
+        last_valid_x = self.current_focal_x
+        last_valid_y = self.current_focal_y
+        last_valid_label = "Speaker Focus"
+
+        for st in sampled_timeline:
+            t = st["time"]
+            faces = st["faces"]
+
+            if not faces:
+                # Sticky memory: hold previous position
+                raw_track.append({
+                    "time": t,
+                    "x": last_valid_x,
+                    "y": last_valid_y,
+                    "speaker": last_valid_label,
+                    "has_face": False
+                })
+                continue
+
+            if len(faces) == 1:
+                target_f = faces[0]
+                label = "Speaker Focus"
+            else:
+                # 2+ faces: select active speaker via lip motion
+                speaking = [f for f in faces if f.get("lip_motion", 0.0) >= 1.4]
+                if speaking:
+                    target_f = max(speaking, key=lambda f: f.get("lip_motion", 0.0))
+                else:
+                    target_f = min(faces, key=lambda f: abs(to_916_crop_x(f["cx"]) - last_valid_x))
+
+                if target_f["cx"] < 45.0:
+                    label = "Speaker 1 (Left)"
+                elif target_f["cx"] > 55.0:
+                    label = "Speaker 2 (Right)"
+                else:
+                    label = "Active Speaker"
+
+            px = to_916_crop_x(target_f["cx"], zoom=1.15)
+            py = to_916_crop_y(target_f["cy"], zoom=1.15)
+
+            last_valid_x = px
+            last_valid_y = py
+            last_valid_label = label
+
+            raw_track.append({
+                "time": t,
+                "x": px,
+                "y": py,
+                "speaker": label,
+                "has_face": True
+            })
+
+        if not raw_track:
+            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
+
+        # Solo speaker or single cluster: lock unconditionally
         if len(speaker_seats) == 1:
             solo = speaker_seats[0]
             self.current_focal_x = solo["x"]
@@ -522,148 +582,85 @@ class AutoCameraEngine:
                 "speaker": solo["label"]
             }]
 
-        # 2. Identify primary dominant speaker of the clip (overall speech volume + presence)
-        seat_totals = {s["id"]: 0.0 for s in speaker_seats}
-        for st in sampled_timeline:
-            for f in st["faces"]:
-                nearest_s = min(speaker_seats, key=lambda s: abs(s["raw_x"] - f["cx"]))
-                motion = f.get("lip_motion", 0.0)
-                seat_totals[nearest_s["id"]] += (1.0 + motion)
-
-        dominant_seat = max(speaker_seats, key=lambda s: seat_totals[s["id"]])
-        total_speech = sum(seat_totals.values())
-        dominant_ratio = (seat_totals[dominant_seat["id"]] / total_speech) if total_speech > 0 else 1.0
-
-        # Hero Character Lock: If one speaker owns the conversation (>= 60% of speech),
-        # keep the camera 100% rock-solid and stable on the main speaker for the entire clip!
-        if dominant_ratio >= 0.60:
-            self.current_focal_x = dominant_seat["x"]
-            self.current_focal_y = dominant_seat["y"]
-            return [{
-                "time": 0.0,
-                "mode": "solo",
-                "x": dominant_seat["x"],
-                "y": dominant_seat["y"],
-                "zoom": 1.15,
-                "speaker": dominant_seat["label"]
-            }]
-
-        current_seat = dominant_seat
-        last_switch_time = 0.0
-        min_dwell = max(4.5, self.min_shot_duration)  # Rock-solid minimum hold per speaker (4.5s)
-
-        speech_streak = {s["id"]: 0 for s in speaker_seats}
-        focal_track = []
-
-        for st in sampled_timeline:
-            t = st["time"]
-            faces = st["faces"]
-
-            if faces:
-                seat_motion = {s["id"]: 0.0 for s in speaker_seats}
-                seat_present = {s["id"]: False for s in speaker_seats}
-
-                for f in faces:
-                    nearest_s = min(speaker_seats, key=lambda s: abs(s["raw_x"] - f["cx"]))
-                    motion = f.get("lip_motion", 0.0)
-                    seat_motion[nearest_s["id"]] = max(seat_motion[nearest_s["id"]], motion)
-                    seat_present[nearest_s["id"]] = True
-
-                # Accumulate sustained speech streaks (ignore single-frame blips or breathing)
-                for s in speaker_seats:
-                    sid = s["id"]
-                    if seat_present[sid] and seat_motion[sid] >= 1.8:
-                        speech_streak[sid] += 1
-                    else:
-                        speech_streak[sid] = 0
-
-                curr_motion = seat_motion[current_seat["id"]]
-                curr_present = seat_present[current_seat["id"]]
-                time_since_switch = t - last_switch_time
-                other_seats = [s for s in speaker_seats if s["id"] != current_seat["id"]]
-
-                if other_seats and time_since_switch >= min_dwell:
-                    best_candidate = max(other_seats, key=lambda s: (speech_streak[s["id"]], seat_motion[s["id"]]))
-                    c_streak = speech_streak[best_candidate["id"]]
-                    c_motion = seat_motion[best_candidate["id"]]
-                    c_present = seat_present[best_candidate["id"]]
-
-                    # Switch ONLY when the other speaker takes over with sustained speech (5+ consecutive frames, ~1.8s)
-                    should_switch = False
-                    if c_streak >= 5 and c_motion >= 2.2 and c_motion > 1.4 * curr_motion:
-                        should_switch = True
-                    elif not curr_present and c_present and c_streak >= 4:
-                        should_switch = True
-
-                    if should_switch:
-                        current_seat = best_candidate
-                        last_switch_time = t
-                        speech_streak = {s["id"]: 0 for s in speaker_seats}
-
-                chosen_x = current_seat["x"]
-                chosen_y = current_seat["y"]
-                chosen_label = current_seat["label"]
-
-                self.current_focal_x = chosen_x
-                self.current_focal_y = chosen_y
-
-            else:
-                # STICKY MEMORY: Hold rock-solid on current speaker if face temporarily obscured
-                chosen_x = self.current_focal_x
-                chosen_y = self.current_focal_y
-                chosen_label = current_seat.get("label", "Speaker Focus")
-
-            focal_track.append({
-                "time": t,
-                "x": chosen_x,
-                "y": chosen_y,
-                "speaker": chosen_label,
-                "seat_id": current_seat["id"]
-            })
-
+        # 2. Synthesize stable broadcast shots with deadband & minimum dwell
         keyframes = []
-        last_kf_time = -999.0
-        last_seat_id = -1
+        current_shot_x = None
+        current_shot_y = None
+        current_label = None
+        last_cut_time = -999.0
+        min_dwell = 1.8   # Minimum hold time per speaker shot (broadcast-standard)
+        deadband = 8.5    # Deadband %: movements within 8.5% hold steady (zero shaking)
 
-        for pt in focal_track:
+        pending_switch = None
+        pending_count = 0
+
+        for pt in raw_track:
             t = pt["time"]
-            seat_id = pt["seat_id"]
-            if not keyframes:
+            px = pt["x"]
+            py = pt["y"]
+            label = pt["speaker"]
+
+            if current_shot_x is None:
+                current_shot_x = px
+                current_shot_y = py
+                current_label = label
                 keyframes.append({
                     "time": 0.0,
                     "mode": "solo",
-                    "x": pt["x"],
-                    "y": pt["y"],
+                    "x": px,
+                    "y": py,
                     "zoom": 1.15,
-                    "speaker": pt["speaker"]
+                    "speaker": label
                 })
-                last_kf_time = 0.0
-                last_seat_id = seat_id
-            else:
-                time_elapsed = t - last_kf_time
-                # Emit a keyframe ONLY when switching to a different physical speaker seat after min_dwell
-                if seat_id != last_seat_id and time_elapsed >= min_dwell:
+                last_cut_time = 0.0
+                continue
+
+            dist = abs(px - current_shot_x)
+            time_since_cut = t - last_cut_time
+
+            # Small movements inside deadband: hold camera completely motionless
+            if dist <= deadband:
+                pending_switch = None
+                pending_count = 0
+                continue
+
+            # Movement exceeds deadband -> potential new speaker or shot cut
+            if time_since_cut >= min_dwell:
+                if pending_switch is not None and abs(px - pending_switch["x"]) <= deadband:
+                    pending_count += 1
+                else:
+                    pending_switch = {"x": px, "y": py, "label": label}
+                    pending_count = 1
+
+                # Confirm cut after 2 consecutive frames (~0.6s) or immediate if dramatic scene cut (>22%)
+                if pending_count >= 2 or dist >= 22.0:
+                    current_shot_x = pending_switch["x"]
+                    current_shot_y = pending_switch["y"]
+                    current_label = pending_switch["label"]
                     keyframes.append({
                         "time": round(t, 2),
                         "mode": "solo",
-                        "x": pt["x"],
-                        "y": pt["y"],
+                        "x": current_shot_x,
+                        "y": current_shot_y,
                         "zoom": 1.15,
-                        "speaker": pt["speaker"]
+                        "speaker": current_label
                     })
-                    last_kf_time = t
-                    last_seat_id = seat_id
+                    last_cut_time = t
+                    pending_switch = None
+                    pending_count = 0
 
         if not keyframes:
             keyframes.append({
                 "time": 0.0,
                 "mode": "solo",
-                "x": focal_track[0]["x"],
-                "y": focal_track[0]["y"],
+                "x": raw_track[0]["x"],
+                "y": raw_track[0]["y"],
                 "zoom": 1.15,
-                "speaker": focal_track[0]["speaker"]
+                "speaker": raw_track[0]["speaker"]
             })
 
+        self.current_focal_x = keyframes[0]["x"]
+        self.current_focal_y = keyframes[0]["y"]
         return keyframes
 
 _FACE_CACHE: Dict[str, Any] = {}

@@ -434,7 +434,7 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         if keyframes:
             clip.crop_x = keyframes[0]['x']
             clip.crop_y = keyframes[0]['y']
-            clip.crop_zoom = keyframes[0].get('zoom', 1.0)
+            clip.crop_zoom = keyframes[0].get('zoom', 1.15)
         clip.crop_mode = 'custom_crop'
         clip.is_speaker_centered = True
         clip.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom', 'crop_mode', 'is_speaker_centered'])

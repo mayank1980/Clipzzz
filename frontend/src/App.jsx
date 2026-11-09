@@ -25,7 +25,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const cropSaveTimerRef = useRef(null);
   const [aspectRatio, setAspectRatio] = useState('9:16');
-  const [isCropInspectorOpen, setIsCropInspectorOpen] = useState(true);
+  const [isCropInspectorOpen, setIsCropInspectorOpen] = useState(false);
 
   // Modals
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);

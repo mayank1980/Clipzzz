@@ -33,11 +33,11 @@ class StoryAnalysisResult(BaseModel):
 
 def get_duration_range(preference: str):
     if preference == '0-30':
-        return 18.0, 30.0
+        return 22.0, 30.0
     elif preference == '60-80':
-        return 55.0, 80.0
-    else: # '30-60'
-        return 30.0, 60.0
+        return 60.0, 85.0
+    else:  # '30-60'
+        return 45.0, 60.0
 
 VIRAL_KEYWORDS = [
     'kyu', 'kya', 'kaise', 'why', 'how', 'secret', 'bada', 'sabse',
@@ -264,7 +264,7 @@ def analyze_highlights_with_gemini(
 
     Video Title: "{video_title}"
     Total Video Duration: {total_duration:.1f}s ({total_duration/60:.1f} minutes)
-    Part Duration: 45s to 65s per clip
+    Part Duration: {min_dur:.0f}s to {max_dur:.0f}s per clip (Strict User Preference: {duration_preference})
 
     FULL TIMESTAMPED TRANSCRIPT (with exact second timestamps):
     ---
@@ -276,10 +276,13 @@ def analyze_highlights_with_gemini(
        - Scan the ENTIRE video timeline from 00:00 to the end ({total_duration:.1f}s).
        - DO NOT ARTIFICIALLY CAP AT 3 OR 4 PARTS! Generate all sequential episodes: Part 1, Part 2, Part 3, Part 4, Part 5, Part 6... up to Part N until the narrative concludes!
        - If the video contains multiple stories or a single long case/interview, cover the FULL duration across the entire timeline!
-    2. YOUTUBE TREND & AUDIENCE RETENTION OPTIMIZATION:
+    2. STRICT CLIP DURATION (MANDATORY):
+       - Every single part MUST have a duration between {min_dur:.0f}s and {max_dur:.0f}s.
+       - NEVER output clips shorter than {min_dur:.0f}s. Ensure full, rich content per Short.
+    3. YOUTUBE TREND & AUDIENCE RETENTION OPTIMIZATION:
        - The first 3 seconds of every part MUST hook the viewer with intense curiosity, suspense, or emotional investment.
        - End each part with high suspense (cliffhanger) or a memorable takeaway/punchline so viewers binge the next episode.
-    3. ZERO MID-SENTENCE CUTS:
+    4. ZERO MID-SENTENCE CUTS:
        - Every part must start at the clean beginning of a thought/sentence and end cleanly.
        - Part 2 starts where Part 1 ends, Part 3 starts where Part 2 ends.
 
@@ -413,12 +416,12 @@ def analyze_highlights_with_gemini(
                     continue
 
                 clip_len = e_time - s_time
-                if clip_len < 15.0 or clip_len > (max_dur + 20.0):
+                if clip_len < min_dur * 0.70 or clip_len > (max_dur + 25.0):
                     continue
 
-                # Diversity check: only apply gap for independent highlights, not sequential story parts
+                # Diversity check: tight 3.0s boundary to preserve maximum valid candidates across the timeline
                 if clipping_mode != 'story_series':
-                    is_overlap = any(not (s_time + clip_len < r[0] - 25.0 or s_time > r[1] + 25.0) for r in used_ranges)
+                    is_overlap = any(not (s_time + clip_len < r[0] - 3.0 or s_time > r[1] + 3.0) for r in used_ranges)
                     if is_overlap:
                         continue
 
@@ -558,13 +561,13 @@ def extract_smart_nlp_highlights(
                     p_words.append(seg.get('text', ''))
                     p_end = float(seg.get('end', p_end + 3.0))
                     cur_idx += 1
-                    # Target 50-65 seconds per part
-                    if (p_end - p_start) >= 50.0:
-                        if seg.get('text', '').endswith(('.', '!', '?', '|', '...')) or (p_end - p_start) >= 65.0:
+                    # Target full user-preferred duration per part
+                    if (p_end - p_start) >= min_dur:
+                        if seg.get('text', '').endswith(('.', '!', '?', '|', '...')) or (p_end - p_start) >= max_dur:
                             break
 
                 dur_p = round(p_end - p_start, 1)
-                if dur_p >= 20.0:
+                if dur_p >= min_dur * 0.85:
                     full_text = " ".join(p_words)
                     kw = [w for w in re.sub(r'[^a-zA-Z0-9\s]', '', full_text).split() if len(w) > 3][:4]
                     part_title_str = " ".join(kw).title() if kw else f"Incident {part_idx}"
@@ -660,32 +663,32 @@ def extract_smart_nlp_highlights(
         cand_start = cand['start']
         cand_idx = cand['index']
 
-        # Ensure no timestamp overlap with already selected clips (at least 35s gap)
+        # Ensure no destructive overlap with already selected clips (tight 3.0s boundary)
         is_overlapping = any(
-            not (cand_start + target_dur < r[0] - 25.0 or cand_start > r[1] + 25.0)
+            not (cand_start + target_dur < r[0] - 3.0 or cand_start > r[1] + 3.0)
             for r in used_ranges
         )
         if is_overlapping:
             continue
 
-        # Assemble forward from cand_idx until duration reaches target_dur
+        # Assemble forward from cand_idx until duration reaches full target
         current_words = []
         clip_start = transcript_segments[cand_idx]['start']
         clip_end = clip_start
 
-        for j in range(cand_idx, min(total_segs, cand_idx + 35)):
+        for j in range(cand_idx, min(total_segs, cand_idx + 45)):
             s = transcript_segments[j]
             current_words.append(s.get('text', ''))
             clip_end = s.get('end', clip_end + 3.0)
 
             cur_len = clip_end - clip_start
-            if cur_len >= target_dur:
-                # Stop on natural sentence boundary if possible
+            if cur_len >= min_dur:
+                # Stop on natural sentence boundary after reaching min_dur, or at max_dur
                 if s.get('text', '').endswith(('.', '!', '?', '|')) or cur_len >= max_dur:
                     break
 
         actual_len = round(clip_end - clip_start, 1)
-        if actual_len < min_dur * 0.75:
+        if actual_len < min_dur * 0.88:
             continue
 
         full_text = " ".join(current_words)
