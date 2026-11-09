@@ -90,7 +90,7 @@ class AutoCameraEngine:
                     self.yunet_path,
                     "",
                     (320, 320),
-                    score_threshold=0.35,
+                    score_threshold=0.18,
                     nms_threshold=0.30,
                     top_k=5000
                 )
@@ -104,6 +104,13 @@ class AutoCameraEngine:
         self.face_cascade_alt2 = cv2.CascadeClassifier(alt2_path) if os.path.exists(alt2_path) else None
         self.profile_cascade = cv2.CascadeClassifier(prof_path) if os.path.exists(prof_path) else None
         self.upperbody_cascade = cv2.CascadeClassifier(upper_path) if os.path.exists(upper_path) else None
+        self.hog_detector = None
+        try:
+            hog = cv2.HOGDescriptor()
+            hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+            self.hog_detector = hog
+        except Exception:
+            pass
 
     def _has_valid_face_skin(self, bgr_crop: np.ndarray) -> bool:
         if bgr_crop is None or bgr_crop.size == 0:
@@ -134,7 +141,7 @@ class AutoCameraEngine:
 
         results = []
 
-        # 1. Primary Neural Detection: YuNet (Zero false positives on walls/microphones)
+        # 1. Primary Neural Detection: YuNet
         if self.yunet_detector is not None:
             try:
                 self.yunet_detector.setInputSize((target_w, new_h))
@@ -147,7 +154,9 @@ class AutoCameraEngine:
                         fw = min(target_w - x1, int(f[2]))
                         fh = min(new_h - y1, int(f[3]))
                         score = float(f[14]) if len(f) > 14 else 0.8
-                        if score < 0.22 or fw <= 4 or fh <= 4:
+
+                        # Reject noise/speckles on walls (must be genuine face size)
+                        if score < 0.20 or fw < 20 or fh < 22 or (fw * fh) < 450:
                             continue
 
                         cx_pct = ((x1 + fw / 2.0) / float(target_w)) * 100.0
@@ -155,6 +164,11 @@ class AutoCameraEngine:
 
                         # Allow edge-of-frame speakers (down to 2% from border)
                         if cy_pct < 4.0 or cy_pct > 95.0 or cx_pct < 2.0 or cx_pct > 98.0:
+                            continue
+
+                        # Skin tone validation on smaller/marginal detections to eliminate wall/brick false positives
+                        crop = small[y1:y1+fh, x1:x1+fw]
+                        if (fw * fh < 1400 or score < 0.65) and not self._has_valid_face_skin(crop):
                             continue
 
                         results.append({
@@ -168,8 +182,9 @@ class AutoCameraEngine:
                             'confidence': score,
                         })
 
-                    if results:
-                        # Update Sticky Memory with the most prominent active face
+                    # If YuNet found a high-confidence, good-sized face, we can trust it
+                    has_prominent_face = any(r['area'] >= 900 and r['confidence'] >= 0.60 for r in results)
+                    if has_prominent_face:
                         primary = max(results, key=lambda r: r['area'])
                         self.current_focal_x = primary['cx']
                         self.current_focal_y = primary['cy']
@@ -177,7 +192,7 @@ class AutoCameraEngine:
             except Exception as e:
                 pass
 
-        # 2. Multi-Cascade Robust Fallback: Frontal, Left Profile, Right Profile, and Reading / Looking-Down
+        # 2. Multi-Cascade Robust Suite: Frontal, Left Profile, Right Profile (Turned/Reading Faces)
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         detections = []
 
@@ -186,63 +201,81 @@ class AutoCameraEngine:
             faces_alt2 = self.face_cascade_alt2.detectMultiScale(
                 gray,
                 scaleFactor=1.08,
-                minNeighbors=4,
-                minSize=(20, 20)
+                minNeighbors=3,
+                minSize=(22, 22)
             )
             for (x, y, w, h) in faces_alt2:
                 ratio = w / float(h)
-                if 0.65 <= ratio <= 1.35:
+                if 0.60 <= ratio <= 1.40:
                     crop = small[y:y+h, x:x+w]
                     if self._has_valid_face_skin(crop):
-                        detections.append((x, y, w, h))
+                        detections.append((x, y, w, h, 0.75))
 
-        # Left-Facing Profile Cascade
-        if self.profile_cascade and not self.profile_cascade.empty() and not detections:
+        # Left-Facing Profile Cascade (Sensitive scaleFactor 1.05, minNeighbors 2)
+        if self.profile_cascade and not self.profile_cascade.empty():
             prof_faces = self.profile_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.08,
-                minNeighbors=3,
-                minSize=(22, 22)
+                scaleFactor=1.05,
+                minNeighbors=2,
+                minSize=(24, 24)
             )
             for (x, y, w, h) in prof_faces:
                 crop = small[y:y+h, x:x+w]
                 if self._has_valid_face_skin(crop):
-                    detections.append((x, y, w, h))
+                    detections.append((x, y, w, h, 0.78))
 
         # Right-Facing Profile Cascade (Horizontally flipped image detection)
-        if self.profile_cascade and not self.profile_cascade.empty() and not detections:
+        if self.profile_cascade and not self.profile_cascade.empty():
             flipped_gray = cv2.flip(gray, 1)
             prof_right = self.profile_cascade.detectMultiScale(
                 flipped_gray,
-                scaleFactor=1.08,
-                minNeighbors=3,
-                minSize=(22, 22)
+                scaleFactor=1.05,
+                minNeighbors=2,
+                minSize=(24, 24)
             )
             for (fx, fy, fw, fh) in prof_right:
                 orig_x = target_w - (fx + fw)
                 crop = small[fy:fy+fh, orig_x:orig_x+fw]
                 if self._has_valid_face_skin(crop):
-                    detections.append((orig_x, fy, fw, fh))
+                    detections.append((orig_x, fy, fw, fh, 0.78))
 
-        # Upper Body Cascade (Person reading letter, looking down at paper/phone)
-        if self.upperbody_cascade and not self.upperbody_cascade.empty() and not detections:
+        # 3. Upper Body Cascade (Person reading letter, looking down at phone or table)
+        if not results and not detections and self.upperbody_cascade and not self.upperbody_cascade.empty():
             upper_bodies = self.upperbody_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.08,
-                minNeighbors=3,
-                minSize=(40, 40)
+                scaleFactor=1.06,
+                minNeighbors=2,
+                minSize=(36, 36)
             )
             for (ux, uy, uw, uh) in upper_bodies:
-                head_w = int(uw * 0.6)
+                head_w = int(uw * 0.55)
                 head_h = int(uh * 0.45)
                 head_x = int(ux + (uw - head_w) / 2)
                 head_y = uy
-                detections.append((head_x, head_y, head_w, head_h))
+                crop = small[head_y:head_y+head_h, head_x:head_x+head_w]
+                if self._has_valid_face_skin(crop):
+                    detections.append((head_x, head_y, head_w, head_h, 0.70))
 
-        for (x, y, w, h) in detections:
+        # 4. HOG People Detector Fallback (Torso / seated human body on frame borders)
+        if not results and not detections and self.hog_detector is not None:
+            try:
+                boxes, weights = self.hog_detector.detectMultiScale(small, winStride=(8, 8), padding=(4, 4), scale=1.08)
+                for (bx, by, bw, bh), weight in zip(boxes, weights):
+                    if weight > 0.12 and bh >= 60:
+                        hw = int(bw * 0.50)
+                        hh = int(bh * 0.30)
+                        hx = int(bx + (bw - hw) / 2)
+                        hy = int(by + bh * 0.05)
+                        detections.append((hx, hy, hw, hh, float(weight)))
+            except Exception:
+                pass
+
+        for det in detections:
+            x, y, w, h = det[0], det[1], det[2], det[3]
+            conf = det[4] if len(det) > 4 else 0.70
             cx_pct = ((x + w / 2.0) / float(target_w)) * 100.0
             cy_pct = ((y + h / 2.0) / float(new_h)) * 100.0
-            if 5.0 <= cy_pct <= 95.0 and 2.0 <= cx_pct <= 98.0:
+            if 4.0 <= cy_pct <= 96.0 and 2.0 <= cx_pct <= 98.0:
                 results.append({
                     'x': int(x),
                     'y': int(y),
@@ -251,7 +284,7 @@ class AutoCameraEngine:
                     'cx': float(cx_pct),
                     'cy': float(cy_pct),
                     'area': int(w * h),
-                    'confidence': 0.70,
+                    'confidence': float(conf),
                 })
 
         if results:
@@ -372,7 +405,10 @@ class AutoCameraEngine:
 
         all_faces: List[Dict[str, Any]] = []
 
-        for offset in [0.1, duration * 0.35, duration * 0.70, max(0.2, duration - 0.2)]:
+        offsets = [0.1, 0.4, 0.8, 1.2, 1.6, duration * 0.35, duration * 0.65, max(0.2, duration - 0.2)]
+        for offset in offsets:
+            if offset > duration + 0.1:
+                continue
             target_time = start_sec + offset
             cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, target_time * 1000.0))
             ret, frame = cap.read()
@@ -384,6 +420,17 @@ class AutoCameraEngine:
                 best = max(frame_faces, key=lambda f: f['area'])
                 all_faces.append(best)
 
+        # If no face was found in the initial window, search a wider window (up to 8s into the scene)
+        if not all_faces and duration > 1.5:
+            for extra_t in [start_sec + 2.0, start_sec + 3.0, start_sec + 5.0, start_sec + 7.0]:
+                cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, extra_t * 1000.0))
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    ff = self.detect_faces_in_frame(frame, target_w=640)
+                    if ff:
+                        all_faces.append(max(ff, key=lambda f: f['area']))
+                        break
+
         cap.release()
 
         # Sticky Memory fallback: Never default to empty center wall
@@ -393,7 +440,8 @@ class AutoCameraEngine:
                 "y": self.current_focal_y,
                 "mode": "custom_crop",
                 "detected": False,
-                "face_count": 0
+                "face_count": 0,
+                "zoom": 1.15
             }
             _FACE_CACHE[cache_key] = fallback
             return fallback

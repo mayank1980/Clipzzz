@@ -73,39 +73,39 @@ export default function Timeline({
   const playheadPct = (currentTime / totalDuration) * 100;
 
   return (
-    <div className="w-full bg-dark-900 border-t border-dark-700/80 px-4 py-2.5 select-none overflow-hidden shrink-0">
+    <div className="w-full bg-lifted-cream border-t border-border-cream px-4 py-2.5 select-none overflow-hidden shrink-0">
       {/* Top Scene Pill (e.g. Scene #1: 05:52 - 06:37) */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <div className="bg-lime-neon text-black font-extrabold text-[11px] px-3 py-0.5 rounded-full flex items-center gap-1.5 shadow-neon-sm">
-            <span>Scene #{selectedClip?.id ? selectedClip.id.slice(-2) : '1'}</span>
-            <span className="font-mono font-medium text-dark-950">
+          <div className="bg-ink-black text-white font-semibold text-[11px] px-3 py-0.5 rounded-full flex items-center gap-1.5 shadow-level-1">
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-signal-orange inline-block"></span>Scene #{selectedClip?.id ? selectedClip.id.slice(-2) : '1'}</span>
+            <span className="font-mono font-medium text-light-orange">
               {formatMinSec(clipStart)} – {formatMinSec(clipEnd)}
             </span>
           </div>
-          <span className="text-[11px] text-slate-400 font-mono">
+          <span className="text-[11px] text-slate-gray font-mono">
             {formatMinSec(currentTime)}
           </span>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
-            <span className="text-[11px]">Timeline Zoom</span>
+          <div className="flex items-center gap-1.5 text-xs text-slate-gray">
+            <span className="text-[11px] font-medium">Timeline Zoom</span>
             <input
               type="range"
               min="100"
               max="250"
               value={zoomLevel}
               onChange={(e) => setZoomLevel(Number(e.target.value))}
-              className="w-20 accent-lime-neon cursor-pointer"
+              className="w-20 cursor-pointer"
             />
-            <span className="text-[10px] font-mono text-lime-neon w-8">{zoomLevel}%</span>
+            <span className="text-[10px] font-mono text-ink-black font-semibold w-8">{zoomLevel}%</span>
           </div>
         </div>
       </div>
 
       {/* Main Interactive Timeline Track (Contained in scrollable viewport to prevent overflowing) */}
-      <div className="w-full overflow-x-auto overflow-y-hidden rounded-xl border border-dark-700 bg-dark-950 scrollbar-thin">
+      <div className="w-full overflow-x-auto overflow-y-hidden rounded-cta border border-border-cream bg-white shadow-level-1 scrollbar-thin">
         <div
           ref={trackRef}
           onClick={handleTrackClick}
@@ -113,15 +113,15 @@ export default function Timeline({
           style={{ width: `${Math.max(100, zoomLevel)}%`, minWidth: '100%' }}
         >
           {/* Background ticks */}
-          <div className="absolute inset-0 flex justify-between px-2 pointer-events-none opacity-20">
+          <div className="absolute inset-0 flex justify-between px-2 pointer-events-none opacity-40">
             {[...Array(30)].map((_, i) => (
-              <div key={i} className="h-full w-px bg-slate-400"></div>
+              <div key={i} className="h-full w-px bg-border-cream"></div>
             ))}
           </div>
 
-          {/* Selected Clip Highlight Range (Lime Box) */}
+          {/* Selected Clip Highlight Range (Mastercard Warm Orange Range) */}
           <div
-            className="absolute top-1 bottom-1 bg-lime-neon/25 border-2 border-lime-neon rounded-lg flex items-center justify-between z-10 transition-all duration-75"
+            className="absolute top-1 bottom-1 bg-light-orange/15 border-2 border-signal-orange rounded-xl flex items-center justify-between z-10 transition-all duration-75"
             style={{
               left: `${startPct}%`,
               width: `${widthPct}%`,
@@ -130,42 +130,42 @@ export default function Timeline({
             {/* Start Handle */}
             <div
               onMouseDown={handleStartTrim}
-              className="w-3.5 h-full bg-lime-neon rounded-l cursor-ew-resize flex items-center justify-center hover:brightness-110 active:scale-105"
+              className="w-3.5 h-full bg-signal-orange rounded-l cursor-ew-resize flex items-center justify-center hover:brightness-110 active:scale-105 shadow-sm"
               title="Drag to adjust start time"
             >
-              <div className="w-0.5 h-4 bg-black rounded-full"></div>
+              <div className="w-0.5 h-4 bg-white rounded-full"></div>
             </div>
 
             {/* Scene Label inside the timeline */}
-            <span className="text-[10px] font-bold text-lime-neon drop-shadow truncate px-2 pointer-events-none">
+            <span className="text-[10px] font-bold text-ink-black drop-shadow-sm truncate px-2 pointer-events-none">
               {selectedClip?.title || 'Clip Highlight'}
             </span>
 
             {/* End Handle */}
             <div
               onMouseDown={handleEndTrim}
-              className="w-3.5 h-full bg-lime-neon rounded-r cursor-ew-resize flex items-center justify-center hover:brightness-110 active:scale-105"
+              className="w-3.5 h-full bg-signal-orange rounded-r cursor-ew-resize flex items-center justify-center hover:brightness-110 active:scale-105 shadow-sm"
               title="Drag to adjust end time"
             >
-              <div className="w-0.5 h-4 bg-black rounded-full"></div>
+              <div className="w-0.5 h-4 bg-white rounded-full"></div>
             </div>
           </div>
 
-          {/* Keyframe Markers track (dots matching the screenshot) */}
+          {/* Keyframe Markers track */}
           <div className="absolute bottom-1 left-0 right-0 flex items-center pointer-events-none z-10 px-4">
             <div
-              className="w-2 h-2 rounded-full bg-lime-neon border border-black shadow"
+              className="w-2.5 h-2.5 rounded-full bg-signal-orange border-2 border-white shadow-satellite"
               style={{ marginLeft: `${startPct}%` }}
             ></div>
             <div
-              className="w-2 h-2 rounded-full bg-lime-neon border border-black shadow"
+              className="w-2.5 h-2.5 rounded-full bg-light-orange border-2 border-white shadow-satellite"
               style={{ marginLeft: `${widthPct * 0.5}%` }}
             ></div>
           </div>
 
           {/* Playhead Scrubber */}
           <div
-            className="absolute top-0 bottom-0 w-0.5 bg-white z-20 pointer-events-none shadow"
+            className="absolute top-0 bottom-0 w-0.5 bg-ink-black z-20 pointer-events-none shadow"
             style={{ left: `${playheadPct}%` }}
           >
             <div className="w-2.5 h-2.5 bg-white rounded-full -ml-1 -mt-0.5 shadow-md"></div>

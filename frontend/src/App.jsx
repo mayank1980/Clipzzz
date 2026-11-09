@@ -463,8 +463,8 @@ export default function App() {
   // Initial Loading Screen
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen bg-dark-950 flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-4 border-dark-800 border-t-lime-neon animate-spin"></div>
+      <div className="min-h-screen bg-canvas-cream flex items-center justify-center">
+        <div className="w-12 h-12 rounded-full border-4 border-border-cream border-t-signal-orange animate-spin"></div>
       </div>
     );
   }

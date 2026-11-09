@@ -364,20 +364,18 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             crop_keyframes = [{"time": 0.0, "x": crop_x, "y": crop_y, "zoom": crop_zoom, "speaker": "Speaker Focus"}]
             is_speaker_centered = True
 
-            # Fast, accurate primary speaker centering on clip creation
+            # Fast, accurate primary speaker centering and dynamic camera keyframes on clip creation
             if getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
                 try:
-                    if total_clips <= 8:
-                        from .face_tracker import generate_camera_keyframes
-                        computed_kfs = generate_camera_keyframes(video_full_path, c_start, c_dur)
-                        if computed_kfs:
-                            crop_keyframes = computed_kfs
-                            crop_x = computed_kfs[0]['x']
-                            crop_y = computed_kfs[0]['y']
-                            crop_zoom = computed_kfs[0].get('zoom', 1.15)
+                    from .face_tracker import generate_camera_keyframes, detect_primary_speaker_center
+                    computed_kfs = generate_camera_keyframes(video_full_path, c_start, min(45.0, c_dur))
+                    if computed_kfs:
+                        crop_keyframes = computed_kfs
+                        crop_x = computed_kfs[0]['x']
+                        crop_y = computed_kfs[0]['y']
+                        crop_zoom = computed_kfs[0].get('zoom', 1.15)
                     else:
-                        from .face_tracker import detect_primary_speaker_center
-                        center_info = detect_primary_speaker_center(video_full_path, c_start, sample_duration=min(2.5, c_dur))
+                        center_info = detect_primary_speaker_center(video_full_path, c_start, sample_duration=min(4.0, c_dur))
                         if center_info and center_info.get('x'):
                             crop_x = center_info['x']
                             crop_y = center_info.get('y', 35.0)

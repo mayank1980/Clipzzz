@@ -30,10 +30,10 @@ export default function CaptionTemplateGallery({
               key={cat}
               type="button"
               onClick={() => setActiveCategory(cat)}
-              className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition shrink-0 ${
+              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition shrink-0 cursor-pointer ${
                 activeCategory === cat
-                  ? 'bg-lime-neon text-black shadow-sm'
-                  : 'bg-dark-950 text-slate-400 hover:text-white border border-dark-800'
+                  ? 'bg-ink-black text-white shadow-sm'
+                  : 'bg-white text-slate-gray hover:text-ink-black border border-border-cream'
               }`}
             >
               {cat}
@@ -51,26 +51,26 @@ export default function CaptionTemplateGallery({
               key={tpl.id}
               type="button"
               onClick={() => onSelect(tpl.name)}
-              className={`p-2 rounded-xl text-left border transition relative overflow-hidden flex flex-col justify-between h-[62px] ${
+              className={`p-2.5 rounded-2xl text-left border transition relative overflow-hidden flex flex-col justify-between h-[64px] cursor-pointer shadow-sm ${
                 isSelected
-                  ? 'bg-dark-800 border-lime-neon ring-1 ring-lime-neon shadow-neon-sm'
-                  : 'bg-dark-950/80 border-dark-800 hover:border-dark-700 hover:bg-dark-850'
+                  ? 'bg-white border-signal-orange ring-1 ring-signal-orange'
+                  : 'bg-white border-border-cream hover:bg-canvas-cream/50'
               }`}
             >
               <div className="flex items-center justify-between w-full">
-                <span className="text-[11px] font-bold text-white truncate">{tpl.name}</span>
+                <span className="text-[11px] font-bold text-ink-black truncate">{tpl.name}</span>
                 {isSelected ? (
-                  <span className="w-3.5 h-3.5 rounded-full bg-lime-neon text-black flex items-center justify-center text-[9px] font-bold shrink-0">
+                  <span className="w-3.5 h-3.5 rounded-full bg-signal-orange text-white flex items-center justify-center text-[9px] font-bold shrink-0">
                     <Check className="w-2.5 h-2.5 stroke-[3]" />
                   </span>
                 ) : (
-                  <span className="text-[9px] font-mono text-slate-500 uppercase">{tpl.animation}</span>
+                  <span className="text-[9px] font-mono text-slate-gray uppercase">{tpl.animation}</span>
                 )}
               </div>
 
               <div className="flex items-center justify-between mt-1">
-                <span className="text-[9px] text-slate-400 truncate">{tpl.tag}</span>
-                <span className="text-[8px] font-mono font-bold px-1 py-0.2 rounded bg-dark-900 border border-dark-800 text-lime-neon">
+                <span className="text-[9px] text-slate-gray truncate">{tpl.tag}</span>
+                <span className="text-[8px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-canvas-cream border border-border-cream text-charcoal">
                   {tpl.animation}
                 </span>
               </div>
@@ -81,4 +81,3 @@ export default function CaptionTemplateGallery({
     </div>
   );
 }
-

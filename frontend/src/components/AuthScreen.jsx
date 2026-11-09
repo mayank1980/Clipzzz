@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Film, Sparkles, Mail, User, Phone, KeyRound, ArrowRight, CheckCircle2, AlertCircle, Loader2, Info } from 'lucide-react';
+import { Mail, Phone, KeyRound, ArrowRight, CheckCircle2, AlertCircle, Loader2, Info, Sparkles } from 'lucide-react';
 import SwipeCaptcha from './SwipeCaptcha';
 import { api } from '../services/api';
-import logoImg from '../assets/logo.png';
 
 export default function AuthScreen({ onAuthSuccess }) {
   const [mode, setMode] = useState('login'); // 'login' or 'signup'
@@ -31,19 +30,16 @@ export default function AuthScreen({ onAuthSuccess }) {
     setStatusMessage('');
   };
 
-  // Indian Phone Validation helper (at least 10 digits starting with 6, 7, 8, or 9)
   const isIndianPhoneValid = (phone) => {
     const clean = phone.replace(/[\s\-\(\)\+]/g, '');
     return /^((91)?[6-9]\d{9})$/.test(clean);
   };
 
-  // Strict @gmail.com validation
   const isGmailValid = (em) => {
     const clean = em.toLowerCase().trim();
     return clean.endsWith('@gmail.com') || clean.endsWith('@googlemail.com');
   };
 
-  // Captcha lock condition
   const isSignupFormFilled =
     firstName.trim().length >= 2 &&
     lastName.trim().length >= 1 &&
@@ -55,8 +51,8 @@ export default function AuthScreen({ onAuthSuccess }) {
   const isCaptchaDisabled = mode === 'signup' ? !isSignupFormFilled : !isLoginFormFilled;
   const disabledMessage =
     mode === 'signup'
-      ? 'Fill your name, +91 phone, and @gmail.com to unlock'
-      : 'Enter your valid @gmail.com to unlock';
+      ? 'Complete details above to unlock'
+      : 'Enter valid @gmail.com to unlock';
 
   const handleRequestOtp = async (e) => {
     e.preventDefault();
@@ -79,7 +75,7 @@ export default function AuthScreen({ onAuthSuccess }) {
     }
 
     if (!isCaptchaVerified) {
-      setErrorMessage('Please complete the swipe puzzle verification first.');
+      setErrorMessage('Please slide the verification knob to proceed.');
       return;
     }
 
@@ -132,42 +128,44 @@ export default function AuthScreen({ onAuthSuccess }) {
   };
 
   return (
-    <div className="min-h-screen bg-dark-950 flex flex-col justify-center items-center p-6 relative overflow-hidden">
-      {/* Background Ambience */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-lime-neon/5 rounded-full filter blur-3xl pointer-events-none"></div>
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-lime-500/5 rounded-full filter blur-3xl pointer-events-none"></div>
+    <div className="min-h-screen bg-canvas-cream flex flex-col justify-center items-center p-6 relative overflow-hidden font-sans">
+      {/* Decorative Warm Orbital Arcs */}
+      <div className="absolute top-10 left-1/4 w-[500px] h-[500px] rounded-full border border-light-orange/20 pointer-events-none orbital-arc"></div>
+      <div className="absolute bottom-10 right-1/4 w-[600px] h-[600px] rounded-full border border-light-orange/15 pointer-events-none orbital-arc"></div>
 
-      {/* Main Auth Card */}
-      <div className="w-full max-w-md bg-dark-900 border border-dark-700/80 rounded-3xl p-8 shadow-2xl relative z-10">
-        {/* Brand Header */}
-        <div className="text-center mb-5">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-dark-950 border border-lime-neon/40 flex items-center justify-center p-1.5 shadow-neon mb-3">
-            <img src={logoImg} alt="Clipzzz Logo" className="w-full h-full object-contain" />
+      {/* Main Stadium Auth Card */}
+      <div className="w-full max-w-md bg-white border border-border-cream rounded-stadium p-8 sm:p-10 shadow-card-elevated relative z-10">
+        {/* Brand Gesture */}
+        <div className="text-center mb-6">
+          <div className="relative flex items-center justify-center w-12 h-8 mx-auto mb-3 select-none">
+            <div className="w-7 h-7 rounded-full bg-mc-red shadow-sm"></div>
+            <div className="w-7 h-7 rounded-full bg-mc-yellow -ml-3.5 mix-blend-multiply opacity-95"></div>
           </div>
-          <h1 className="text-2xl font-black tracking-wider text-white">
-            CLIP<span className="text-lime-neon">ZZZ</span>
+          <h1 className="text-2xl font-extrabold tracking-tight text-ink-black">
+            CLIP<span className="text-signal-orange">ZZZ</span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            AI YouTube Shorts Automation & Clipping Studio
-          </p>
+          <div className="flex items-center justify-center gap-1.5 mt-1 text-xs uppercase font-extrabold tracking-wider text-slate-gray">
+            <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
+            <span>AI Shorts Studio</span>
+          </div>
         </div>
 
-        {/* Notice: Only Gmail Allowed */}
-        <div className="mb-5 p-2.5 bg-dark-950 rounded-xl border border-lime-neon/30 flex items-center gap-2 text-[11px] text-lime-neon">
-          <Info className="w-4 h-4 shrink-0 text-lime-neon" />
-          <span>Only <strong>@gmail.com</strong> accounts supported with Gmail SMTP OTP.</span>
+        {/* Notice: Gmail Policy */}
+        <div className="mb-5 p-3 bg-canvas-cream rounded-2xl border border-border-cream flex items-center gap-2 text-[11px] text-charcoal">
+          <Info className="w-4 h-4 shrink-0 text-signal-orange" />
+          <span>Official <strong>@gmail.com</strong> accounts supported via secure OTP.</span>
         </div>
 
         {/* Tab Switcher */}
         {!otpRequested && (
-          <div className="grid grid-cols-2 p-1 bg-dark-950 rounded-2xl border border-dark-800 mb-5">
+          <div className="grid grid-cols-2 p-1 bg-canvas-cream rounded-full border border-border-cream mb-6">
             <button
               type="button"
               onClick={() => handleResetFlow('login')}
-              className={`py-2 text-xs font-bold rounded-xl transition ${
+              className={`py-2 text-xs font-bold rounded-full transition cursor-pointer ${
                 mode === 'login'
-                  ? 'bg-dark-800 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-white text-ink-black shadow-sm'
+                  : 'text-slate-gray hover:text-ink-black'
               }`}
             >
               Sign In
@@ -175,10 +173,10 @@ export default function AuthScreen({ onAuthSuccess }) {
             <button
               type="button"
               onClick={() => handleResetFlow('signup')}
-              className={`py-2 text-xs font-bold rounded-xl transition ${
+              className={`py-2 text-xs font-bold rounded-full transition cursor-pointer ${
                 mode === 'signup'
-                  ? 'bg-dark-800 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-white text-ink-black shadow-sm'
+                  : 'text-slate-gray hover:text-ink-black'
               }`}
             >
               Create Account
@@ -188,27 +186,27 @@ export default function AuthScreen({ onAuthSuccess }) {
 
         {/* Error / Status Messages */}
         {errorMessage && (
-          <div className="mb-4 p-3 bg-red-950/60 border border-red-800 rounded-xl flex items-center gap-2 text-xs text-red-200">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+          <div className="mb-5 p-3.5 bg-canvas-cream border border-signal-orange/60 rounded-2xl flex items-center gap-2.5 text-xs text-clay-brown">
+            <AlertCircle className="w-4 h-4 text-signal-orange shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {statusMessage && (
-          <div className="mb-4 p-3 bg-lime-950/40 border border-lime-neon/40 rounded-xl flex items-center gap-2 text-xs text-lime-neon">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <div className="mb-5 p-3.5 bg-canvas-cream border border-border-cream rounded-2xl flex items-center gap-2.5 text-xs text-ink-black">
+            <CheckCircle2 className="w-4 h-4 text-signal-orange shrink-0" />
             <span>{statusMessage}</span>
           </div>
         )}
 
-        {/* Form: Step 1 (Credentials & Captcha) */}
+        {/* Step 1: Credentials & Captcha */}
         {!otpRequested ? (
           <form onSubmit={handleRequestOtp} className="space-y-4">
             {mode === 'signup' && (
               <>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    <label className="block text-[11px] font-bold text-slate-gray mb-1 uppercase tracking-wide">
                       First Name
                     </label>
                     <input
@@ -220,11 +218,11 @@ export default function AuthScreen({ onAuthSuccess }) {
                       }}
                       placeholder="Aarav"
                       required
-                      className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-lime-neon"
+                      className="w-full bg-lifted-cream border border-dust-taupe rounded-full px-4 py-2.5 text-xs text-ink-black placeholder-slate-gray focus:outline-none focus:border-signal-orange shadow-inner"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    <label className="block text-[11px] font-bold text-slate-gray mb-1 uppercase tracking-wide">
                       Last Name
                     </label>
                     <input
@@ -236,18 +234,18 @@ export default function AuthScreen({ onAuthSuccess }) {
                       }}
                       placeholder="Sharma"
                       required
-                      className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-lime-neon"
+                      className="w-full bg-lifted-cream border border-dust-taupe rounded-full px-4 py-2.5 text-xs text-ink-black placeholder-slate-gray focus:outline-none focus:border-signal-orange shadow-inner"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                  <label className="block text-[11px] font-bold text-slate-gray mb-1 flex items-center justify-between uppercase tracking-wide">
                     <span className="flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-lime-neon" />
+                      <Phone className="w-3.5 h-3.5 text-signal-orange" />
                       Contact Number (India)
                     </span>
-                    <span className="text-[10px] text-slate-500">+91 10-Digits</span>
+                    <span className="text-[10px] text-slate-gray font-normal">+91 10-Digits</span>
                   </label>
                   <input
                     type="tel"
@@ -258,19 +256,19 @@ export default function AuthScreen({ onAuthSuccess }) {
                     }}
                     placeholder="+91 98765 43210"
                     required
-                    className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-lime-neon font-mono"
+                    className="w-full bg-lifted-cream border border-dust-taupe rounded-full px-4 py-2.5 text-xs text-ink-black placeholder-slate-gray focus:outline-none focus:border-signal-orange shadow-inner font-mono"
                   />
                 </div>
               </>
             )}
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center justify-between">
+              <label className="block text-[11px] font-bold text-slate-gray mb-1 flex items-center justify-between uppercase tracking-wide">
                 <span className="flex items-center gap-1.5">
-                  <Mail className="w-3.5 h-3.5 text-lime-neon" />
+                  <Mail className="w-3.5 h-3.5 text-signal-orange" />
                   Gmail Address
                 </span>
-                <span className="text-[10px] text-lime-neon font-semibold">@gmail.com</span>
+                <span className="text-[10px] text-signal-orange font-bold">@gmail.com</span>
               </label>
               <input
                 type="email"
@@ -281,12 +279,12 @@ export default function AuthScreen({ onAuthSuccess }) {
                 }}
                 placeholder="rohit.sharma@gmail.com"
                 required
-                className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-lime-neon"
+                className="w-full bg-lifted-cream border border-dust-taupe rounded-full px-4 py-3 text-xs text-ink-black placeholder-slate-gray focus:outline-none focus:border-signal-orange shadow-inner"
               />
             </div>
 
-            {/* Anti-Bot Swipe Captcha (Locked until fields are valid) */}
-            <div className="pt-1">
+            {/* Anti-Bot Swipe Captcha */}
+            <div className="pt-2">
               <SwipeCaptcha
                 isVerified={isCaptchaVerified}
                 disabled={isCaptchaDisabled}
@@ -295,18 +293,18 @@ export default function AuthScreen({ onAuthSuccess }) {
               />
             </div>
 
-            {/* Request OTP Button */}
+            {/* Request OTP Button: Signature Ink Black Pill */}
             <button
               type="submit"
               disabled={isLoading || !isCaptchaVerified || isCaptchaDisabled}
-              className={`w-full py-3 rounded-xl font-extrabold text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 ${
+              className={`w-full py-3.5 rounded-cta font-bold text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 ${
                 isCaptchaVerified && !isCaptchaDisabled
-                  ? 'bg-lime-neon hover:bg-lime-400 text-black shadow-neon cursor-pointer'
-                  : 'bg-dark-800 text-slate-500 cursor-not-allowed border border-dark-700'
+                  ? 'bg-ink-black hover:bg-black text-white shadow-card-soft cursor-pointer hover:scale-[1.01]'
+                  : 'bg-canvas-cream text-slate-gray cursor-not-allowed border border-border-cream'
               }`}
             >
               {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-black" />
+                <Loader2 className="w-4 h-4 animate-spin text-signal-orange" />
               ) : (
                 <>
                   <span>Request Gmail OTP</span>
@@ -316,23 +314,23 @@ export default function AuthScreen({ onAuthSuccess }) {
             </button>
           </form>
         ) : (
-          /* Form: Step 2 (OTP Verification) */
+          /* Step 2: OTP Verification */
           <form onSubmit={handleVerifyOtp} className="space-y-4">
-            <div className="p-4 bg-dark-950 rounded-xl border border-dark-800 text-center">
-              <KeyRound className="w-6 h-6 text-lime-neon mx-auto mb-1.5" />
-              <p className="text-xs text-slate-300 font-medium">
-                Enter the 6-digit OTP sent to your Gmail:
+            <div className="p-4 bg-canvas-cream rounded-2xl border border-border-cream text-center">
+              <KeyRound className="w-6 h-6 text-signal-orange mx-auto mb-1.5" />
+              <p className="text-xs text-charcoal font-medium">
+                Enter the 6-digit verification code sent to:
               </p>
-              <p className="text-xs font-mono font-bold text-lime-neon">{email}</p>
+              <p className="text-xs font-mono font-bold text-ink-black mt-0.5">{email}</p>
               {devOtp && (
-                <p className="text-[10px] text-slate-400 mt-2 bg-dark-800/80 p-1.5 rounded-lg border border-dark-700 font-mono">
-                  Dev OTP Code: <span className="text-lime-neon font-bold">{devOtp}</span>
+                <p className="text-[10px] text-slate-gray mt-2 bg-white p-2 rounded-xl border border-border-cream font-mono shadow-sm">
+                  Dev OTP Code: <span className="text-signal-orange font-bold">{devOtp}</span>
                 </p>
               )}
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold text-slate-300 mb-1 text-center">
+              <label className="block text-[11px] font-bold text-slate-gray mb-1.5 text-center uppercase tracking-wide">
                 6-Digit Verification Code
               </label>
               <input
@@ -342,17 +340,17 @@ export default function AuthScreen({ onAuthSuccess }) {
                 onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                 placeholder="123456"
                 required
-                className="w-full text-center tracking-[0.5em] text-lg font-mono font-bold bg-dark-950 border border-dark-700 rounded-xl py-2.5 text-lime-neon focus:outline-none focus:border-lime-neon"
+                className="w-full text-center tracking-[0.5em] text-lg font-mono font-bold bg-lifted-cream border border-dust-taupe rounded-full py-3 text-ink-black focus:outline-none focus:border-signal-orange shadow-inner"
               />
             </div>
 
             <button
               type="submit"
               disabled={isLoading || otpCode.length < 6}
-              className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs uppercase tracking-wider py-3 rounded-xl transition shadow-neon flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="w-full bg-ink-black hover:bg-black text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-cta transition shadow-card-soft flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-black" />
+                <Loader2 className="w-4 h-4 animate-spin text-signal-orange" />
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
@@ -367,7 +365,7 @@ export default function AuthScreen({ onAuthSuccess }) {
                 setOtpRequested(false);
                 setIsCaptchaVerified(false);
               }}
-              className="w-full text-center text-[11px] text-slate-400 hover:text-white"
+              className="w-full text-center text-[11px] text-slate-gray hover:text-ink-black font-semibold cursor-pointer pt-1"
             >
               ← Back to change details
             </button>

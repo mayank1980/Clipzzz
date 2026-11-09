@@ -39,28 +39,28 @@ export default function SettingsModal({ isOpen, onClose, apiKey, onSaveApiKey })
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-dark-900 border border-dark-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white border border-border-cream w-full max-w-md rounded-stadium shadow-card-elevated overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-dark-700 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-border-cream flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Key className="w-5 h-5 text-lime-neon" />
-            <h2 className="font-bold text-base text-white">AI Configuration</h2>
+            <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
+            <h2 className="font-extrabold text-base text-ink-black tracking-tight">AI Settings</h2>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg">
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="text-slate-gray hover:text-ink-black p-1 rounded-full hover:bg-canvas-cream transition cursor-pointer">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
         <div className="p-6 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-lime-neon" />
-              Google Gemini API Key
+            <label className="block text-xs font-bold text-ink-black mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-signal-orange" />
+              Gemini API Key
             </label>
-            <p className="text-[11px] text-slate-400 mb-2">
-              Power highlight discovery, viral hook ranking, and speech transcription using Gemini 3.8 Flash.
+            <p className="text-[11px] text-slate-gray mb-3">
+              Enables Discover AI viral hook ranking and speech processing.
             </p>
             <div className="flex gap-2">
               <input
@@ -68,13 +68,13 @@ export default function SettingsModal({ isOpen, onClose, apiKey, onSaveApiKey })
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
                 placeholder="AIzaSy..."
-                className="flex-1 bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-lime-neon font-mono"
+                className="flex-1 bg-lifted-cream border border-dust-taupe rounded-full px-4 py-2.5 text-xs text-ink-black placeholder-slate-gray focus:outline-none focus:border-signal-orange font-mono shadow-inner"
               />
               <button
                 type="button"
                 onClick={handleValidate}
                 disabled={isValidating || !keyInput.trim()}
-                className="bg-dark-800 hover:bg-dark-700 border border-dark-700 text-xs text-slate-200 px-3 py-2 rounded-xl transition flex items-center gap-1.5 font-semibold"
+                className="bg-canvas-cream hover:bg-lifted-cream border border-border-cream text-xs text-charcoal px-4 py-2 rounded-full transition flex items-center gap-1.5 font-bold cursor-pointer"
               >
                 {isValidating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Test'}
               </button>
@@ -83,16 +83,16 @@ export default function SettingsModal({ isOpen, onClose, apiKey, onSaveApiKey })
 
           {validationResult && (
             <div
-              className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+              className={`p-3 rounded-2xl border text-xs flex items-center gap-2 ${
                 validationResult.valid
-                  ? 'bg-lime-950/40 border-lime-neon/40 text-lime-neon'
-                  : 'bg-red-950/40 border-red-800 text-red-300'
+                  ? 'bg-canvas-cream border-border-cream text-ink-black font-semibold'
+                  : 'bg-canvas-cream border-signal-orange/60 text-clay-brown'
               }`}
             >
               {validationResult.valid ? (
-                <CheckCircle className="w-4 h-4 shrink-0" />
+                <CheckCircle className="w-4 h-4 text-signal-orange shrink-0" />
               ) : (
-                <AlertCircle className="w-4 h-4 shrink-0" />
+                <AlertCircle className="w-4 h-4 text-signal-orange shrink-0" />
               )}
               <span>{validationResult.message}</span>
             </div>
@@ -100,16 +100,18 @@ export default function SettingsModal({ isOpen, onClose, apiKey, onSaveApiKey })
 
           <div className="pt-2 flex justify-end gap-2">
             <button
+              type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+              className="px-4 py-2 rounded-full border border-border-cream text-slate-gray hover:text-ink-black text-xs font-bold transition"
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleSave}
-              className="px-5 py-2 bg-lime-neon hover:bg-lime-400 text-black text-xs font-bold rounded-xl shadow-neon-sm transition"
+              className="px-6 py-2 rounded-cta bg-ink-black hover:bg-black text-white text-xs font-bold transition shadow-card-soft"
             >
-              Save Key
+              Save Settings
             </button>
           </div>
         </div>
@@ -117,4 +119,3 @@ export default function SettingsModal({ isOpen, onClose, apiKey, onSaveApiKey })
     </div>
   );
 }
-

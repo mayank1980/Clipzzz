@@ -57,72 +57,68 @@ export default function SwipeCaptcha({ onVerified, isVerified, disabled = false,
 
   return (
     <div className="w-full">
-      <div className="flex items-center justify-between mb-1.5 text-[11px] text-slate-400">
-        <span className="flex items-center gap-1 font-medium">
+      <div className="flex items-center justify-between mb-1.5 text-[11px] text-slate-gray">
+        <span className="flex items-center gap-1.5 font-medium">
           {disabled ? (
-            <Lock className="w-3.5 h-3.5 text-slate-500" />
+            <Lock className="w-3.5 h-3.5 text-slate-gray" />
           ) : (
-            <ShieldCheck className="w-3.5 h-3.5 text-lime-neon" />
+            <ShieldCheck className="w-3.5 h-3.5 text-signal-orange" />
           )}
-          Bot Protection
+          Verification Gate
         </span>
-        <span className={isVerified ? 'text-lime-neon font-bold' : disabled ? 'text-amber-400/80' : 'text-slate-400'}>
+        <span className={isVerified ? 'text-ink-black font-bold' : disabled ? 'text-clay-brown' : 'text-slate-gray'}>
           {isVerified ? 'Verified Human ✓' : disabled ? disabledMessage : 'Slide to verify'}
         </span>
       </div>
 
       <div
         ref={trackRef}
-        className={`relative h-11 rounded-xl flex items-center p-1 overflow-hidden select-none transition-all border ${
+        className={`relative h-12 rounded-full flex items-center p-1 overflow-hidden select-none transition-all border ${
           isVerified
-            ? 'bg-lime-950/40 border-lime-neon/50'
+            ? 'bg-lifted-cream border-signal-orange'
             : disabled
-            ? 'bg-dark-950/60 border-dark-800 opacity-60 cursor-not-allowed'
-            : 'bg-dark-950 border-dark-700 shadow-inner'
+            ? 'bg-canvas-cream border-border-cream opacity-60 cursor-not-allowed'
+            : 'bg-canvas-cream border-border-cream shadow-inner'
         }`}
       >
         {/* Track Progress Fill */}
         <div
-          className="absolute left-0 top-0 bottom-0 bg-lime-neon/20 transition-all pointer-events-none"
+          className="absolute left-0 top-0 bottom-0 bg-light-orange/20 transition-all pointer-events-none rounded-full"
           style={{ width: isVerified ? '100%' : `${sliderPosition + 44}px` }}
         />
 
         {/* Track Prompt Text */}
-        <div className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold tracking-wider uppercase text-slate-400 pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tracking-wider uppercase text-slate-gray pointer-events-none">
           {isVerified ? (
-            <span className="text-lime-neon flex items-center gap-1.5 font-bold">
-              <CheckCircle2 className="w-4 h-4" /> Verification Passed
+            <span className="text-ink-black flex items-center gap-1.5 font-extrabold">
+              <CheckCircle2 className="w-4 h-4 text-signal-orange" /> Verification Complete
             </span>
           ) : disabled ? (
-            <span className="text-slate-500 text-[10px] flex items-center gap-1">
+            <span className="text-slate-gray text-[10px] flex items-center gap-1">
               <Lock className="w-3 h-3" /> {disabledMessage}
             </span>
           ) : (
-            <span className="text-slate-300 animate-pulse">Slide puzzle to verify →</span>
+            <span className="flex items-center gap-1 text-charcoal">
+              <span>Slide right to continue</span>
+              <ChevronsRight className="w-3.5 h-3.5 text-signal-orange animate-pulse" />
+            </span>
           )}
         </div>
 
-        {/* Draggable Slider Handle */}
-        {!isVerified ? (
+        {/* Draggable Circle Knob */}
+        {!isVerified && (
           <div
             onMouseDown={(e) => handleStart(e.clientX)}
             onTouchStart={(e) => e.touches[0] && handleStart(e.touches[0].clientX)}
-            style={{ transform: `translateX(${sliderPosition}px)` }}
-            className={`w-10 h-9 rounded-lg flex items-center justify-center z-10 transition-transform duration-75 ${
-              disabled
-                ? 'bg-dark-800 text-slate-600 cursor-not-allowed'
-                : 'bg-lime-neon hover:bg-lime-400 text-black cursor-grab active:cursor-grabbing shadow-neon-sm'
+            style={{
+              transform: `translateX(${sliderPosition}px)`,
+              transition: isDragging ? 'none' : 'transform 0.25s ease-out',
+            }}
+            className={`w-10 h-10 rounded-full bg-white text-ink-black border border-border-cream shadow-satellite flex items-center justify-center z-10 ${
+              disabled ? 'cursor-not-allowed opacity-50' : 'cursor-grab active:cursor-grabbing hover:scale-105'
             }`}
           >
-            {disabled ? (
-              <Lock className="w-4 h-4" />
-            ) : (
-              <ChevronsRight className="w-5 h-5 stroke-[2.5]" />
-            )}
-          </div>
-        ) : (
-          <div className="absolute right-2 text-lime-neon">
-            <CheckCircle2 className="w-5 h-5" />
+            <ChevronsRight className="w-4 h-4 text-signal-orange stroke-[2.5]" />
           </div>
         )}
       </div>
