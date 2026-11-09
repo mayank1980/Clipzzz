@@ -30,7 +30,6 @@ export default function CropInspector({
   const [autoTrackSuccess, setAutoTrackSuccess] = useState(false);
   const previewVideoRef = useRef(null);
 
-  // Keep preview video frame locked to the exact speech time in clip
   useEffect(() => {
     if (previewVideoRef.current && typeof currentTime === 'number' && !isNaN(currentTime)) {
       if (Math.abs(previewVideoRef.current.currentTime - currentTime) > 0.4) {
@@ -45,7 +44,6 @@ export default function CropInspector({
     }
   };
 
-  // Close on ESC key press
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
@@ -78,18 +76,17 @@ export default function CropInspector({
   };
 
   return (
-    <div className="w-[320px] max-w-[92vw] flex flex-col bg-dark-900/98 border border-dark-700 rounded-2xl shadow-2xl text-xs select-none backdrop-blur-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[85vh] overflow-y-auto scrollbar-thin">
+    <div className="w-[320px] max-w-[92vw] flex flex-col bg-white border border-border-cream rounded-stadium shadow-card-elevated text-xs select-none backdrop-blur-2xl overflow-hidden max-h-[85vh] overflow-y-auto">
       {/* 1. HEADER */}
-      <div className="flex items-center justify-between p-3 bg-dark-950/90 border-b border-dark-800 shrink-0 sticky top-0 z-10 backdrop-blur-md">
+      <div className="flex items-center justify-between p-3.5 bg-white border-b border-border-cream shrink-0 sticky top-0 z-10">
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-lime-neon animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
           <div>
-            <div className="text-[11px] uppercase font-extrabold tracking-wider text-white flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5 text-lime-neon fill-lime-neon" />
-              AI Speaker Tracking
+            <div className="text-[11px] uppercase font-extrabold tracking-wider text-ink-black flex items-center gap-1">
+              AI Camera Framing
             </div>
-            <div className="text-[10px] text-lime-neon font-semibold flex items-center gap-1">
-              <span>Automated Multi-Speaker Focus</span>
+            <div className="text-[10px] text-slate-gray font-semibold">
+              Speaker Tracking View
             </div>
           </div>
         </div>
@@ -97,7 +94,7 @@ export default function CropInspector({
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center gap-1 bg-dark-800 hover:bg-red-500/20 text-slate-200 hover:text-red-400 border border-dark-700 hover:border-red-500/50 px-2 py-1 rounded-lg font-bold text-[10px] transition cursor-pointer"
+          className="flex items-center gap-1 bg-canvas-cream hover:bg-lifted-cream text-charcoal border border-border-cream px-2.5 py-1 rounded-full font-bold text-[10px] transition cursor-pointer"
           title="Close (ESC)"
         >
           <X className="w-3.5 h-3.5" />
@@ -106,54 +103,54 @@ export default function CropInspector({
       </div>
 
       {/* 2. BODY */}
-      <div className="p-3.5 space-y-3.5">
+      <div className="p-4 space-y-3.5">
         {/* AI AUTO TRACKING STATUS CARD */}
-        <div className="bg-lime-neon/10 border border-lime-neon/40 rounded-xl p-3 shadow-neon-sm">
+        <div className="bg-lifted-cream border border-border-cream rounded-2xl p-3.5 shadow-sm">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="font-extrabold text-[11px] text-lime-neon uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-lime-neon" />
-              100% AI Auto-Framing
+            <span className="font-extrabold text-[11px] text-ink-black uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-signal-orange" />
+              AI Auto-Framing
             </span>
-            <span className="text-[10px] font-mono font-bold bg-lime-neon/20 text-lime-neon px-2 py-0.5 rounded-full border border-lime-neon/30">
+            <span className="text-[10px] font-mono font-bold bg-canvas-cream text-ink-black px-2 py-0.5 rounded-full border border-border-cream">
               {keyframeCount} Focal Shifts
             </span>
           </div>
 
-          <p className="text-[10px] text-slate-300 leading-relaxed mb-3">
-            The AI monitors face positioning and shifts camera focus onto whoever is talking in the podcast or interview automatically. Zero manual keyframing required.
+          <p className="text-[10px] text-slate-gray leading-relaxed mb-3">
+            Neural facial tracking detects active speakers and aligns camera cuts automatically.
           </p>
 
           <button
             type="button"
             onClick={handleRunAutoTrack}
             disabled={isAutoTracking}
-            className="w-full py-2 px-3 bg-lime-neon hover:bg-lime-400 text-black font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 transition shadow-neon-sm cursor-pointer disabled:opacity-50"
+            className="w-full py-2.5 px-3 bg-ink-black hover:bg-black text-white font-bold rounded-cta text-xs flex items-center justify-center gap-2 transition shadow-card-soft cursor-pointer disabled:opacity-50"
           >
             {isAutoTracking ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin text-signal-orange" />
             ) : autoTrackSuccess ? (
-              <Check className="w-4 h-4 text-black stroke-[3]" />
+              <Check className="w-4 h-4 text-signal-orange stroke-[3]" />
             ) : (
               <RefreshCw className="w-4 h-4" />
             )}
             <span>
               {isAutoTracking
-                ? 'Scanning video faces...'
+                ? 'Scanning speakers...'
                 : autoTrackSuccess
-                ? '✓ AI Speakers Re-Tracked!'
+                ? '✓ Speakers Re-Tracked!'
                 : 'Re-Analyze Speakers (AI)'}
             </span>
           </button>
         </div>
 
-        {/* COMPACT VISUAL PREVIEW OF CURRENT AI FOCAL BOX */}
+        {/* VISUAL PREVIEW OF CURRENT FOCAL BOX */}
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
-            <span>AI Framing Preview</span>
-            <span className="text-lime-neon text-[9px] font-mono">Dynamic 9:16</span>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-gray mb-1.5 flex items-center justify-between">
+            <span>Framing Preview</span>
+            <span className="text-signal-orange text-[9px] font-mono font-bold">9:16 Crop</span>
           </div>
 
-          <div className="relative w-full h-28 bg-black rounded-xl overflow-hidden border border-dark-700 flex items-center justify-center shadow-inner">
+          <div className="relative w-full h-28 bg-black rounded-2xl overflow-hidden border border-border-cream flex items-center justify-center shadow-inner">
             {videoSrc && (
               <video
                 ref={previewVideoRef}
@@ -166,9 +163,9 @@ export default function CropInspector({
               />
             )}
 
-            {/* AI 9:16 Focus Box - Dynamic based on X, Y, and Zoom */}
+            {/* AI 9:16 Focus Box */}
             <div
-              className="absolute border-2 border-lime-neon rounded-lg shadow-neon pointer-events-none flex items-center justify-center"
+              className="absolute border-2 border-signal-orange rounded-lg shadow-sm pointer-events-none flex items-center justify-center"
               style={{
                 width: `${(100 / zoomVal) * (9 / 16)}%`,
                 height: `${100 / zoomVal}%`,
@@ -176,45 +173,39 @@ export default function CropInspector({
                 top: `${Math.max(0, Math.min(100 - 100 / zoomVal, yVal - (100 / zoomVal) / 2))}%`,
               }}
             >
-              <div className="w-2.5 h-2.5 rounded-full bg-lime-neon border border-black shadow flex items-center justify-center">
-                <div className="w-1 h-1 rounded-full bg-black" />
+              <div className="w-2.5 h-2.5 rounded-full bg-signal-orange border border-white shadow flex items-center justify-center">
+                <div className="w-1 h-1 rounded-full bg-white" />
               </div>
-            </div>
-
-            {/* Speaker Alignment Markers */}
-            <div className="absolute inset-0 pointer-events-none flex justify-between px-[25%] opacity-20">
-              <div className="w-px h-full bg-white border-dashed border-l" />
-              <div className="w-px h-full bg-white border-dashed border-l" />
             </div>
           </div>
         </div>
 
-        {/* MANUAL FRAMING SLIDERS & PROGRESS CONTROLS (X, Y, ZOOM) */}
-        <div className="space-y-2.5 pt-2 border-t border-dark-800">
+        {/* MANUAL FRAMING CONTROLS */}
+        <div className="space-y-2.5 pt-2 border-t border-border-cream">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-lime-neon" />
-              Manual Framing Controls
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-gray flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-signal-orange" />
+              Manual Adjustment
             </span>
             <button
               type="button"
               onClick={() => onChangeCrop({ x: 50, y: 45, zoom: 1.0, mode: 'custom_crop' })}
-              className="text-[10px] font-bold text-lime-neon hover:underline cursor-pointer flex items-center gap-1"
-              title="Reset coordinates to standard center"
+              className="text-[10px] font-bold text-signal-orange hover:underline cursor-pointer flex items-center gap-1"
+              title="Reset coordinates"
             >
               <RotateCcw className="w-3 h-3" />
-              Reset Center
+              Reset
             </button>
           </div>
 
           {/* Horizontal Position (X) */}
-          <div className="space-y-1 bg-dark-950/80 p-2.5 rounded-xl border border-dark-800">
+          <div className="space-y-1 bg-canvas-cream p-2.5 rounded-2xl border border-border-cream">
             <div className="flex items-center justify-between text-[10px]">
-              <span className="text-slate-300 font-semibold flex items-center gap-1">
-                <MoveHorizontal className="w-3.5 h-3.5 text-lime-neon" />
+              <span className="text-charcoal font-semibold flex items-center gap-1">
+                <MoveHorizontal className="w-3.5 h-3.5 text-signal-orange" />
                 Horizontal Pan (X)
               </span>
-              <span className="font-mono font-bold text-lime-neon bg-lime-neon/10 px-1.5 py-0.5 rounded border border-lime-neon/20">
+              <span className="font-mono font-bold text-ink-black bg-white px-2 py-0.5 rounded-full border border-border-cream">
                 {Math.round(xVal)}%
               </span>
             </div>
@@ -225,23 +216,18 @@ export default function CropInspector({
               step="1"
               value={xVal}
               onChange={(e) => onChangeCrop({ x: parseFloat(e.target.value), mode: 'custom_crop' })}
-              className="w-full h-1.5 bg-dark-800 rounded-lg appearance-none cursor-pointer accent-lime-neon"
+              className="w-full cursor-pointer"
             />
-            <div className="flex justify-between text-[8px] text-slate-500 font-mono">
-              <span>0% Left</span>
-              <span>50% Center</span>
-              <span>100% Right</span>
-            </div>
           </div>
 
           {/* Vertical Position (Y) */}
-          <div className="space-y-1 bg-dark-950/80 p-2.5 rounded-xl border border-dark-800">
+          <div className="space-y-1 bg-canvas-cream p-2.5 rounded-2xl border border-border-cream">
             <div className="flex items-center justify-between text-[10px]">
-              <span className="text-slate-300 font-semibold flex items-center gap-1">
-                <MoveVertical className="w-3.5 h-3.5 text-lime-neon" />
+              <span className="text-charcoal font-semibold flex items-center gap-1">
+                <MoveVertical className="w-3.5 h-3.5 text-signal-orange" />
                 Vertical Tilt (Y)
               </span>
-              <span className="font-mono font-bold text-lime-neon bg-lime-neon/10 px-1.5 py-0.5 rounded border border-lime-neon/20">
+              <span className="font-mono font-bold text-ink-black bg-white px-2 py-0.5 rounded-full border border-border-cream">
                 {Math.round(yVal)}%
               </span>
             </div>
@@ -252,73 +238,8 @@ export default function CropInspector({
               step="1"
               value={yVal}
               onChange={(e) => onChangeCrop({ y: parseFloat(e.target.value), mode: 'custom_crop' })}
-              className="w-full h-1.5 bg-dark-800 rounded-lg appearance-none cursor-pointer accent-lime-neon"
+              className="w-full cursor-pointer"
             />
-            <div className="flex justify-between text-[8px] text-slate-500 font-mono">
-              <span>0% Top</span>
-              <span>45% Face Level</span>
-              <span>100% Bottom</span>
-            </div>
-          </div>
-
-          {/* Zoom / Focal Scale */}
-          <div className="space-y-1 bg-dark-950/80 p-2.5 rounded-xl border border-dark-800">
-            <div className="flex items-center justify-between text-[10px]">
-              <span className="text-slate-300 font-semibold flex items-center gap-1">
-                <ZoomIn className="w-3.5 h-3.5 text-lime-neon" />
-                Zoom / Framing Size
-              </span>
-              <span className="font-mono font-bold text-lime-neon bg-lime-neon/10 px-1.5 py-0.5 rounded border border-lime-neon/20">
-                {Number(zoomVal).toFixed(2)}x
-              </span>
-            </div>
-            <input
-              type="range"
-              min="1.0"
-              max="2.5"
-              step="0.05"
-              value={zoomVal}
-              onChange={(e) => onChangeCrop({ zoom: parseFloat(e.target.value), mode: 'custom_crop' })}
-              className="w-full h-1.5 bg-dark-800 rounded-lg appearance-none cursor-pointer accent-lime-neon"
-            />
-            <div className="flex justify-between text-[8px] text-slate-500 font-mono">
-              <span>1.0x Full</span>
-              <span>1.5x Close</span>
-              <span>2.5x Tight</span>
-            </div>
-          </div>
-        </div>
-
-        {/* FRAMING MODE TOGGLE */}
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-            Framing Style
-          </div>
-          <div className="grid grid-cols-2 p-1 bg-dark-950 rounded-xl border border-dark-800">
-            <button
-              type="button"
-              onClick={() => onChangeCrop({ mode: 'custom_crop' })}
-              className={`py-2 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                modeVal === 'custom_crop'
-                  ? 'bg-lime-neon text-black shadow-neon-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Smart AI Crop</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeCrop({ mode: 'blur_fill' })}
-              className={`py-2 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                modeVal === 'blur_fill'
-                  ? 'bg-lime-neon text-black shadow-neon-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Video className="w-3.5 h-3.5" />
-              <span>Blurred BG</span>
-            </button>
           </div>
         </div>
       </div>

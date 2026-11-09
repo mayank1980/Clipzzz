@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Flame, Clock, Sparkles, Check, Trash2, Plus, BookOpen, Layers, ChevronDown, ChevronRight, Film, ArrowDownAZ, ArrowUpDown } from 'lucide-react';
+import { Flame, Clock, Sparkles, Check, Trash2, Plus, BookOpen, Layers, ChevronDown, ChevronRight, Film, ArrowDownAZ, ArrowUpDown, ArrowRight } from 'lucide-react';
 
 export default function ClipsList({
   clips,
@@ -14,8 +14,8 @@ export default function ClipsList({
     return clips ? clips.some((c) => Boolean(c.story_id || c.parent_story_title || (c.part_number && c.total_parts > 1))) : false;
   }, [clips]);
 
-  const [viewMode, setViewMode] = useState(hasStories ? 'stories' : 'all'); // 'stories' | 'all'
-  const [sortBy, setSortBy] = useState('timeline'); // 'timeline' | 'score'
+  const [viewMode, setViewMode] = useState(hasStories ? 'stories' : 'all');
+  const [sortBy, setSortBy] = useState('timeline');
   const [collapsedStories, setCollapsedStories] = useState({});
 
   useEffect(() => {
@@ -72,13 +72,11 @@ export default function ClipsList({
       return g;
     });
 
-    // Chronologically sort parent stories by their earliest start time
     groups.sort((a, b) => (a.clips[0]?.start_time || 0) - (b.clips[0]?.start_time || 0));
 
     return { storyGroups: groups, standaloneClips: standalone };
   }, [clips]);
 
-  // Chronologically or virality sorted flat clips
   const sortedClips = useMemo(() => {
     if (!clips) return [];
     const list = [...clips];
@@ -91,12 +89,12 @@ export default function ClipsList({
 
   if (!clips || clips.length === 0) {
     return (
-      <div className="w-72 lg:w-80 shrink-0 bg-dark-900 border-r border-dark-700/80 p-4 text-xs text-slate-400 select-none flex flex-col justify-between">
-        <div>No clips available.</div>
+      <div className="w-72 lg:w-80 shrink-0 bg-lifted-cream border-r border-border-cream p-4 text-xs text-slate-gray select-none flex flex-col justify-between">
+        <div>No clips generated yet.</div>
         {onDeleteProject && (
           <button
             onClick={onDeleteProject}
-            className="w-full mt-4 flex items-center justify-center gap-2 py-2 px-3 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/60 rounded-xl transition font-medium text-xs cursor-pointer"
+            className="w-full mt-4 flex items-center justify-center gap-2 py-2 px-3 bg-white hover:bg-canvas-cream text-clay-brown border border-border-cream rounded-full transition font-semibold text-xs cursor-pointer shadow-sm"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Delete Project
@@ -114,50 +112,42 @@ export default function ClipsList({
       <div
         key={clip.id}
         onClick={() => onSelectClip(clip)}
-        className={`w-full rounded-xl p-3 cursor-pointer transition border relative ${
+        className={`w-full rounded-[20px] p-3.5 cursor-pointer transition border relative shadow-sm ${
           isSelected
-            ? 'bg-dark-800 border-lime-neon ring-1 ring-lime-neon shadow-neon-sm'
+            ? 'bg-white border-signal-orange ring-1 ring-signal-orange'
             : isChild
-            ? 'bg-dark-950/90 hover:bg-dark-850 border-dark-800/80 hover:border-lime-neon/40'
-            : 'bg-dark-950/70 hover:bg-dark-850 border-dark-800 hover:border-dark-700'
-        } ${isChild ? 'ml-3 w-[calc(100%-0.75rem)] border-l-2 border-l-lime-neon/60' : ''}`}
+            ? 'bg-lifted-cream hover:bg-white border-border-cream'
+            : 'bg-white hover:bg-canvas-cream border-border-cream'
+        } ${isChild ? 'ml-2.5 w-[calc(100%-0.625rem)] border-l-2 border-l-signal-orange' : ''}`}
       >
-        {/* Top Row: Score + Part/Category + Ending Type Badge + Duration */}
-        <div className="flex items-center justify-between gap-1 mb-1.5">
+        {/* Top Row: Score + Part + Duration */}
+        <div className="flex items-center justify-between gap-1 mb-2">
           <div className="flex items-center gap-1.5 overflow-hidden">
-            <span className="text-[10px] font-extrabold bg-lime-neon/15 text-lime-neon border border-lime-neon/40 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm shrink-0">
-              <Flame className="w-3 h-3 fill-lime-neon" />
+            <span className="text-[10px] font-extrabold bg-canvas-cream text-ink-black border border-border-cream px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm shrink-0">
+              <Flame className="w-3 h-3 text-signal-orange fill-signal-orange" />
               {clip.score}/100
             </span>
 
             {clip.ending_type && (
-              <span
-                className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider border shrink-0 ${
-                  clip.ending_type === 'cliffhanger'
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                    : clip.ending_type === 'takeaway'
-                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                    : 'bg-lime-500/20 text-lime-300 border-lime-500/40'
-                }`}
-              >
+              <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider bg-canvas-cream text-charcoal border border-border-cream shrink-0">
                 {clip.ending_type}
               </span>
             )}
           </div>
 
-          <span className="text-[10px] text-slate-300 uppercase font-bold tracking-wider flex items-center gap-1 truncate">
+          <span className="text-[10px] text-charcoal uppercase font-bold tracking-wider flex items-center gap-1 truncate">
             {clip.part_number && clip.total_parts ? (
-              <span className="bg-lime-neon/10 text-lime-neon px-1.5 py-0.5 rounded border border-lime-neon/20 font-mono">
+              <span className="bg-canvas-cream text-ink-black px-2 py-0.5 rounded-full border border-border-cream font-mono font-bold">
                 Part {clip.part_number}/{clip.total_parts}
               </span>
             ) : (
-              clip.category || 'Highlight'
+              clip.category || 'Short'
             )}
           </span>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[10px] text-slate-300 font-mono flex items-center gap-0.5">
-              <Clock className="w-3 h-3 text-slate-500" />
+            <span className="text-[10px] text-slate-gray font-mono flex items-center gap-0.5">
+              <Clock className="w-3 h-3 text-slate-gray" />
               {formatTime(clip.duration)}
             </span>
             {onDeleteClip && (
@@ -167,7 +157,7 @@ export default function ClipsList({
                   e.stopPropagation();
                   onDeleteClip(clip);
                 }}
-                className="p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-950/50 transition cursor-pointer"
+                className="p-1 rounded-full text-slate-gray hover:text-signal-orange hover:bg-canvas-cream transition cursor-pointer"
                 title="Delete this clip"
               >
                 <Trash2 className="w-3 h-3" />
@@ -176,31 +166,31 @@ export default function ClipsList({
           </div>
         </div>
 
-        {/* Title & Hook Title */}
+        {/* Title & Hook */}
         {clip.hook_title && clip.hook_title !== clip.title && (
-          <div className="text-[10px] font-bold text-lime-neon/90 line-clamp-1 mb-0.5 flex items-center gap-1">
-            <span className="text-[9px] bg-lime-neon/15 px-1 py-0.2 rounded text-lime-neon">HOOK</span>
-            {clip.hook_title}
+          <div className="text-[10px] font-extrabold text-signal-orange line-clamp-1 mb-0.5 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-signal-orange shrink-0"></span>
+            <span>{clip.hook_title}</span>
           </div>
         )}
-        <h4 className="text-xs font-bold text-white line-clamp-1 mb-1" title={clip.title}>
+        <h4 className="text-xs font-bold text-ink-black line-clamp-1 mb-1 tracking-tight" title={clip.title}>
           {clip.title}
         </h4>
 
-        {/* Hook snippet */}
-        <p className="text-[11px] text-slate-400 line-clamp-2 italic mb-2 leading-relaxed">
+        {/* Hook text */}
+        <p className="text-[11px] text-slate-gray line-clamp-2 italic mb-2.5 leading-relaxed">
           "{clip.hook || clip.reason || 'High engagement moment'}"
         </p>
 
         {/* Bottom Actions */}
-        <div className="flex items-center justify-between pt-1.5 border-t border-dark-800 text-[10px]">
-          <span className="text-slate-400 font-mono">
+        <div className="flex items-center justify-between pt-2 border-t border-border-cream text-[10px]">
+          <span className="text-slate-gray font-mono">
             {formatTime(clip.start_time)} – {formatTime(clip.end_time)}
           </span>
           <div className="flex items-center gap-2">
             {isRendered ? (
-              <span className="text-lime-neon font-bold flex items-center gap-1">
-                <Check className="w-3 h-3 stroke-[2.5]" /> Ready
+              <span className="text-ink-black font-bold flex items-center gap-1">
+                <Check className="w-3 h-3 text-signal-orange stroke-[2.5]" /> Ready
               </span>
             ) : (
               <button
@@ -209,23 +199,10 @@ export default function ClipsList({
                   onSelectClip(clip);
                   onRenderClip(clip);
                 }}
-                className="text-lime-neon hover:underline font-bold cursor-pointer"
+                className="text-ink-black hover:text-signal-orange font-bold cursor-pointer flex items-center gap-1"
               >
-                Render Short →
-              </button>
-            )}
-            {onDeleteClip && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteClip(clip);
-                }}
-                className="text-slate-500 hover:text-red-400 hover:bg-red-950/50 px-1.5 py-0.5 rounded transition flex items-center gap-1 cursor-pointer"
-                title="Delete this clip"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span className="text-[9px] font-semibold">Delete</span>
+                <span>Render Short</span>
+                <ArrowRight className="w-3 h-3 text-signal-orange" />
               </button>
             )}
           </div>
@@ -235,90 +212,90 @@ export default function ClipsList({
   };
 
   return (
-    <div className="w-72 lg:w-80 shrink-0 bg-dark-900 border-r border-dark-700/80 flex flex-col min-h-0 select-none">
+    <div className="w-72 lg:w-80 shrink-0 bg-lifted-cream border-r border-border-cream flex flex-col min-h-0 select-none">
       {/* Sidebar Header */}
-      <div className="p-3 border-b border-dark-700/80 bg-dark-950/50 space-y-2">
+      <div className="p-3.5 border-b border-border-cream bg-white space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
-            <Sparkles className="w-4 h-4 text-lime-neon shrink-0" />
+            <div className="w-7 h-7 rounded-full bg-canvas-cream border border-border-cream flex items-center justify-center shrink-0">
+              <Sparkles className="w-3.5 h-3.5 text-signal-orange" />
+            </div>
             <div className="min-w-0">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider truncate">
-                AI Highlights ({clips.length})
+              <h3 className="text-xs font-bold text-ink-black uppercase tracking-wider truncate">
+                AI Shorts ({clips.length})
               </h3>
-              <p className="text-[10px] text-slate-400 truncate">
+              <p className="text-[10px] text-slate-gray truncate">
                 {viewMode === 'stories' && storyGroups.length > 0
                   ? `${storyGroups.length} Stories • ${clips.length} Parts`
                   : sortBy === 'timeline'
-                  ? 'Sequential Timeline Order'
-                  : 'Ranked by Viral Score'}
+                  ? 'Sequential Timeline'
+                  : 'Ranked by Virality'}
               </p>
             </div>
           </div>
 
-          {/* View Toggle (Stories vs Flat View) */}
+          {/* View Toggle */}
           {(hasStories || storyGroups.length > 0) && (
-            <div className="flex p-0.5 bg-dark-900 rounded-lg border border-dark-800 text-[10px] shrink-0">
+            <div className="flex p-0.5 bg-canvas-cream rounded-full border border-border-cream text-[10px] shrink-0">
               <button
                 type="button"
                 onClick={() => setViewMode('stories')}
-                className={`px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
+                className={`px-2.5 py-1 rounded-full font-bold transition flex items-center gap-1 cursor-pointer ${
                   viewMode === 'stories'
-                    ? 'bg-lime-neon text-black shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-white text-ink-black shadow-sm'
+                    : 'text-slate-gray hover:text-ink-black'
                 }`}
-                title="Hierarchical Story View: Main story parent with nested child parts"
+                title="Story Series View"
               >
-                <BookOpen className="w-3 h-3" />
-                Stories
+                <BookOpen className="w-3 h-3 text-signal-orange" />
+                Series
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('all')}
-                className={`px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
+                className={`px-2.5 py-1 rounded-full font-bold transition flex items-center gap-1 cursor-pointer ${
                   viewMode === 'all'
-                    ? 'bg-lime-neon text-black shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-white text-ink-black shadow-sm'
+                    : 'text-slate-gray hover:text-ink-black'
                 }`}
-                title="Flat list of all individual clips"
+                title="All individual clips"
               >
-                <Layers className="w-3 h-3" />
+                <Layers className="w-3 h-3 text-signal-orange" />
                 All
               </button>
             </div>
           )}
         </div>
 
-        {/* Sort Switcher (Timeline Chronological vs Viral Score) */}
-        <div className="flex items-center justify-between gap-1 pt-1 border-t border-dark-800/80 text-[10px]">
-          <span className="text-slate-400 font-semibold flex items-center gap-1">
-            <ArrowUpDown className="w-3 h-3 text-slate-500" />
+        {/* Sort Switcher */}
+        <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-border-cream text-[10px]">
+          <span className="text-slate-gray font-semibold flex items-center gap-1">
+            <ArrowUpDown className="w-3 h-3 text-slate-gray" />
             Sort:
           </span>
-          <div className="flex p-0.5 bg-dark-900 rounded-lg border border-dark-800">
+          <div className="flex p-0.5 bg-canvas-cream rounded-full border border-border-cream">
             <button
               type="button"
               onClick={() => setSortBy('timeline')}
-              className={`px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
+              className={`px-2.5 py-0.5 rounded-full font-bold transition flex items-center gap-1 cursor-pointer ${
                 sortBy === 'timeline'
-                  ? 'bg-lime-neon text-black font-extrabold shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-white text-ink-black shadow-sm'
+                  : 'text-slate-gray hover:text-ink-black'
               }`}
-              title="Sort sequentially by video timeline (0:00 -> End)"
             >
-              <Clock className="w-2.5 h-2.5" />
+              <Clock className="w-2.5 h-2.5 text-signal-orange" />
               Timeline
             </button>
             <button
               type="button"
               onClick={() => setSortBy('score')}
-              className={`px-2 py-0.5 rounded font-bold transition flex items-center gap-1 cursor-pointer ${
+              className={`px-2.5 py-0.5 rounded-full font-bold transition flex items-center gap-1 cursor-pointer ${
                 sortBy === 'score'
-                  ? 'bg-lime-neon text-black font-extrabold shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-white text-ink-black shadow-sm'
+                  : 'text-slate-gray hover:text-ink-black'
               }`}
-              title="Sort by highest AI virality score"
             >
-              <Flame className="w-2.5 h-2.5" />
+              <Flame className="w-2.5 h-2.5 text-signal-orange" />
               Score
             </button>
           </div>
@@ -326,10 +303,9 @@ export default function ClipsList({
       </div>
 
       {/* Vertical Clips Scrollable List */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {viewMode === 'stories' && storyGroups.length > 0 ? (
           <>
-            {/* Render Hierarchical Parent Story Groups */}
             {storyGroups.map((group) => {
               const isCollapsed = Boolean(collapsedStories[group.key]);
               const containsSelected = group.clips.some((c) => c.id === selectedClip?.id);
@@ -337,31 +313,31 @@ export default function ClipsList({
               return (
                 <div
                   key={group.key}
-                  className={`rounded-2xl border transition overflow-hidden ${
+                  className={`rounded-[24px] border transition overflow-hidden shadow-sm ${
                     containsSelected
-                      ? 'border-lime-neon/40 bg-dark-900/90 shadow-neon-sm'
-                      : 'border-dark-750 bg-dark-950/60'
+                      ? 'border-signal-orange bg-white'
+                      : 'border-border-cream bg-white'
                   }`}
                 >
                   {/* Parent Story Header Card */}
                   <div
                     onClick={() => toggleStoryCollapse(group.key)}
-                    className="p-3 bg-gradient-to-r from-dark-850 to-dark-900 flex items-center justify-between cursor-pointer hover:bg-dark-800 transition"
+                    className="p-3.5 bg-white flex items-center justify-between cursor-pointer hover:bg-canvas-cream/50 transition"
                   >
-                    <div className="flex items-start gap-2 flex-1 min-w-0 pr-2">
-                      <div className="w-6 h-6 rounded-lg bg-lime-neon/15 border border-lime-neon/30 flex items-center justify-center shrink-0 mt-0.5">
-                        <BookOpen className="w-3.5 h-3.5 text-lime-neon" />
+                    <div className="flex items-start gap-2.5 flex-1 min-w-0 pr-2">
+                      <div className="w-7 h-7 rounded-full bg-canvas-cream border border-border-cream flex items-center justify-center shrink-0 mt-0.5">
+                        <BookOpen className="w-3.5 h-3.5 text-signal-orange" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-lime-neon bg-lime-neon/10 px-1.5 py-0.2 rounded border border-lime-neon/20">
+                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-charcoal bg-canvas-cream px-2 py-0.2 rounded-full border border-border-cream">
                             Story Arc
                           </span>
-                          <span className="text-[10px] font-mono text-slate-400">
+                          <span className="text-[10px] font-mono text-slate-gray">
                             {group.clips.length} Parts • {formatTime(group.totalDuration)}
                           </span>
                         </div>
-                        <h4 className="text-xs font-extrabold text-white truncate" title={group.title}>
+                        <h4 className="text-xs font-bold text-ink-black truncate tracking-tight" title={group.title}>
                           {group.title}
                         </h4>
                       </div>
@@ -369,20 +345,19 @@ export default function ClipsList({
 
                     <button
                       type="button"
-                      className="p-1 rounded-md text-slate-400 hover:text-white"
-                      title={isCollapsed ? 'Expand Parts' : 'Collapse Parts'}
+                      className="p-1 rounded-full text-slate-gray hover:text-ink-black"
                     >
                       {isCollapsed ? (
                         <ChevronRight className="w-4 h-4" />
                       ) : (
-                        <ChevronDown className="w-4 h-4 text-lime-neon" />
+                        <ChevronDown className="w-4 h-4 text-signal-orange" />
                       )}
                     </button>
                   </div>
 
                   {/* Child Parts List */}
                   {!isCollapsed && (
-                    <div className="p-2.5 pt-2 space-y-2 bg-dark-950/40 border-t border-dark-800">
+                    <div className="p-3 pt-2 space-y-2 bg-lifted-cream border-t border-border-cream">
                       {group.clips.map((clip) => renderClipCard(clip, true))}
                     </div>
                   )}
@@ -390,11 +365,11 @@ export default function ClipsList({
               );
             })}
 
-            {/* Standalone Highlights Section if any exist */}
+            {/* Standalone Highlights */}
             {standaloneClips.length > 0 && (
               <div className="pt-2 space-y-2">
-                <div className="flex items-center gap-1.5 px-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  <Flame className="w-3 h-3 text-lime-neon" />
+                <div className="flex items-center gap-1.5 px-1 text-[11px] font-bold text-slate-gray uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
                   <span>Standalone Highlights ({standaloneClips.length})</span>
                 </div>
                 {standaloneClips.map((clip) => renderClipCard(clip, false))}
@@ -402,27 +377,26 @@ export default function ClipsList({
             )}
           </>
         ) : (
-          /* Flat list view sorted by timeline or viral score */
           sortedClips.map((clip) => renderClipCard(clip, false))
         )}
       </div>
 
-      {/* Sticky Project Management Footer: New Clip & Delete Project */}
-      <div className="p-3 border-t border-dark-700/80 bg-dark-950/80 flex items-center gap-2 shrink-0">
+      {/* Footer Actions */}
+      <div className="p-3 border-t border-border-cream bg-white flex items-center gap-2 shrink-0">
         {onCreateNew && (
           <button
             onClick={onCreateNew}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 bg-dark-850 hover:bg-dark-800 text-slate-200 border border-dark-700 rounded-xl transition text-[11px] font-bold cursor-pointer"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-canvas-cream hover:bg-lifted-cream text-ink-black border border-border-cream rounded-full transition text-[11px] font-bold cursor-pointer shadow-sm"
             title="Create a new project"
           >
-            <Plus className="w-3.5 h-3.5 text-lime-neon" />
-            New
+            <Plus className="w-3.5 h-3.5 text-signal-orange stroke-[2.5]" />
+            New Video
           </button>
         )}
         {onDeleteProject && (
           <button
             onClick={onDeleteProject}
-            className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-red-200 border border-red-800/60 rounded-xl transition text-[11px] font-bold cursor-pointer"
+            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-white hover:bg-canvas-cream text-clay-brown border border-border-cream rounded-full transition text-[11px] font-bold cursor-pointer shadow-sm"
             title="Delete this project"
           >
             <Trash2 className="w-3.5 h-3.5" />

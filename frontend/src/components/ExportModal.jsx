@@ -277,88 +277,81 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
   const hasCaptionedReady = clip?.render_status === 'completed' && clip?.rendered_file;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
-      <div className="bg-dark-900 border border-dark-700 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+      <div className="bg-white border border-border-cream w-full max-w-lg rounded-stadium shadow-card-elevated overflow-hidden max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="px-5 py-3 border-b border-dark-750 flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 border-b border-border-cream flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-dark-950 border border-lime-neon/40 flex items-center justify-center p-1 shadow-neon-sm">
-              <img src={logoImg} alt="CLIPZZZ" className="w-full h-full object-contain" />
+            <div className="relative flex items-center w-8 h-5 select-none">
+              <div className="w-5 h-5 rounded-full bg-mc-red"></div>
+              <div className="w-5 h-5 rounded-full bg-mc-yellow -ml-2.5 mix-blend-multiply opacity-95"></div>
             </div>
             <div>
-              <h2 className="font-extrabold text-sm text-white flex items-center gap-1.5 leading-tight">
-                CLIPZZZ <span className="text-[10px] bg-lime-neon text-black font-extrabold px-1.5 py-0.2 rounded-full">AI</span>
+              <h2 className="font-extrabold text-sm text-ink-black flex items-center gap-1.5 leading-tight tracking-tight">
+                CLIPZZZ <span className="text-[9px] bg-canvas-cream text-charcoal border border-border-cream font-bold px-2 py-0.2 rounded-full uppercase">Export</span>
               </h2>
-              <p className="text-[10px] text-slate-400 font-medium leading-tight">
+              <p className="text-[10px] text-slate-gray font-medium leading-tight">
                 9:16 Shorts Export Studio
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer">
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="text-slate-gray hover:text-ink-black p-1.5 rounded-full hover:bg-canvas-cream transition cursor-pointer">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-4 sm:p-5 overflow-y-auto scrollbar-thin">
+        <div className="p-5 sm:p-6 overflow-y-auto">
           {status === 'rendering' && (
             <div className="py-4 flex flex-col items-center text-center space-y-4">
-              {/* Animated Brand Hero Ring */}
+              {/* Spinner */}
               <div className="relative flex items-center justify-center">
-                <div className="w-16 h-16 rounded-2xl bg-dark-950 border-2 border-lime-neon/50 flex items-center justify-center p-2 shadow-neon relative z-10">
-                  <img src={logoImg} alt="CLIPZZZ Logo" className="w-full h-full object-contain animate-pulse" />
+                <div className="w-16 h-16 rounded-full bg-lifted-cream border border-border-cream flex items-center justify-center p-2 relative z-10 shadow-sm">
+                  <Sparkles className="w-6 h-6 text-signal-orange" />
                 </div>
-                <div className="absolute -inset-2 rounded-3xl border-2 border-dashed border-lime-neon/40 border-t-lime-neon animate-spin" />
+                <div className="absolute -inset-2 rounded-full border-2 border-dashed border-signal-orange/40 border-t-signal-orange animate-spin" />
               </div>
 
-              {/* Title & Dynamic Status */}
+              {/* Title & Status */}
               <div className="space-y-1">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-lime-neon/15 border border-lime-neon/30 text-lime-neon text-[10px] font-extrabold uppercase tracking-wider">
-                  <Sparkles className="w-3 h-3 fill-lime-neon" />
-                  CLIPZZZ AI STUDIO • 1080x1920 HD
+                <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-canvas-cream border border-border-cream text-charcoal text-[10px] font-extrabold uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
+                  1080x1920 Full HD Export
                 </div>
-                <h3 className="text-base font-black text-white tracking-wide">
+                <h3 className="text-base font-extrabold text-ink-black tracking-tight">
                   Your 9:16 Short is Rendering...
                 </h3>
-                <p className="text-xs text-slate-300 font-medium max-w-xs mx-auto leading-tight">
+                <p className="text-xs text-slate-gray font-medium max-w-xs mx-auto leading-tight">
                   {isCleanMode
                     ? progress < 40
                       ? 'Extracting HD media frames & vocal audio...'
                       : progress < 80
-                      ? 'Composing 1080×1920 layout & auto-camera framing (clean)...'
-                      : 'Finalizing hardware-accelerated clean MP4 export...'
-                    : progress < 35
-                    ? 'Extracting HD media frames & vocal audio...'
-                    : progress < 70
-                    ? 'Composing 1080×1920 layout & auto-camera framing...'
-                    : progress < 95
-                    ? 'Burning kinetic animated subtitles & creator watermark...'
-                    : 'Finalizing hardware-accelerated MP4 export...'}
+                      ? 'Composing 1080×1920 layout & auto-camera framing...'
+                      : 'Finalizing clean MP4 export...'
+                    : 'Finalizing hardware-accelerated export...'}
                 </p>
               </div>
 
-              {/* Progress Percentage Display & Glowing Bar */}
-              <div className="w-full space-y-1.5 bg-dark-950/80 p-3 rounded-2xl border border-dark-800">
+              {/* Progress Bar */}
+              <div className="w-full space-y-2 bg-lifted-cream p-4 rounded-2xl border border-border-cream">
                 <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-slate-300 flex items-center gap-1.5 font-bold text-[11px]">
-                    <span className="w-2 h-2 rounded-full bg-lime-neon animate-pulse" />
-                    {isCleanMode ? 'Rendering Clean Short' : 'Rendering Short'}
+                  <span className="text-charcoal flex items-center gap-1.5 font-bold text-[11px]">
+                    <span className="w-2 h-2 rounded-full bg-signal-orange animate-pulse" />
+                    Rendering Short
                   </span>
-                  <span className="text-lime-neon font-black text-xs bg-lime-neon/15 px-2 py-0.5 rounded-lg border border-lime-neon/30 shadow-neon-sm">
+                  <span className="text-ink-black font-extrabold text-xs bg-white px-2.5 py-0.5 rounded-full border border-border-cream shadow-sm">
                     {Math.round(progress)}%
                   </span>
                 </div>
 
-                <div className="w-full bg-dark-900 rounded-full h-2.5 overflow-hidden p-0.5 border border-dark-750">
+                <div className="w-full bg-canvas-cream rounded-full h-2.5 overflow-hidden p-0.5 border border-border-cream">
                   <div
-                    className="bg-gradient-to-r from-lime-400 to-lime-neon h-full rounded-full transition-all duration-300 shadow-neon relative"
+                    className="bg-signal-orange h-full rounded-full transition-all duration-300"
                     style={{ width: `${Math.max(6, Math.min(100, progress))}%` }}
-                  >
-                    <div className="absolute inset-0 bg-white/25 animate-pulse rounded-full" />
-                  </div>
+                  />
                 </div>
 
-                <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-0.5">
+                <div className="flex items-center justify-between text-[10px] text-slate-gray font-mono pt-0.5">
                   <span>1080 × 1920 Vertical</span>
                   <span>NVENC Hardware 60fps</span>
                 </div>
@@ -369,7 +362,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
           {status === 'completed' && (
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5">
               {/* Left Column: Compact 9:16 Video Player Preview */}
-              <div className="w-36 sm:w-40 aspect-[9/16] shrink-0 bg-black rounded-2xl overflow-hidden border border-lime-neon/40 shadow-neon flex items-center justify-center">
+              <div className="w-36 sm:w-40 aspect-[9/16] shrink-0 bg-black rounded-2xl overflow-hidden border-2 border-border-cream shadow-sm flex items-center justify-center">
                 <video
                   src={renderedUrl}
                   controls
@@ -379,45 +372,45 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
               </div>
 
               {/* Right Column: Title, Metadata & Action Buttons */}
-              <div className="flex-1 flex flex-col min-w-0 space-y-2.5 w-full">
+              <div className="flex-1 flex flex-col min-w-0 space-y-3 w-full">
                 <div>
-                  <div className="inline-flex items-center gap-1 text-lime-neon text-[10px] font-bold bg-lime-neon/15 px-2.5 py-0.5 rounded-full border border-lime-neon/30 mb-1">
-                    <CheckCircle className="w-3.5 h-3.5" /> Ready for YouTube Shorts
+                  <div className="inline-flex items-center gap-1.5 text-ink-black text-[10px] font-bold bg-canvas-cream px-2.5 py-0.5 rounded-full border border-border-cream mb-1">
+                    <CheckCircle className="w-3.5 h-3.5 text-signal-orange" /> Ready for YouTube Shorts
                   </div>
-                  <h3 className="text-sm font-bold text-white truncate" title={clip.title}>
+                  <h3 className="text-sm font-bold text-ink-black truncate tracking-tight" title={clip.title}>
                     {clip.title}
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-mono">
+                  <p className="text-[10px] text-slate-gray font-mono">
                     1080 × 1920 Full HD MP4 • Ready to Share
                   </p>
                 </div>
 
-                <div className="space-y-1.5 pt-1">
+                <div className="space-y-2 pt-1">
                   <a
                     href={api.getClipCleanDownloadUrl(clip.id)}
                     download
-                    className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs py-2.5 px-3 rounded-xl transition shadow-neon flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full bg-ink-black hover:bg-black text-white font-extrabold text-xs py-3 px-4 rounded-cta transition shadow-card-soft flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
                     title="Download 9:16 short"
                   >
-                    <Download className="w-4 h-4 text-black stroke-[2.5]" />
-                    <span>Download 9:16 Short (1080x1920 MP4)</span>
+                    <Download className="w-4 h-4 text-white stroke-[2.5]" />
+                    <span>Download Short (1080x1920)</span>
                   </a>
 
                   <button
                     type="button"
                     onClick={() => startRender('clean', true)}
-                    className="w-full bg-dark-950 hover:bg-dark-850 text-slate-200 hover:text-white border border-dark-700 hover:border-lime-neon/50 font-bold text-xs py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full bg-canvas-cream hover:bg-lifted-cream text-charcoal border border-border-cream font-bold text-xs py-2 px-3 rounded-full transition flex items-center justify-center gap-2 cursor-pointer"
                     title="Re-render 9:16 short"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 text-lime-neon" />
-                    <span>Re-Render Short (1080x1920 HD)</span>
+                    <RefreshCw className="w-3.5 h-3.5 text-signal-orange" />
+                    <span>Re-Render Short (HD)</span>
                   </button>
 
                   <div className="grid grid-cols-2 gap-2">
                     <a
                       href={api.getClipDescriptionDownloadUrl(clip.id)}
                       download
-                      className="bg-dark-800 hover:bg-dark-750 text-slate-200 border border-dark-700 hover:text-white text-[11px] font-bold py-2 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                      className="bg-white hover:bg-canvas-cream text-charcoal border border-border-cream text-[11px] font-bold py-2 rounded-full transition flex items-center justify-center gap-1 cursor-pointer shadow-sm"
                     >
                       <span>.MD Kit</span>
                     </a>
@@ -425,21 +418,11 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
                     <a
                       href={api.getClipBundleDownloadUrl(clip.id)}
                       download
-                      className="bg-dark-800 hover:bg-dark-750 text-lime-neon border border-lime-neon/40 text-[11px] font-bold py-2 rounded-xl transition flex items-center justify-center gap-1 hover:bg-lime-neon/10 cursor-pointer"
+                      className="bg-white hover:bg-canvas-cream text-charcoal border border-border-cream text-[11px] font-bold py-2 rounded-full transition flex items-center justify-center gap-1 cursor-pointer shadow-sm"
                     >
                       <span>ZIP Pack</span>
                     </a>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => startRender(renderMode, true)}
-                    className="w-full bg-dark-950 hover:bg-dark-850 text-slate-400 hover:text-lime-neon border border-dark-800 hover:border-lime-neon/40 text-[10px] font-semibold py-1.5 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer mt-0.5"
-                    title="Re-render video fresh"
-                  >
-                    <RefreshCw className="w-3 h-3 text-lime-neon" />
-                    <span>Re-render Fresh</span>
-                  </button>
                 </div>
               </div>
             </div>
@@ -447,21 +430,21 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
 
           {status === 'failed' && (
             <div className="py-4 text-center space-y-3">
-              <AlertCircle className="w-10 h-10 text-red-500 mx-auto" />
-              <h3 className="text-sm font-bold text-white">Rendering Encountered an Error</h3>
-              <p className="text-xs text-red-300 bg-red-950/50 p-2.5 rounded-xl border border-red-800">
+              <AlertCircle className="w-10 h-10 text-signal-orange mx-auto" />
+              <h3 className="text-sm font-bold text-ink-black">Rendering Error</h3>
+              <p className="text-xs text-clay-brown bg-canvas-cream p-3 rounded-2xl border border-border-cream">
                 {errorMessage}
               </p>
               <div className="flex items-center justify-center gap-2">
                 <button
                   onClick={() => startRender(renderMode, true)}
-                  className="px-4 py-1.5 bg-lime-neon text-black font-extrabold rounded-xl text-xs hover:bg-lime-400 cursor-pointer"
+                  className="px-5 py-2 bg-ink-black text-white font-extrabold rounded-full text-xs hover:bg-black cursor-pointer"
                 >
                   Retry Render
                 </button>
                 <button
                   onClick={onClose}
-                  className="px-4 py-1.5 bg-dark-800 text-white rounded-xl text-xs font-semibold hover:bg-dark-700 cursor-pointer"
+                  className="px-4 py-2 bg-canvas-cream text-charcoal border border-border-cream rounded-full text-xs font-semibold hover:bg-lifted-cream cursor-pointer"
                 >
                   Close
                 </button>

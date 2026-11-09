@@ -109,11 +109,19 @@ class AutoCameraEngine:
         if bgr_crop is None or bgr_crop.size == 0:
             return False
         hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
-        lower_skin = np.array([0, 15, 30], dtype=np.uint8)
-        upper_skin = np.array([32, 255, 255], dtype=np.uint8)
-        mask = cv2.inRange(hsv, lower_skin, upper_skin)
+        # Handle all skin tones (fair, olive, tan, deep) under diverse lighting
+        # Skin hue spans both yellow-orange (0-35) and deep warm red (165-180)
+        lower_skin1 = np.array([0, 12, 25], dtype=np.uint8)
+        upper_skin1 = np.array([36, 255, 255], dtype=np.uint8)
+        mask1 = cv2.inRange(hsv, lower_skin1, upper_skin1)
+
+        lower_skin2 = np.array([165, 12, 25], dtype=np.uint8)
+        upper_skin2 = np.array([180, 255, 255], dtype=np.uint8)
+        mask2 = cv2.inRange(hsv, lower_skin2, upper_skin2)
+
+        mask = cv2.bitwise_or(mask1, mask2)
         skin_pct = (mask > 0).mean() * 100.0
-        return skin_pct >= 5.0
+        return skin_pct >= 4.0
 
     def detect_faces_in_frame(self, frame: np.ndarray, target_w: int = 640) -> List[Dict[str, Any]]:
         orig_h, orig_w = frame.shape[:2]
@@ -139,14 +147,14 @@ class AutoCameraEngine:
                         fw = min(target_w - x1, int(f[2]))
                         fh = min(new_h - y1, int(f[3]))
                         score = float(f[14]) if len(f) > 14 else 0.8
-                        if score < 0.35 or fw <= 4 or fh <= 4:
+                        if score < 0.22 or fw <= 4 or fh <= 4:
                             continue
 
                         cx_pct = ((x1 + fw / 2.0) / float(target_w)) * 100.0
                         cy_pct = ((y1 + fh / 2.0) / float(new_h)) * 100.0
 
-                        # Filter extreme margins
-                        if cy_pct < 6.0 or cy_pct > 92.0 or cx_pct < 4.0 or cx_pct > 96.0:
+                        # Allow edge-of-frame speakers (down to 2% from border)
+                        if cy_pct < 4.0 or cy_pct > 95.0 or cx_pct < 2.0 or cx_pct > 98.0:
                             continue
 
                         results.append({
@@ -234,7 +242,7 @@ class AutoCameraEngine:
         for (x, y, w, h) in detections:
             cx_pct = ((x + w / 2.0) / float(target_w)) * 100.0
             cy_pct = ((y + h / 2.0) / float(new_h)) * 100.0
-            if 10.0 <= cy_pct <= 85.0 and 8.0 <= cx_pct <= 92.0:
+            if 5.0 <= cy_pct <= 95.0 and 2.0 <= cx_pct <= 98.0:
                 results.append({
                     'x': int(x),
                     'y': int(y),
@@ -536,12 +544,14 @@ class AutoCameraEngine:
                 target_f = faces[0]
                 label = "Speaker Focus"
             else:
-                # 2+ faces: select active speaker via lip motion
-                speaking = [f for f in faces if f.get("lip_motion", 0.0) >= 1.4]
+                # 2+ faces: select active speaker via lip motion or primary subject
+                speaking = [f for f in faces if f.get("lip_motion", 0.0) >= 1.0]
                 if speaking:
                     target_f = max(speaking, key=lambda f: f.get("lip_motion", 0.0))
                 else:
-                    target_f = min(faces, key=lambda f: abs(to_916_crop_x(f["cx"]) - last_valid_x))
+                    # Edge case: reading letter or looking down with minimal mouth movement -
+                    # focus on the primary character (largest prominent face/head)
+                    target_f = max(faces, key=lambda f: f.get('area', 0))
 
                 if target_f["cx"] < 45.0:
                     label = "Speaker 1 (Left)"

@@ -18,9 +18,9 @@ import {
   Zap,
   Download,
   X,
+  Key,
 } from 'lucide-react';
 import { api } from '../services/api';
-import logoImg from '../assets/logo.png';
 
 export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyModal }) {
   const [sourceType, setSourceType] = useState('youtube'); // 'youtube' or 'upload'
@@ -28,15 +28,15 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   const [selectedFile, setSelectedFile] = useState(null);
 
   // Settings requested by user
-  const [targetRatio, setTargetRatio] = useState('9:16'); // '9:16'
-  const [downloadQuality, setDownloadQuality] = useState('720p'); // '720p' (fast/recommended), '1080p', '480p'
-  const [downloadFullVideo, setDownloadFullVideo] = useState(false); // Live Streaming (0 MB) by default; Fallback Download only if confirmed
+  const [targetRatio, setTargetRatio] = useState('9:16');
+  const [downloadQuality, setDownloadQuality] = useState('720p');
+  const [downloadFullVideo, setDownloadFullVideo] = useState(false);
   const [showDownloadConfirmModal, setShowDownloadConfirmModal] = useState(false);
   const [useExistingCache, setUseExistingCache] = useState(true);
   const [autoSpeakerTracking, setAutoSpeakerTracking] = useState(true);
   const [clipCount, setClipCount] = useState(0); // 0 (Auto), 5, 7, 9, 11, 15
-  const [durationPref, setDurationPref] = useState('30-60'); // '0-30', '30-60', '60-80'
-  const [clippingMode, setClippingMode] = useState('story_series'); // 'viral_highlights' or 'story_series'
+  const [durationPref, setDurationPref] = useState('30-60');
+  const [clippingMode, setClippingMode] = useState('story_series');
   const [isCookieUploading, setIsCookieUploading] = useState(false);
   const [cookieSuccess, setCookieSuccess] = useState(false);
 
@@ -97,97 +97,95 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
       }
     } catch (err) {
       console.warn('Inspect error', err);
-      // Fallback inspection if offline/restricted network
-      const vidMatch = youtubeUrl.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
-      const vidId = vidMatch ? vidMatch[1] : '';
-      const low = youtubeUrl.toLowerCase();
-      const isStory = low.includes('horror') || low.includes('story') || low.includes('podcast') || low.includes('incident') || low.includes('bhoot');
-      const recMode = isStory ? 'story_series' : 'viral_highlights';
-      const cType = isStory ? 'Horror & Story Arc' : 'High-Retention Highlights';
-      setVideoInfo({
-        video_id: vidId,
-        title: 'YouTube Video Confirmed',
-        thumbnail_url: vidId ? `https://img.youtube.com/vi/${vidId}/hqdefault.jpg` : '',
-        content_type: cType,
-        recommended_mode: recMode,
-        recommendation_reason: isStory ? 'Continuous incident narrative detected. Slicing into consecutive episodes until narrative conclusion.' : 'Standalone viral punchlines detected.',
-      });
       setIsLinkConfirmed(true);
-      setClippingMode(recMode);
+      setVideoInfo({
+        title: 'YouTube Stream',
+        duration_str: 'Ready',
+        content_type: 'Dialogue / Narrative',
+        recommended_mode: 'story_series',
+        qualities: [{ id: '720p', label: '720p Fast (Recommended)', size_mb: 45 }],
+      });
     } finally {
       setIsInspecting(false);
     }
   };
 
-  const handleCookieUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsCookieUploading(true);
-    setCookieSuccess(false);
-    try {
-      const formData = new FormData();
-      formData.append('cookies_file', file);
-      await api.uploadCookies(formData);
-      setCookieSuccess(true);
-      setErrorMessage('');
-      setTimeout(() => setCookieSuccess(false), 5000);
-    } catch (err) {
-      alert('Failed to upload cookies: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setIsCookieUploading(false);
-    }
-  };
-
-  // Loading & pipeline status
+  // Pipeline loading state
   const [isLoading, setIsLoading] = useState(false);
-  const [pipelineStep, setPipelineStep] = useState(0);
-  const [progress, setProgress] = useState(5);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [pipelineStep, setPipelineStep] = useState(1);
+  const [errorMessage, setErrorMessage] = useState('');
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadSpeed, setDownloadSpeed] = useState('');
   const [downloadEta, setDownloadEta] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
+  // Auto-start elapsed timer when pipeline starts
   useEffect(() => {
-    let timer;
+    let timer = null;
     if (isLoading) {
       setElapsedSeconds(0);
       timer = setInterval(() => {
         setElapsedSeconds((prev) => prev + 1);
       }, 1000);
+    } else {
+      clearInterval(timer);
     }
     return () => clearInterval(timer);
   }, [isLoading]);
 
-  const formatTimer = (sec) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+  const formatTimer = (totalSec) => {
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  const handleCreate = async (e) => {
+  // Handle instant cookie file upload to bypass bot blocks
+  const handleCookieUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsCookieUploading(true);
+    setErrorMessage('');
+    try {
+      const res = await api.uploadCookies(file);
+      if (res && res.success) {
+        setCookieSuccess(true);
+        setTimeout(() => setCookieSuccess(false), 5000);
+      } else {
+        setErrorMessage(res?.error || 'Failed to upload cookies.');
+      }
+    } catch (err) {
+      setErrorMessage('Failed to upload cookies file. Please verify it is a valid Netscape cookies.txt.');
+    } finally {
+      setIsCookieUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleStartProcess = async (e) => {
     e.preventDefault();
     setErrorMessage('');
 
-    if (sourceType === 'youtube' && !youtubeUrl.trim()) {
-      setErrorMessage('Please enter a YouTube video URL.');
+    if (sourceType === 'youtube' && !youtubeUrl) {
+      setErrorMessage('Please enter a valid YouTube URL');
       return;
     }
     if (sourceType === 'upload' && !selectedFile) {
-      setErrorMessage('Please select a video file.');
+      setErrorMessage('Please choose a local video file');
       return;
     }
 
     setIsLoading(true);
+    setProgress(5);
     setPipelineStep(1);
-    setStatusMessage('Initiating video pipeline...');
+    setStatusMessage('Connecting stream...');
 
     try {
       let payload;
       if (sourceType === 'youtube') {
         payload = {
-          youtube_url: youtubeUrl.trim(),
+          youtube_url: youtubeUrl,
           target_ratio: targetRatio,
           download_quality: downloadQuality,
           download_full_video: downloadFullVideo,
@@ -215,7 +213,6 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
       const projectId = res.id;
       setStatusMessage('Video registered. Processing pipeline active...');
 
-      // Poll status every 1000ms for instantaneous updates
       const interval = setInterval(async () => {
         try {
           const statusRes = await api.getProjectStatus(projectId);
@@ -279,131 +276,117 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   const maskedKey = userProfile?.masked_gemini_key;
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
-      {/* Top Greeting & AI Key Pill */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-dark-800">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
+      {/* Top Greeting & Eyebrow */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-border-cream">
         <div>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-dark-950 border border-lime-neon/40 flex items-center justify-center p-1 shadow-neon-sm">
-              <img src={logoImg} alt="Logo" className="w-full h-full object-contain" />
-            </div>
-            <h2 className="text-2xl font-black text-white tracking-wide">
-              Create AI Shorts
-            </h2>
+          <div className="flex items-center gap-2 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-1">
+            <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
+            <span>Intelligent Studio Engine</span>
           </div>
-          <p className="text-xs text-slate-400 mt-1.5">
-            Configure your video source, aspect framing, speaker tracking, and clipping targets.
+          <h1 className="text-3xl font-extrabold text-ink-black tracking-tight">
+            Create 9:16 Shorts
+          </h1>
+          <p className="text-xs text-slate-gray mt-1">
+            Select source media, AI clipping strategy, active speaker tracking, and timeline targets.
           </p>
         </div>
 
         {/* Masked Key Status Badge */}
-        <div
+        <button
+          type="button"
           onClick={onOpenKeyModal}
-          className="flex items-center gap-2.5 bg-dark-900 border border-dark-700/80 px-4 py-2 rounded-2xl cursor-pointer hover:border-lime-neon/50 transition self-start sm:self-center"
+          className="flex items-center gap-2.5 bg-white border border-border-cream px-4 py-2 rounded-full cursor-pointer hover:border-signal-orange transition shadow-sm self-start sm:self-center"
           title="Click to view or update your encrypted Gemini key"
         >
-          <div className="w-2.5 h-2.5 rounded-full bg-lime-neon animate-pulse"></div>
-          <div>
-            <div className="text-[10px] text-slate-400 font-semibold uppercase">Linked AI Key</div>
-            <div className="text-xs font-mono font-bold text-lime-neon">
+          <span className={`w-2.5 h-2.5 rounded-full ${hasKey ? 'bg-signal-orange' : 'bg-slate-gray'}`}></span>
+          <div className="text-left">
+            <div className="text-[9px] text-slate-gray font-bold uppercase tracking-wider">Gemini 2.5 Flash</div>
+            <div className="text-xs font-mono font-bold text-ink-black">
               {hasKey ? maskedKey : 'Setup Required'}
             </div>
           </div>
-        </div>
+        </button>
       </div>
 
       {isLoading ? (
-        /* Pipeline Processing Screen */
-        <div className="bg-dark-900 border border-dark-700 rounded-3xl p-8 text-center max-w-xl mx-auto shadow-2xl space-y-6">
+        /* Mastercard Pipeline Processing Screen */
+        <div className="bg-white border border-border-cream rounded-stadium p-8 text-center max-w-xl mx-auto shadow-card-elevated space-y-6">
           <div className="relative w-20 h-20 mx-auto">
-            <div className="w-20 h-20 rounded-full border-4 border-dark-800 border-t-lime-neon animate-spin"></div>
-            <Sparkles className="w-8 h-8 text-lime-neon absolute inset-0 m-auto" />
+            <div className="w-20 h-20 rounded-full border-4 border-canvas-cream border-t-signal-orange animate-spin"></div>
+            <Sparkles className="w-8 h-8 text-signal-orange absolute inset-0 m-auto" />
           </div>
 
-          <div className="bg-dark-950/80 border border-dark-800 rounded-2xl py-3 px-4 shadow-inner">
-            <h3 className="text-sm font-bold text-white mb-1 flex items-center justify-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-lime-neon animate-ping"></span>
-              Clipzzz Pipeline Active
+          <div className="bg-lifted-cream border border-border-cream rounded-2xl py-3.5 px-4">
+            <h3 className="text-xs font-bold text-slate-gray uppercase tracking-wider mb-1 flex items-center justify-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-signal-orange animate-ping"></span>
+              Pipeline Active
             </h3>
-            <p className="text-xs font-mono font-bold text-lime-neon tracking-wide">{statusMessage}</p>
+            <p className="text-sm font-semibold text-ink-black">{statusMessage}</p>
           </div>
 
-          {/* Live Timelapse Timer & Pipeline Progress */}
+          {/* Live Elapsed & Progress */}
           <div className="space-y-3">
-            <div className="bg-dark-950 p-4 rounded-2xl border border-dark-800 text-center flex items-center justify-between px-6">
-              <div className="flex items-center gap-2.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-lime-neon animate-pulse"></span>
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                  Processing Timelapse
-                </span>
-              </div>
+            <div className="bg-lifted-cream p-4 rounded-2xl border border-border-cream text-center flex items-center justify-between px-6">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase font-bold text-slate-500">Elapsed</span>
-                <span className="text-lg font-mono font-extrabold text-lime-neon bg-dark-900 border border-dark-750 px-3 py-1 rounded-xl shadow-neon-sm">
-                  {formatTimer(elapsedSeconds)}
+                <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
+                <span className="text-xs font-bold text-slate-gray uppercase tracking-wider">
+                  Elapsed Time
                 </span>
               </div>
+              <span className="text-lg font-mono font-extrabold text-ink-black bg-white border border-border-cream px-3 py-1 rounded-full shadow-sm">
+                {formatTimer(elapsedSeconds)}
+              </span>
             </div>
 
-            {/* Video Download Ingest Progress Bar (Shown ONLY when an actual media stream is downloading) */}
+            {/* Ingest Progress Bar */}
             {downloadProgress > 0 && !statusMessage?.toLowerCase().includes('0 mb') && (
-              <div className="space-y-1.5 bg-dark-950 p-3.5 rounded-2xl border border-cyan-500/30 shadow-lg">
-                <div className="flex justify-between items-center text-[11px] font-mono">
-                  <span className="font-bold text-cyan-400 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-                    Download & Ingest Stream
+              <div className="space-y-1.5 bg-lifted-cream p-3.5 rounded-2xl border border-border-cream">
+                <div className="flex justify-between items-center text-xs font-mono">
+                  <span className="font-bold text-ink-black flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
+                    Download Stream
                   </span>
-                  <div className="flex items-center gap-2">
-                    {downloadSpeed && (
-                      <span className="text-[10px] text-cyan-300 font-mono bg-cyan-950/60 border border-cyan-800/60 px-2 py-0.5 rounded-full">
-                        {downloadSpeed}
-                      </span>
-                    )}
-                    {downloadEta && (
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {downloadEta}
-                      </span>
-                    )}
-                    <span className="text-cyan-400 font-extrabold text-xs">
-                      {downloadProgress}%
-                    </span>
+                  <div className="flex items-center gap-2 text-slate-gray">
+                    {downloadSpeed && <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-border-cream">{downloadSpeed}</span>}
+                    <span className="text-ink-black font-extrabold">{downloadProgress}%</span>
                   </div>
                 </div>
-                <div className="w-full h-2.5 bg-dark-900 rounded-full overflow-hidden border border-dark-800 p-0.5">
+                <div className="w-full h-2.5 bg-canvas-cream rounded-full overflow-hidden p-0.5">
                   <div
-                    className="h-full bg-gradient-to-r from-cyan-500 to-lime-neon rounded-full transition-all duration-300 shadow-sm"
+                    className="h-full bg-signal-orange rounded-full transition-all duration-300"
                     style={{ width: `${Math.max(4, Math.min(100, downloadProgress))}%` }}
                   ></div>
                 </div>
               </div>
             )}
 
-            {/* Real Percentage Progress Bar: Overall Pipeline */}
-            <div className="space-y-1 bg-dark-950 p-3 rounded-2xl border border-dark-800">
-              <div className="flex justify-between text-[11px] text-slate-400 font-mono">
-                <span className="font-semibold text-slate-300">Overall Pipeline Execution</span>
-                <span className="text-lime-neon font-bold">{progress}%</span>
+            {/* Overall Pipeline Progress */}
+            <div className="space-y-1.5 bg-lifted-cream p-3.5 rounded-2xl border border-border-cream">
+              <div className="flex justify-between text-xs font-mono">
+                <span className="font-semibold text-slate-gray">Overall Execution</span>
+                <span className="text-ink-black font-bold">{progress}%</span>
               </div>
-              <div className="w-full h-2.5 bg-dark-900 rounded-full overflow-hidden border border-dark-800 p-0.5">
+              <div className="w-full h-2.5 bg-canvas-cream rounded-full overflow-hidden p-0.5">
                 <div
-                  className="h-full bg-lime-neon rounded-full transition-all duration-500 shadow-neon-sm"
+                  className="h-full bg-ink-black rounded-full transition-all duration-500"
                   style={{ width: `${Math.max(5, Math.min(100, progress))}%` }}
                 ></div>
               </div>
             </div>
           </div>
 
-          {/* Streamlined 4-Step Viral Pipeline Indicator */}
-          <div className="space-y-2.5 text-left bg-dark-950 p-4 rounded-2xl border border-dark-800 text-xs">
+          {/* 4-Step Pipeline Indicator */}
+          <div className="space-y-2.5 text-left bg-lifted-cream p-4 rounded-2xl border border-border-cream text-xs">
             {[
               { step: 1, label: `Fast Stream Ingest & Resolution Optimization (${downloadQuality})` },
               { step: 2, label: clippingMode === 'story_series'
-                  ? 'AI Viral Trend Engine: Full-Timeline Story Arc & Suspense Detection'
+                  ? 'AI Viral Engine: Full-Timeline Story Arc & Suspense Slicing'
                   : (clipCount === 0
-                      ? 'AI Viral Trend Engine: Full-Video Scan for Top Audience-Attracting Moments'
-                      : `AI Viral Trend Engine: Selecting Top ${clipCount} High-Retention Hooks`) },
+                      ? 'AI Viral Engine: Full-Video Scan for Top Audience Moments'
+                      : `AI Viral Engine: Selecting Top ${clipCount} High-Retention Hooks`) },
               { step: 3, label: 'Assemble 9:16 Portrait Shorts & Smart Speaker Framing' },
-              { step: 4, label: 'Ready for Live Studio Preview & 1080x1920 HD Export' },
+              { step: 4, label: 'Ready for Live Studio Preview & HD Export' },
             ].map((s) => {
               const isPast = pipelineStep > s.step;
               const isCurrent = pipelineStep === s.step;
@@ -412,21 +395,21 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                   <div
                     className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                       isPast
-                        ? 'bg-lime-neon text-black'
+                        ? 'bg-ink-black text-white'
                         : isCurrent
-                        ? 'bg-lime-neon/20 border border-lime-neon text-lime-neon animate-pulse'
-                        : 'bg-dark-800 text-slate-500'
+                        ? 'bg-signal-orange text-white'
+                        : 'bg-canvas-cream text-slate-gray border border-border-cream'
                     }`}
                   >
                     {isPast ? '✓' : s.step}
                   </div>
                   <span
-                    className={`font-medium ${
-                      isPast
-                        ? 'text-slate-300'
-                        : isCurrent
-                        ? 'text-lime-neon font-bold'
-                        : 'text-slate-500'
+                    className={`text-xs ${
+                      isCurrent
+                        ? 'font-bold text-ink-black'
+                        : isPast
+                        ? 'text-slate-gray line-through'
+                        : 'text-slate-gray'
                     }`}
                   >
                     {s.label}
@@ -438,22 +421,27 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         </div>
       ) : (
         /* Configuration Form */
-        <form onSubmit={handleCreate} className="space-y-8">
-          {/* Section 1: Video Input */}
-          <div className="bg-dark-900 border border-dark-750 rounded-3xl p-6 shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <label className="text-sm font-bold text-white flex items-center gap-2">
-                <Youtube className="w-4 h-4 text-red-500" />
-                1. Video Source
-              </label>
-              <div className="flex p-0.5 bg-dark-950 rounded-xl border border-dark-800 text-xs">
+        <form onSubmit={handleStartProcess} className="space-y-6">
+          {/* Section 1: Video Source */}
+          <div className="bg-white border border-border-cream rounded-stadium p-6 sm:p-8 shadow-card-soft">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
+                  <span>Step 1</span>
+                </div>
+                <h3 className="text-lg font-bold text-ink-black">Video Source</h3>
+              </div>
+
+              {/* Source Switcher Pill */}
+              <div className="flex bg-canvas-cream p-1 rounded-full border border-border-cream text-xs">
                 <button
                   type="button"
                   onClick={() => setSourceType('youtube')}
-                  className={`px-3 py-1 rounded-lg font-semibold transition ${
+                  className={`px-4 py-1.5 rounded-full font-bold transition cursor-pointer ${
                     sourceType === 'youtube'
-                      ? 'bg-dark-800 text-white'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-white text-ink-black shadow-sm'
+                      : 'text-slate-gray hover:text-ink-black'
                   }`}
                 >
                   YouTube Link
@@ -461,10 +449,10 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                 <button
                   type="button"
                   onClick={() => setSourceType('upload')}
-                  className={`px-3 py-1 rounded-lg font-semibold transition ${
+                  className={`px-4 py-1.5 rounded-full font-bold transition cursor-pointer ${
                     sourceType === 'upload'
-                      ? 'bg-dark-800 text-white'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-white text-ink-black shadow-sm'
+                      : 'text-slate-gray hover:text-ink-black'
                   }`}
                 >
                   File Upload
@@ -474,57 +462,68 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
 
             {sourceType === 'youtube' ? (
               <div>
-                <input
-                  type="url"
-                  value={youtubeUrl}
-                  onChange={(e) => handleUrlChange(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="w-full bg-dark-950 border border-dark-700 rounded-2xl px-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-lime-neon shadow-inner"
-                />
-                <p className="text-[11px] text-slate-500 mt-2">
-                  Works with standard videos, podcasts, interviews, and live streams.
+                <div className="relative">
+                  <input
+                    type="url"
+                    value={youtubeUrl}
+                    onChange={(e) => handleUrlChange(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="w-full bg-lifted-cream border border-dust-taupe rounded-full px-5 py-3.5 text-xs sm:text-sm text-ink-black placeholder-slate-gray focus:outline-none focus:border-signal-orange focus:ring-2 focus:ring-signal-orange/15 shadow-inner"
+                  />
+                  {youtubeUrl && (
+                    <button
+                      type="button"
+                      onClick={() => handleUrlChange('')}
+                      className="absolute right-3.5 top-3.5 text-slate-gray hover:text-ink-black"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-gray mt-2 ml-2">
+                  Supports long-form video podcasts, interviews, commentary, comedy, and horror stories.
                 </p>
 
-                {/* 1. Ask Confirmation Prompt when URL is entered but not yet confirmed */}
+                {/* Confirmation Prompt when URL is entered */}
                 {youtubeUrl.trim().length > 10 && !isLinkConfirmed && (
-                  <div className="mt-3.5 p-4 rounded-2xl bg-dark-950 border border-amber-500/40 shadow-lg animate-fadeIn">
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 mt-0.5">
-                        <AlertCircle className="w-4 h-4" />
+                  <div className="mt-4 p-5 rounded-[28px] bg-lifted-cream border border-border-cream shadow-sm">
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-9 h-9 rounded-full bg-signal-orange/10 flex items-center justify-center text-signal-orange shrink-0 mt-0.5">
+                        <AlertCircle className="w-5 h-5" />
                       </div>
                       <div className="flex-1">
-                        <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-ink-black flex items-center gap-2">
                           Confirm Video Source
-                          <span className="text-[9px] bg-amber-400/20 text-amber-300 font-bold px-2 py-0.5 rounded-full uppercase">
-                            Final Decision Required
+                          <span className="text-[9px] bg-canvas-cream text-slate-gray border border-border-cream font-bold px-2.5 py-0.5 rounded-full uppercase">
+                            Verification
                           </span>
                         </h4>
-                        <p className="text-[11px] text-slate-300 mt-1 leading-snug">
-                          Are you sure this link is your <strong className="text-white">final decision</strong> to make clips?
+                        <p className="text-xs text-slate-gray mt-1">
+                          Confirm link to pre-scan stream metadata, duration, and AI content categorization.
                         </p>
 
                         {inspectError && (
-                          <p className="text-[11px] text-red-400 mt-2 font-medium">
+                          <p className="text-xs text-signal-orange mt-2 font-medium">
                             {inspectError}
                           </p>
                         )}
 
-                        <div className="flex items-center gap-2.5 mt-3">
+                        <div className="flex items-center gap-2.5 mt-3.5">
                           <button
                             type="button"
                             disabled={isInspecting}
                             onClick={handleConfirmLink}
-                            className="px-4 py-2 rounded-xl bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-xs shadow-neon-sm transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                            className="px-5 py-2.5 rounded-full bg-ink-black hover:bg-black text-white font-bold text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                           >
                             {isInspecting ? (
                               <>
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>Pre-Caching & AI Analyzing...</span>
+                                <span>Analyzing Media Stream...</span>
                               </>
                             ) : (
                               <>
                                 <CheckCircle2 className="w-4 h-4" />
-                                <span>Yes, Confirm & Analyze Video</span>
+                                <span>Confirm & Scan Video</span>
                               </>
                             )}
                           </button>
@@ -536,9 +535,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                               setIsLinkConfirmed(false);
                               setVideoInfo(null);
                             }}
-                            className="px-3 py-2 rounded-xl bg-dark-850 hover:bg-dark-800 text-slate-400 hover:text-white text-xs font-semibold transition cursor-pointer"
+                            className="px-4 py-2.5 rounded-full bg-white hover:bg-canvas-cream text-slate-gray hover:text-ink-black text-xs font-semibold border border-border-cream transition cursor-pointer"
                           >
-                            Change Link
+                            Cancel
                           </button>
                         </div>
                       </div>
@@ -546,343 +545,76 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                   </div>
                 )}
 
-                {/* 2. Confirmed Video Intelligence & AI Recommendation Card */}
+                {/* Confirmed Video Card with Satellite Micro-CTA */}
                 {isLinkConfirmed && videoInfo && (
-                  <div className="mt-3.5 p-4 rounded-2xl bg-dark-950 border border-lime-neon/40 shadow-neon-sm animate-fadeIn">
+                  <div className="mt-4 p-5 rounded-[28px] bg-lifted-cream border border-border-cream shadow-sm relative overflow-hidden">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                       {videoInfo.thumbnail_url && (
-                        <div className="relative w-full sm:w-36 aspect-video rounded-xl overflow-hidden bg-black border border-dark-700 shrink-0">
+                        <div className="relative w-full sm:w-40 aspect-video rounded-2xl overflow-hidden bg-black shrink-0 shadow-sm">
                           <img
                             src={videoInfo.thumbnail_url}
                             alt={videoInfo.title}
                             className="w-full h-full object-cover"
                           />
                           {videoInfo.duration_str && (
-                            <span className="absolute bottom-1 right-1 bg-black/85 text-white text-[9px] font-mono font-bold px-1.5 py-0.5 rounded">
+                            <span className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[9px] font-mono font-bold px-2 py-0.5 rounded-full">
                               {videoInfo.duration_str}
                             </span>
                           )}
+                          {/* Attached Perimeter Satellite Micro-CTA */}
+                          <div className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-white text-ink-black shadow-satellite flex items-center justify-center">
+                            <ArrowRight className="w-3 h-3 text-signal-orange stroke-[2.5]" />
+                          </div>
                         </div>
                       )}
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2 mb-1">
-                          <span className="text-[10px] font-mono font-bold text-lime-neon bg-lime-neon/15 px-2 py-0.5 rounded-full border border-lime-neon/30 flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" /> Video Confirmed • Downloading in Background
+                          <span className="text-[10px] font-bold text-signal-orange bg-white px-2.5 py-0.5 rounded-full border border-border-cream flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
+                            Verified Media Stream
                           </span>
                           <button
                             type="button"
-                            onClick={() => {
-                              setIsLinkConfirmed(false);
-                            }}
-                            className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+                            onClick={() => setIsLinkConfirmed(false)}
+                            className="text-[10px] text-slate-gray hover:text-ink-black underline cursor-pointer"
                           >
                             Change Link
                           </button>
                         </div>
 
-                        <h4 className="text-xs sm:text-sm font-bold text-white truncate" title={videoInfo.title}>
+                        <h4 className="text-sm font-bold text-ink-black truncate" title={videoInfo.title}>
                           {videoInfo.title}
                         </h4>
                         {videoInfo.author_name && (
-                          <p className="text-[10px] text-slate-400 mt-0.5">
+                          <p className="text-[11px] text-slate-gray mt-0.5">
                             Channel: {videoInfo.author_name}
                           </p>
                         )}
 
-                        <div className="mt-2.5 pt-2 border-t border-dark-800 flex flex-wrap items-center gap-2">
-                          <div className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 text-lime-neon" />
+                        <div className="mt-2.5 pt-2 border-t border-border-cream flex flex-wrap items-center gap-2 text-xs">
+                          <div className="text-slate-gray flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-signal-orange" />
                             <span>AI Detected:</span>
-                            <span className="text-white font-bold bg-dark-800 px-2 py-0.5 rounded-md border border-dark-700">
+                            <span className="text-ink-black font-bold bg-white px-2.5 py-0.5 rounded-full border border-border-cream text-[11px]">
                               {videoInfo.content_type}
                             </span>
                           </div>
 
-                          <div className="text-[11px] font-semibold text-lime-neon flex items-center gap-1">
-                            <span>➔ AI Recommends:</span>
-                            <span className="font-extrabold uppercase bg-lime-neon text-black px-2 py-0.5 rounded-md text-[10px]">
-                              {videoInfo.recommended_mode === 'story_series' ? 'Story Series (Episodes)' : 'Viral Highlights (Solo)'}
+                          <div className="text-ink-black font-semibold flex items-center gap-1">
+                            <span>➔ Recommendation:</span>
+                            <span className="font-extrabold uppercase bg-ink-black text-white px-2.5 py-0.5 rounded-full text-[10px]">
+                              {videoInfo.recommended_mode === 'story_series' ? 'Story Series' : 'Viral Highlights'}
                             </span>
                           </div>
                         </div>
-
-                        {videoInfo.recommendation_reason && (
-                          <p className="text-[10px] text-slate-400 mt-1.5 italic">
-                            💡 {videoInfo.recommendation_reason}
-                          </p>
-                        )}
-
-                        {/* Cached Video Detected Prompt */}
-                        {videoInfo.cached_video?.exists && (
-                          <div className="mt-3 pt-3 border-t border-dark-800">
-                            <div className="p-3.5 rounded-2xl bg-dark-900 border-2 border-lime-neon/60 shadow-neon-sm">
-                              <div className="flex items-start gap-2.5">
-                                <div className="w-8 h-8 rounded-xl bg-lime-neon/20 flex items-center justify-center text-lime-neon shrink-0 mt-0.5">
-                                  <HardDrive className="w-4 h-4" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <h5 className="text-xs font-black text-white flex items-center gap-2 flex-wrap">
-                                    <span>Existing Video Download Found on Disk!</span>
-                                    <span className="text-[10px] bg-lime-neon text-black font-extrabold px-2 py-0.5 rounded-full">
-                                      {videoInfo.cached_video.resolution} • {videoInfo.cached_video.size_mb >= 1000 ? `${(videoInfo.cached_video.size_mb / 1024).toFixed(1)} GB` : `${videoInfo.cached_video.size_mb} MB`}
-                                    </span>
-                                  </h5>
-                                  <p className="text-[11px] text-slate-300 mt-1 leading-snug">
-                                    You already have a downloaded copy saved locally. Would you like to use the exact same cached video (0s download), or download a fresh file in your chosen resolution?
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-dark-800">
-                                <button
-                                  type="button"
-                                  onClick={() => setUseExistingCache(true)}
-                                  className={`p-2.5 rounded-xl border text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer ${
-                                    useExistingCache
-                                      ? 'bg-lime-neon text-black border-lime-neon shadow-neon-sm'
-                                      : 'bg-dark-950 text-slate-300 border-dark-750 hover:bg-dark-850 hover:text-white'
-                                  }`}
-                                >
-                                  <CheckCircle2 className="w-4 h-4" />
-                                  <span>Yes, Use Cached Video (0s Download)</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => setUseExistingCache(false)}
-                                  className={`p-2.5 rounded-xl border text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer ${
-                                    !useExistingCache
-                                      ? 'bg-lime-neon text-black border-lime-neon shadow-neon-sm'
-                                      : 'bg-dark-950 text-slate-300 border-dark-750 hover:bg-dark-850 hover:text-white'
-                                  }`}
-                                >
-                                  <RefreshCw className="w-4 h-4" />
-                                  <span>No, Download Fresh ({downloadQuality})</span>
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Stream Ingestion Mode & Resolution Quality */}
-                        <div className="mt-3 pt-3 border-t border-dark-800">
-                          <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
-                            <label className="text-[11px] font-extrabold text-white flex items-center gap-1.5 uppercase tracking-wider">
-                              <Sparkles className="w-3.5 h-3.5 text-lime-neon" />
-                              <span>Stream Mode & Video Quality</span>
-                            </label>
-                            <div className="flex items-center gap-1.5">
-                              {!downloadFullVideo ? (
-                                <span className="text-[10px] bg-lime-neon/15 text-lime-neon border border-lime-neon/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                                  <Zap className="w-3 h-3" /> Live Cloud (0 MB Local)
-                                </span>
-                              ) : (
-                                <span className="text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                                  <Download className="w-3 h-3" /> Offline Fallback Active
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Mode Toggle: Live Cloud (0 MB) vs Offline Fallback */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                            <button
-                              type="button"
-                              onClick={() => setDownloadFullVideo(false)}
-                              className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
-                                !downloadFullVideo
-                                  ? 'bg-lime-neon/15 border-lime-neon text-white shadow-neon-sm'
-                                  : 'bg-dark-950 border-dark-750 text-slate-400 hover:text-slate-200 hover:bg-dark-900'
-                              }`}
-                            >
-                              <div
-                                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                                  !downloadFullVideo
-                                    ? 'bg-lime-neon text-black font-black'
-                                    : 'bg-dark-800 text-slate-400'
-                                }`}
-                              >
-                                <Zap className="w-4 h-4" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-xs font-black">Live Cloud Mode</span>
-                                  <span className="text-[8px] bg-lime-neon text-black font-extrabold px-1.5 py-0.2 rounded-full uppercase">
-                                    0 MB
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-slate-400 truncate">No full video download • Instant AI</p>
-                              </div>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!downloadFullVideo) {
-                                  setShowDownloadConfirmModal(true);
-                                } else {
-                                  setDownloadFullVideo(false);
-                                }
-                              }}
-                              className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
-                                downloadFullVideo
-                                  ? 'bg-amber-500/15 border-amber-400 text-amber-200 shadow-sm'
-                                  : 'bg-dark-950 border-dark-750 text-slate-400 hover:text-slate-200 hover:bg-dark-900'
-                              }`}
-                            >
-                              <div
-                                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                                  downloadFullVideo
-                                    ? 'bg-amber-400 text-black font-black'
-                                    : 'bg-dark-800 text-slate-400'
-                                }`}
-                              >
-                                <Download className="w-4 h-4" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-xs font-black">Download Fallback</span>
-                                  <span className="text-[8px] bg-dark-800 text-slate-300 font-mono px-1.5 py-0.2 rounded-full">
-                                    Backup
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-slate-400 truncate">Save full file locally to disk</p>
-                              </div>
-                            </button>
-                          </div>
-
-                          {/* Quality Selection Grid */}
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            {(videoInfo.qualities || [
-                              { id: '720p', label: '720p HD', sub: 'Fast & Crisp', tag: 'Recommended (4x Faster)', size_mb: Math.max(15, Math.round((videoInfo.duration || 600) * 0.12)), time_est: '~45s', recommended: true },
-                              { id: '1080p', label: '1080p Full HD', sub: 'Source Quality', tag: 'Large (Heavy)', size_mb: Math.max(40, Math.round((videoInfo.duration || 600) * 0.40)), time_est: '~6m', recommended: false },
-                              { id: '480p', label: '480p SD', sub: 'Ultra-Fast', tag: 'Fastest (Data Saver)', size_mb: Math.max(8, Math.round((videoInfo.duration || 600) * 0.06)), time_est: '~20s', recommended: false },
-                            ]).map((q) => {
-                              const isSelected = downloadQuality === q.id;
-                              return (
-                                <button
-                                  key={q.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setDownloadQuality(q.id);
-                                    if (videoInfo.cached_video?.exists) {
-                                      setUseExistingCache(false);
-                                    }
-                                  }}
-                                  className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between relative cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-lime-neon/15 border-lime-neon shadow-neon-sm'
-                                      : 'bg-dark-900 border-dark-750 hover:bg-dark-850 hover:border-dark-600'
-                                  }`}
-                                >
-                                  {q.recommended && (
-                                    <span className="absolute top-2 right-2 text-[8px] bg-lime-neon text-black font-extrabold px-1.5 py-0.2 rounded-full uppercase">
-                                      Fast
-                                    </span>
-                                  )}
-                                  <div>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className={`text-xs font-black ${isSelected ? 'text-lime-neon' : 'text-white'}`}>
-                                        {q.label}
-                                      </span>
-                                      <span className="text-[10px] text-slate-400 font-mono">
-                                        ({q.size_mb >= 1000 ? `${(q.size_mb / 1024).toFixed(1)} GB` : `${q.size_mb} MB`})
-                                      </span>
-                                    </div>
-                                    <p className="text-[10px] text-slate-400 mt-0.5">{q.sub}</p>
-                                  </div>
-                                  <div className="mt-2 pt-1 border-t border-dark-800/80 flex items-center justify-between text-[9px] font-mono text-slate-400">
-                                    <span className={isSelected ? 'text-lime-neon font-bold' : ''}>{q.tag}</span>
-                                    <span>{q.time_est}</span>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Offline Fallback Download Confirmation Modal */}
-                        {showDownloadConfirmModal && (
-                          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                            <div className="bg-dark-900 border border-dark-700 rounded-3xl p-6 max-w-lg w-full shadow-2xl relative space-y-5 text-left">
-                              <button
-                                type="button"
-                                onClick={() => setShowDownloadConfirmModal(false)}
-                                className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-xl bg-dark-800 hover:bg-dark-750"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-
-                              <div className="flex items-start gap-3.5">
-                                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
-                                  <Download className="w-5 h-5" />
-                                </div>
-                                <div>
-                                  <h3 className="text-base font-extrabold text-white">Confirm Full Video Download?</h3>
-                                  <p className="text-xs text-slate-400 mt-0.5">Offline Fallback Mode Configuration</p>
-                                </div>
-                              </div>
-
-                              <div className="bg-dark-950 p-4 rounded-2xl border border-dark-800 space-y-3 text-xs">
-                                <div className="flex items-center gap-2 text-lime-neon font-bold">
-                                  <Zap className="w-4 h-4" />
-                                  <span>Live Cloud Mode (Default & Recommended):</span>
-                                </div>
-                                <p className="text-slate-300 pl-6">
-                                  Processes dialogue, Gemini AI hooks, and renders 9:16 Shorts directly from cloud streams with <strong>0 MB downloaded to local disk</strong>.
-                                </p>
-
-                                <div className="border-t border-dark-800 pt-3">
-                                  <div className="flex items-center gap-2 text-amber-400 font-bold mb-1">
-                                    <Download className="w-4 h-4" />
-                                    <span>Offline Fallback Download:</span>
-                                  </div>
-                                  <p className="text-slate-300 pl-6">
-                                    Downloads the entire full-length source video ({downloadQuality} • ~{
-                                      (videoInfo.qualities?.find(q => q.id === downloadQuality)?.size_mb || 250) >= 1000
-                                        ? `${((videoInfo.qualities?.find(q => q.id === downloadQuality)?.size_mb || 250) / 1024).toFixed(1)} GB`
-                                        : `${(videoInfo.qualities?.find(q => q.id === downloadQuality)?.size_mb || 250)} MB`
-                                    }) locally to your storage before finishing. Only required if your network restricts live streaming.
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setDownloadFullVideo(false);
-                                    setShowDownloadConfirmModal(false);
-                                  }}
-                                  className="flex-1 py-3 px-4 rounded-xl bg-lime-neon text-black font-extrabold text-xs hover:bg-lime-400 transition flex items-center justify-center gap-2 shadow-neon-sm cursor-pointer"
-                                >
-                                  <Zap className="w-4 h-4" />
-                                  <span>No, Keep Live Cloud (0 MB Disk)</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setDownloadFullVideo(true);
-                                    setShowDownloadConfirmModal(false);
-                                  }}
-                                  className="py-3 px-4 rounded-xl bg-dark-800 border border-amber-500/50 text-amber-300 hover:bg-dark-750 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
-                                >
-                                  <Download className="w-4 h-4" />
-                                  <span>Yes, Download Full Video</span>
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="border-2 border-dashed border-dark-700 hover:border-lime-neon/50 rounded-2xl p-6 text-center cursor-pointer transition bg-dark-950/60">
+              <div className="border-2 border-dashed border-dust-taupe hover:border-signal-orange rounded-3xl p-8 text-center cursor-pointer transition bg-lifted-cream">
                 <input
                   type="file"
                   id="wizard-file-input"
@@ -891,31 +623,35 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                   className="hidden"
                 />
                 <label htmlFor="wizard-file-input" className="cursor-pointer">
-                  <UploadCloud className="w-8 h-8 text-lime-neon mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-slate-200">
-                    {selectedFile ? selectedFile.name : 'Click to select video file (MP4, MKV, MOV)'}
+                  <UploadCloud className="w-10 h-10 text-signal-orange mx-auto mb-2" />
+                  <p className="text-xs sm:text-sm font-semibold text-ink-black">
+                    {selectedFile ? selectedFile.name : 'Choose video file (MP4, MKV, MOV)'}
                   </p>
-                  <p className="text-[10px] text-slate-500 mt-1">Up to 2GB supported</p>
+                  <p className="text-[11px] text-slate-gray mt-1">Direct upload supported up to 2GB</p>
                 </label>
               </div>
             )}
           </div>
 
-          {/* Section 2: Smart Speaker Tracking Feature */}
-          <div className="bg-dark-900 border border-dark-750 rounded-3xl p-6 shadow-lg flex items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-lime-neon/15 border border-lime-neon/30 flex items-center justify-center text-lime-neon shrink-0">
+          {/* Section 2: Smart Speaker Tracking */}
+          <div className="bg-white border border-border-cream rounded-stadium p-6 shadow-card-soft flex items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-canvas-cream border border-border-cream flex items-center justify-center text-signal-orange shrink-0">
                 <UserCheck className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  2. AI Smart Speaker Tracking
-                  <span className="text-[10px] bg-lime-neon/20 text-lime-neon font-bold px-2 py-0.5 rounded-full">
-                    9:16 Portrait Shorts
+                <div className="flex items-center gap-1.5 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
+                  <span>Step 2</span>
+                </div>
+                <h4 className="text-sm font-bold text-ink-black flex items-center gap-2">
+                  AI Active Speaker Tracking
+                  <span className="text-[9px] bg-canvas-cream text-slate-gray border border-border-cream font-bold px-2 py-0.5 rounded-full">
+                    9:16 Center
                   </span>
                 </h4>
-                <p className="text-xs text-slate-400 mt-0.5 max-w-lg">
-                  Analyzes video frames with YuNet neural facial tracking to automatically center the active speaker inside the vertical 9:16 Shorts frame.
+                <p className="text-xs text-slate-gray mt-0.5 max-w-lg">
+                  Analyzes neural facial keypoints to automatically center speakers and debate turns without shaky twitches.
                 </p>
               </div>
             </div>
@@ -924,146 +660,123 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             <button
               type="button"
               onClick={() => setAutoSpeakerTracking(!autoSpeakerTracking)}
-              className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-                autoSpeakerTracking ? 'bg-lime-neon' : 'bg-dark-700'
+              className={`w-13 h-7 rounded-full transition-colors relative cursor-pointer p-0.5 ${
+                autoSpeakerTracking ? 'bg-ink-black' : 'bg-dust-taupe'
               }`}
             >
               <div
-                className={`w-5 h-5 rounded-full bg-black transition-transform absolute top-0.5 ${
-                  autoSpeakerTracking ? 'translate-x-6' : 'translate-x-0.5'
+                className={`w-6 h-6 rounded-full bg-white transition-transform ${
+                  autoSpeakerTracking ? 'translate-x-6' : 'translate-x-0'
                 }`}
               />
             </button>
           </div>
 
-          {/* Section 4 & 5: AI Mode, Clip Count & Target Duration */}
+          {/* Section 3 & 4: Mode, Clip Count & Target Duration */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {/* Number of Clips & Mode Selection */}
-            <div className="bg-dark-900 border border-dark-750 rounded-3xl p-6 shadow-lg">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-bold text-white flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-lime-neon" />
-                  3. Number of Clips & Mode
-                </label>
-                <span className="text-[10px] font-mono font-bold bg-lime-neon/20 text-lime-neon px-2 py-0.5 rounded-full border border-lime-neon/30">
-                  {clippingMode === 'story_series' ? 'Multi-Part Series' : 'Solo Highlights'}
+            <div className="bg-white border border-border-cream rounded-stadium p-6 shadow-card-soft">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
+                    <span>Step 3</span>
+                  </div>
+                  <label className="text-sm font-bold text-ink-black flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-signal-orange" />
+                    Clipping Mode
+                  </label>
+                </div>
+                <span className="text-[10px] font-bold bg-canvas-cream text-charcoal px-2.5 py-0.5 rounded-full border border-border-cream">
+                  {clippingMode === 'story_series' ? 'Story Series' : 'Solo Clips'}
                 </span>
               </div>
 
-              {/* Mode Selector: Viral Highlights vs Story Series */}
-              <div className="flex p-1 bg-dark-950 rounded-2xl border border-dark-800 mb-3 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setClippingMode('viral_highlights')}
-                  className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer relative ${
-                    clippingMode === 'viral_highlights'
-                      ? 'bg-lime-neon text-black shadow-neon-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                  title="Extract independent high-retention highlights across the entire video"
-                >
-                  <Flame className="w-3.5 h-3.5" />
-                  <span>Viral Highlights (Solo)</span>
-                  {videoInfo?.recommended_mode === 'viral_highlights' && (
-                    <span className="text-[8px] bg-black text-lime-neon font-black px-1.5 py-0.5 rounded-full uppercase ml-1">
-                      AI REC
-                    </span>
-                  )}
-                </button>
+              {/* Mode Selector Pill */}
+              <div className="flex p-1 bg-canvas-cream rounded-full border border-border-cream mb-4 gap-1 text-xs">
                 <button
                   type="button"
                   onClick={() => setClippingMode('story_series')}
-                  className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer relative ${
+                  className={`flex-1 py-2 px-3 rounded-full font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                     clippingMode === 'story_series'
-                      ? 'bg-lime-neon text-black shadow-neon-sm'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-white text-ink-black shadow-sm'
+                      : 'text-slate-gray hover:text-ink-black'
                   }`}
-                  title="Detect continuous stories and generate all parts sequentially until the story ends"
                 >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  <span>Story Series (Episodes)</span>
-                  {videoInfo?.recommended_mode === 'story_series' && (
-                    <span className="text-[8px] bg-black text-lime-neon font-black px-1.5 py-0.5 rounded-full uppercase ml-1">
-                      AI REC
-                    </span>
-                  )}
+                  <BookOpen className="w-3.5 h-3.5 text-signal-orange" />
+                  <span>Story Series</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClippingMode('viral_highlights')}
+                  className={`flex-1 py-2 px-3 rounded-full font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    clippingMode === 'viral_highlights'
+                      ? 'bg-white text-ink-black shadow-sm'
+                      : 'text-slate-gray hover:text-ink-black'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5 text-signal-orange" />
+                  <span>Highlights</span>
                 </button>
               </div>
 
               {clippingMode === 'story_series' ? (
                 <div className="space-y-3">
-                  <div className="p-3 rounded-2xl bg-lime-neon/10 border border-lime-neon/30 text-xs text-lime-300">
-                    <p className="font-bold flex items-center gap-1.5 text-lime-neon mb-1">
-                      <Sparkles className="w-4 h-4" /> Full Story Arc Detection (Clips are NOT Limited)
-                    </p>
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
-                      Clips are <strong className="text-lime-neon">not limited to 4 or any fixed number</strong>. The AI analyzes the entire story from the opening sentence to final climax, slicing into consecutive episodes (<strong className="text-white">Part 1, Part 2, Part 3... Part N</strong>) until the story has fully finished.
-                    </p>
-                  </div>
-
                   <div
                     onClick={() => setClipCount(0)}
-                    className="p-3.5 rounded-2xl border cursor-pointer transition flex items-center justify-between bg-lime-neon/15 border-lime-neon shadow-neon-sm"
+                    className="p-4 rounded-2xl border border-border-cream cursor-pointer transition flex items-center justify-between bg-lifted-cream hover:border-signal-orange"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-lime-neon text-black font-extrabold flex flex-col items-center justify-center shadow-sm shrink-0">
-                        <span className="text-xs font-black leading-none">Auto</span>
-                        <span className="text-[7px] uppercase font-mono font-black text-black/80 mt-0.5">FULL</span>
+                      <div className="w-9 h-9 rounded-full bg-ink-black text-white font-extrabold flex items-center justify-center text-xs shrink-0 shadow-sm">
+                        Auto
                       </div>
                       <div>
-                        <h5 className="text-xs font-bold text-white flex items-center gap-1.5">
-                          Uncapped Full Story (Part 1 to Part N)
-                          <span className="text-[8px] bg-lime-neon text-black font-extrabold px-1.5 py-0.2 rounded-full uppercase">
-                            No Part Limit
-                          </span>
+                        <h5 className="text-xs font-bold text-ink-black flex items-center gap-1.5">
+                          Complete Story Narrative (Part 1 to N)
                         </h5>
-                        <p className="text-[10px] text-slate-300 mt-0.5 leading-snug">
-                          Generates all sequential parts without stopping until the story narrative concludes.
+                        <p className="text-[11px] text-slate-gray mt-0.5">
+                          Uncapped full-timeline story arc detection.
                         </p>
                       </div>
                     </div>
-                    <div className="w-2.5 h-2.5 rounded-full bg-lime-neon animate-pulse shrink-0 ml-2" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-signal-orange shrink-0"></span>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-2.5">
-                  <p className="text-xs text-slate-400">
-                    Select how many viral moments to extract across the entire timeline:
-                  </p>
-
-                  {/* Auto AI Full Button */}
+                <div className="space-y-3">
+                  {/* Auto AI Full Video Scan Button */}
                   <div
                     onClick={() => setClipCount(0)}
-                    className={`p-2.5 rounded-xl border cursor-pointer transition flex items-center justify-between ${
+                    className={`p-3.5 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
                       clipCount === 0
-                        ? 'bg-lime-neon/15 border-lime-neon shadow-neon-sm text-white'
-                        : 'bg-dark-950 border-dark-800 text-slate-400 hover:text-white'
+                        ? 'bg-lifted-cream border-signal-orange shadow-sm text-ink-black'
+                        : 'bg-white border-border-cream text-slate-gray hover:text-ink-black'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-3">
                       <div
-                        className={`w-7 h-7 rounded-lg font-black text-[11px] flex items-center justify-center ${
-                          clipCount === 0 ? 'bg-lime-neon text-black' : 'bg-dark-800 text-slate-300'
+                        className={`w-8 h-8 rounded-full font-extrabold text-xs flex items-center justify-center ${
+                          clipCount === 0 ? 'bg-ink-black text-white' : 'bg-canvas-cream text-slate-gray'
                         }`}
                       >
                         Auto
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-white">Auto AI Full Video Scan</div>
-                        <div className="text-[10px] text-slate-400">Evenly selects best viral moments from start to end</div>
+                        <div className="text-xs font-bold text-ink-black">Auto AI Full Video Scan</div>
+                        <div className="text-[10px] text-slate-gray">Selects optimal viral moments start to finish</div>
                       </div>
                     </div>
-                    {clipCount === 0 && <span className="w-2 h-2 rounded-full bg-lime-neon animate-pulse" />}
+                    {clipCount === 0 && <span className="w-2.5 h-2.5 rounded-full bg-signal-orange" />}
                   </div>
 
-                  {/* Specific Clip Counts: 5, 7, 9, 11, 15 */}
+                  {/* Specific Clip Counts */}
                   <div className="grid grid-cols-5 gap-1.5 pt-1">
                     {[
                       { count: 5, label: '5' },
                       { count: 7, label: '7', tag: 'BEST' },
                       { count: 9, label: '9' },
                       { count: 11, label: '11', tag: 'MAX' },
-                      { count: 15, label: '15', tag: 'MEGA' },
+                      { count: 15, label: '15' },
                     ].map((opt) => {
                       const isSelected = clipCount === opt.count;
                       return (
@@ -1071,24 +784,16 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                           key={opt.count}
                           type="button"
                           onClick={() => setClipCount(opt.count)}
-                          className={`py-2 rounded-xl text-center border font-bold transition cursor-pointer flex flex-col items-center justify-center ${
+                          className={`py-2 rounded-2xl text-center border font-bold transition cursor-pointer flex flex-col items-center justify-center ${
                             isSelected
-                              ? 'bg-lime-neon text-black border-lime-neon shadow-neon-sm'
-                              : 'bg-dark-950 border-dark-800 text-slate-300 hover:text-white hover:bg-dark-850'
+                              ? 'bg-ink-black text-white border-ink-black shadow-sm'
+                              : 'bg-white border-border-cream text-charcoal hover:bg-canvas-cream'
                           }`}
                         >
                           <span className="text-xs font-black">{opt.label}</span>
-                          {opt.tag ? (
-                            <span
-                              className={`text-[8px] font-black uppercase mt-0.5 ${
-                                isSelected ? 'text-black/80' : 'text-lime-neon'
-                              }`}
-                            >
-                              {opt.tag}
-                            </span>
-                          ) : (
-                            <span className="text-[8px] text-slate-500 font-normal mt-0.5">Clips</span>
-                          )}
+                          <span className={`text-[8px] font-semibold uppercase mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-gray'}`}>
+                            {opt.tag || 'Clips'}
+                          </span>
                         </button>
                       );
                     })}
@@ -1097,20 +802,25 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
               )}
             </div>
 
-            {/* Duration Preference (0-30s, 30-60s, 60-80s) */}
-            <div className="bg-dark-900 border border-dark-750 rounded-3xl p-6 shadow-lg">
-              <label className="text-sm font-bold text-white mb-1.5 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-lime-neon" />
-                4. Target Duration
+            {/* Target Duration Preference */}
+            <div className="bg-white border border-border-cream rounded-stadium p-6 shadow-card-soft">
+              <div className="flex items-center gap-1.5 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
+                <span>Step 4</span>
+              </div>
+              <label className="text-sm font-bold text-ink-black mb-1 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-signal-orange" />
+                Target Clip Duration
               </label>
-              <p className="text-xs text-slate-400 mb-3">
-                Select your preferred Shorts length:
+              <p className="text-xs text-slate-gray mb-4">
+                Select your preferred vertical Shorts duration window:
               </p>
+
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { id: '0-30', label: '0 – 30s', tag: 'Fast Hooks' },
                   { id: '30-60', label: '30 – 60s', tag: 'Shorts Sweet' },
-                  { id: '60-80', label: '60 – 80s', tag: 'Deep Story' },
+                  { id: '60-80', label: '60 – 80s', tag: 'Full Story' },
                 ].map((dur) => {
                   const isSelected = durationPref === dur.id;
                   return (
@@ -1118,14 +828,14 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                       key={dur.id}
                       type="button"
                       onClick={() => setDurationPref(dur.id)}
-                      className={`py-2 rounded-xl text-xs font-bold transition border text-center ${
+                      className={`py-3 rounded-2xl text-xs font-bold transition border text-center cursor-pointer ${
                         isSelected
-                          ? 'bg-lime-neon text-black border-lime-neon shadow-neon-sm'
-                          : 'bg-dark-950 border-dark-700 text-slate-300 hover:text-white hover:bg-dark-850'
+                          ? 'bg-ink-black text-white border-ink-black shadow-sm'
+                          : 'bg-white border-border-cream text-charcoal hover:bg-canvas-cream'
                       }`}
                     >
-                      <div>{dur.label}</div>
-                      <div className="text-[8px] font-normal opacity-80">{dur.tag}</div>
+                      <div className="font-extrabold">{dur.label}</div>
+                      <div className={`text-[9px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-gray'}`}>{dur.tag}</div>
                     </button>
                   );
                 })}
@@ -1135,79 +845,29 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
 
           {/* Success Cookie Alert */}
           {cookieSuccess && (
-            <div className="p-3.5 bg-lime-950/60 border border-lime-neon/50 rounded-2xl flex items-center gap-2.5 text-xs text-lime-neon shadow-neon-sm animate-in fade-in">
-              <CheckCircle2 className="w-5 h-5 text-lime-neon shrink-0" />
+            <div className="p-4 bg-white border border-border-cream rounded-2xl flex items-center gap-3 text-xs text-ink-black shadow-sm">
+              <CheckCircle2 className="w-5 h-5 text-signal-orange shrink-0" />
               <div>
                 <span className="font-bold">✓ YouTube cookies activated successfully!</span>
-                <p className="text-[11px] text-slate-300">You can now click 'Generate AI Shorts' to import the YouTube video without bot verification.</p>
+                <p className="text-slate-gray text-[11px]">Proceed with AI Shorts generation.</p>
               </div>
             </div>
           )}
 
-          {/* Error Message / Smart YouTube Bot Bypass Card */}
+          {/* Error Message */}
           {errorMessage && (
-            errorMessage.toLowerCase().includes('bot') || errorMessage.toLowerCase().includes('cookies') || errorMessage.toLowerCase().includes('verification') ? (
-              <div className="p-4 bg-amber-950/40 border-2 border-amber-500/50 rounded-2xl text-xs space-y-3 shadow-xl">
-                <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <div className="font-extrabold text-amber-300 uppercase tracking-wide text-[11px]">
-                      YouTube Anti-Bot Check Active
-                    </div>
-                    <p className="text-slate-300 text-[11px] mt-1 leading-relaxed">
-                      YouTube requires bot verification for this video. Use either of these instant solutions to proceed:
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                  {/* Option 1: Switch to Direct File Upload */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSourceType('upload');
-                      setErrorMessage('');
-                    }}
-                    className="flex items-center justify-center gap-2 bg-dark-950 hover:bg-dark-850 text-white font-bold py-2.5 px-3 rounded-xl border border-dark-700 hover:border-lime-neon/60 transition text-xs cursor-pointer"
-                  >
-                    <UploadCloud className="w-4 h-4 text-lime-neon" />
-                    <span>📁 Upload Video File (100% Bypass)</span>
-                  </button>
-
-                  {/* Option 2: 1-Click Cookie Upload */}
-                  <label className="flex items-center justify-center gap-2 bg-lime-neon/15 hover:bg-lime-neon/25 text-lime-neon font-bold py-2.5 px-3 rounded-xl border border-lime-neon/40 hover:border-lime-neon transition text-xs cursor-pointer">
-                    <input
-                      type="file"
-                      accept=".txt"
-                      onChange={handleCookieUpload}
-                      className="hidden"
-                      disabled={isCookieUploading}
-                    />
-                    <span>{isCookieUploading ? 'Uploading cookies...' : '🍪 Upload cookies.txt'}</span>
-                  </label>
-                </div>
-
-                <div className="bg-dark-950/80 p-2.5 rounded-xl border border-dark-800 text-[10px] text-slate-400 space-y-1">
-                  <span className="font-bold text-slate-300">💡 How to get cookies.txt in 15 seconds:</span>
-                  <p>1. Install free Chrome/Edge extension <span className="text-lime-neon font-mono">"Get cookies.txt LOCALLY"</span>.</p>
-                  <p>2. Open YouTube.com, click the extension icon and click <span className="text-white font-bold">Export</span>.</p>
-                  <p>3. Drop the file above or into your <span className="font-mono text-white">Downloads</span> folder (Clipzzz auto-loads it)!</p>
-                </div>
-              </div>
-            ) : (
-              <div className="p-3 bg-red-950/60 border border-red-800 rounded-2xl flex items-center gap-2 text-xs text-red-200">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )
+            <div className="p-4 bg-white border-2 border-signal-orange/60 rounded-2xl flex items-center gap-3 text-xs text-ink-black shadow-sm">
+              <AlertCircle className="w-5 h-5 text-signal-orange shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
           )}
 
-          {/* Launch Button */}
+          {/* Signature Ink Black Launch CTA */}
           <button
             type="submit"
-            className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold text-sm py-4 rounded-2xl transition shadow-neon flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+            className="w-full bg-ink-black hover:bg-black text-white font-extrabold text-sm py-4 rounded-cta transition-all hover:scale-[1.01] shadow-card-soft flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
           >
-            <Sparkles className="w-5 h-5 fill-black" />
+            <Sparkles className="w-4 h-4 text-signal-orange" />
             <span>
               {clippingMode === 'story_series'
                 ? `Generate Complete 9:16 Story Series (${durationPref}s)`
@@ -1215,11 +875,10 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                 ? `Generate Full-Timeline 9:16 Shorts (${durationPref}s)`
                 : `Generate ${clipCount} 9:16 Shorts (${durationPref}s)`}
             </span>
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-4 h-4 stroke-[2.5]" />
           </button>
         </form>
       )}
     </div>
   );
 }
-

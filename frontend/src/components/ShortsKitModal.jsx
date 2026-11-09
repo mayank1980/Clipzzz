@@ -49,31 +49,32 @@ export default function ShortsKitModal({ isOpen, onClose, clip, project }) {
   const downloadZipUrl = api.getClipBundleDownloadUrl(clip.id);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 select-none">
-      <div className="bg-dark-900 border border-dark-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 select-none">
+      <div className="bg-white border border-border-cream w-full max-w-2xl rounded-stadium shadow-card-elevated overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-dark-700/80 flex items-center justify-between bg-dark-950/60">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-lime-neon/15 border border-lime-neon/30 flex items-center justify-center text-lime-neon">
-              <Sparkles className="w-4 h-4" />
+        <div className="px-6 py-4 border-b border-border-cream flex items-center justify-between bg-white shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="relative flex items-center w-8 h-5 select-none">
+              <div className="w-5 h-5 rounded-full bg-mc-red"></div>
+              <div className="w-5 h-5 rounded-full bg-mc-yellow -ml-2.5 mix-blend-multiply opacity-95"></div>
             </div>
             <div>
-              <h2 className="font-extrabold text-sm text-white flex items-center gap-2">
-                YouTube Shorts Upload Kit
-                <span className="text-[10px] font-bold text-lime-neon bg-lime-neon/10 px-2 py-0.5 rounded-full border border-lime-neon/20">
+              <h2 className="font-extrabold text-sm text-ink-black flex items-center gap-2 tracking-tight">
+                Shorts Upload Kit
+                <span className="text-[9px] font-bold text-ink-black bg-canvas-cream px-2.5 py-0.5 rounded-full border border-border-cream">
                   Copyright Safe
                 </span>
               </h2>
-              <p className="text-[11px] text-slate-400">
-                SEO-optimized title, description, hashtags & fair use creator attribution
+              <p className="text-[11px] text-slate-gray">
+                SEO title, description, hashtags, and creator attribution
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-dark-800 transition"
+            className="text-slate-gray hover:text-ink-black p-1.5 rounded-full hover:bg-canvas-cream transition cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -81,67 +82,64 @@ export default function ShortsKitModal({ isOpen, onClose, clip, project }) {
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {loading ? (
             <div className="py-16 flex flex-col items-center justify-center text-center space-y-3">
-              <Loader2 className="w-8 h-8 text-lime-neon animate-spin" />
-              <p className="text-xs text-slate-400 font-medium">
-                Generating viral hashtags and creator attribution...
+              <Loader2 className="w-7 h-7 text-signal-orange animate-spin" />
+              <p className="text-xs text-slate-gray font-medium">
+                Generating metadata package...
               </p>
             </div>
           ) : (
             <>
               {/* TOP DOWNLOAD ACTION BAR */}
-              <div className="bg-dark-950/90 border border-dark-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs text-slate-300">
-                  <span className="font-bold text-white block">Download Assets</span>
-                  <span className="text-[11px] text-slate-400">Download single files or full bundle</span>
+              <div className="bg-lifted-cream border border-border-cream rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+                <div className="text-xs">
+                  <span className="font-bold text-ink-black block">Download Assets</span>
+                  <span className="text-[11px] text-slate-gray">Individual files or full bundle</span>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Direct MP4 Download */}
                   <a
                     href={downloadMp4Url}
                     download
-                    className="bg-dark-800 hover:bg-dark-700 text-slate-200 border border-dark-700 hover:text-white text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+                    className="bg-white hover:bg-canvas-cream text-charcoal border border-border-cream text-xs font-bold px-3 py-1.5 rounded-full transition flex items-center gap-1.5 shadow-sm"
                   >
-                    <Video className="w-3.5 h-3.5 text-lime-neon" />
+                    <Video className="w-3.5 h-3.5 text-signal-orange" />
                     <span>Download MP4</span>
                   </a>
 
-                  {/* Direct Markdown Download */}
                   <a
                     href={downloadMdUrl}
                     download
-                    className="bg-dark-800 hover:bg-dark-700 text-slate-200 border border-dark-700 hover:text-white text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+                    className="bg-white hover:bg-canvas-cream text-charcoal border border-border-cream text-xs font-bold px-3 py-1.5 rounded-full transition flex items-center gap-1.5 shadow-sm"
                   >
-                    <FileText className="w-3.5 h-3.5 text-blue-400" />
+                    <FileText className="w-3.5 h-3.5 text-slate-gray" />
                     <span>Download .MD</span>
                   </a>
 
-                  {/* Complete ZIP Bundle */}
                   <a
                     href={downloadZipUrl}
                     download
-                    className="bg-lime-neon hover:bg-lime-400 text-black text-xs font-extrabold px-3.5 py-1.5 rounded-lg transition shadow-neon-sm flex items-center gap-1.5"
+                    className="bg-ink-black hover:bg-black text-white text-xs font-bold px-4 py-1.5 rounded-full transition shadow-card-soft flex items-center gap-1.5"
                   >
-                    <Archive className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>Download ZIP Bundle</span>
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>Download ZIP</span>
                   </a>
                 </div>
               </div>
 
-              {/* 1. SUGGESTED VIRAL TITLE */}
-              <div className="border border-dark-800 rounded-xl p-3.5 bg-dark-950/40 space-y-1.5">
+              {/* 1. TITLE */}
+              <div className="border border-border-cream rounded-2xl p-4 bg-lifted-cream space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Tag className="w-3.5 h-3.5 text-lime-neon" />
-                    YouTube Shorts Title
+                  <label className="text-[11px] font-bold text-slate-gray uppercase tracking-wider flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-signal-orange" />
+                    Shorts Title
                   </label>
                   <button
                     onClick={() => handleCopy(kit?.title, 'title')}
-                    className="text-[11px] text-lime-neon hover:text-lime-300 flex items-center gap-1 font-semibold transition"
+                    className="text-[11px] text-ink-black hover:text-signal-orange flex items-center gap-1 font-bold transition cursor-pointer"
                   >
                     {copiedField === 'title' ? (
                       <>
-                        <Check className="w-3 h-3" />
+                        <Check className="w-3 h-3 text-signal-orange" />
                         <span>Copied!</span>
                       </>
                     ) : (
@@ -152,26 +150,26 @@ export default function ShortsKitModal({ isOpen, onClose, clip, project }) {
                     )}
                   </button>
                 </div>
-                <div className="bg-dark-950 border border-dark-800 rounded-lg p-2.5 font-mono text-xs text-white">
+                <div className="bg-white border border-border-cream rounded-xl p-3 font-mono text-xs text-ink-black shadow-sm">
                   {kit?.title}
                 </div>
               </div>
 
-              {/* 2. DESCRIPTION (WITHOUT WEIRD EMOJIS, CLEAN ATTRIBUTION) */}
-              <div className="border border-dark-800 rounded-xl p-3.5 bg-dark-950/40 space-y-1.5">
+              {/* 2. DESCRIPTION */}
+              <div className="border border-border-cream rounded-2xl p-4 bg-lifted-cream space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-blue-400" />
-                    YouTube Shorts Description (Copy & Paste)
+                  <label className="text-[11px] font-bold text-slate-gray uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-signal-orange" />
+                    Description (Copy & Paste)
                   </label>
                   <button
                     onClick={() => handleCopy(kit?.description || kit?.markdown, 'desc')}
-                    className="text-[11px] text-lime-neon hover:text-lime-300 flex items-center gap-1 font-semibold transition cursor-pointer"
+                    className="text-[11px] text-ink-black hover:text-signal-orange flex items-center gap-1 font-bold transition cursor-pointer"
                   >
                     {copiedField === 'desc' ? (
                       <>
-                        <Check className="w-3 h-3" />
-                        <span>Copied Description!</span>
+                        <Check className="w-3 h-3 text-signal-orange" />
+                        <span>Copied!</span>
                       </>
                     ) : (
                       <>
@@ -181,66 +179,56 @@ export default function ShortsKitModal({ isOpen, onClose, clip, project }) {
                     )}
                   </button>
                 </div>
-                <pre className="text-xs text-slate-300 leading-relaxed bg-dark-950 border border-dark-800 rounded-lg p-3 whitespace-pre-wrap font-sans">
+                <pre className="text-xs text-charcoal leading-relaxed bg-white border border-border-cream rounded-xl p-3 whitespace-pre-wrap font-sans shadow-sm">
                   {kit?.description || kit?.hook}
                 </pre>
               </div>
 
-              {/* 3. HASHTAGS (SEPARATE – ONE COPYABLE LINE) */}
-              <div className="border border-dark-800 rounded-xl p-3.5 bg-dark-950/40 space-y-2">
+              {/* 3. HASHTAGS */}
+              <div className="border border-border-cream rounded-2xl p-4 bg-lifted-cream space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Tag className="w-3.5 h-3.5 text-lime-neon" />
-                    Hashtags (Separate – Copy & Paste)
+                  <label className="text-[11px] font-bold text-slate-gray uppercase tracking-wider flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-signal-orange" />
+                    Hashtags
                   </label>
                   <button
                     onClick={() => handleCopy(kit?.hashtags_string, 'hashtags')}
-                    className="text-[11px] text-lime-neon hover:text-lime-300 flex items-center gap-1 font-semibold transition cursor-pointer"
+                    className="text-[11px] text-ink-black hover:text-signal-orange flex items-center gap-1 font-bold transition cursor-pointer"
                   >
                     {copiedField === 'hashtags' ? (
                       <>
-                        <Check className="w-3 h-3" />
-                        <span>Copied Hashtags!</span>
+                        <Check className="w-3 h-3 text-signal-orange" />
+                        <span>Copied!</span>
                       </>
                     ) : (
                       <>
                         <Copy className="w-3 h-3" />
-                        <span>Copy All Hashtags</span>
+                        <span>Copy All</span>
                       </>
                     )}
                   </button>
                 </div>
-                <div className="bg-dark-950 border border-dark-800 rounded-lg p-2.5 font-mono text-xs text-lime-neon select-all">
+                <div className="bg-white border border-border-cream rounded-xl p-3 font-mono text-xs text-signal-orange select-all shadow-sm">
                   {kit?.hashtags_string}
-                </div>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {kit?.hashtags?.map((tag, idx) => (
-                    <span
-                      key={idx}
-                      className="bg-dark-900 border border-dark-800 text-slate-300 text-[10px] px-2 py-0.5 rounded-md font-mono"
-                    >
-                      {tag}
-                    </span>
-                  ))}
                 </div>
               </div>
 
-              {/* 4. ORIGINAL CREATOR ATTRIBUTION */}
-              <div className="border border-dark-800 rounded-xl p-3.5 bg-dark-950/60 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-lime-neon">
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Creator & Source Attribution</span>
+              {/* 4. CREATOR ATTRIBUTION */}
+              <div className="border border-border-cream rounded-2xl p-4 bg-canvas-cream space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-ink-black">
+                  <ExternalLink className="w-4 h-4 text-signal-orange" />
+                  <span>Original Creator Attribution</span>
                 </div>
-                <div className="bg-dark-950 p-3 rounded-lg border border-dark-800 text-[11px] text-slate-300 space-y-1">
+                <div className="bg-white p-3 rounded-xl border border-border-cream text-[11px] text-slate-gray space-y-1 shadow-sm">
                   <p>
-                    <strong className="text-slate-400">Original Video:</strong> {project?.title || kit?.raw_title}
+                    <strong className="text-charcoal">Original Video:</strong> {project?.title || kit?.raw_title}
                   </p>
                   <p>
-                    <strong className="text-slate-400">Creator / Channel:</strong> {kit?.channel_credit}
+                    <strong className="text-charcoal">Creator:</strong> {kit?.channel_credit}
                   </p>
                   <p className="truncate">
-                    <strong className="text-slate-400">Full Video Link:</strong>{' '}
-                    <span className="text-blue-400 underline">{kit?.video_url}</span>
+                    <strong className="text-charcoal">Source URL:</strong>{' '}
+                    <span className="text-signal-orange underline">{kit?.video_url}</span>
                   </p>
                 </div>
               </div>
@@ -249,13 +237,13 @@ export default function ShortsKitModal({ isOpen, onClose, clip, project }) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-dark-700/80 bg-dark-950/80 flex items-center justify-between text-xs">
-          <span className="text-slate-400 text-[11px]">
-            Ready to upload directly on YouTube Studio Shorts tab
+        <div className="px-6 py-3 border-t border-border-cream bg-white flex items-center justify-between text-xs">
+          <span className="text-slate-gray text-[11px]">
+            Ready to upload to YouTube Shorts
           </span>
           <button
             onClick={onClose}
-            className="bg-dark-800 hover:bg-dark-700 text-white font-bold px-4 py-1.5 rounded-xl border border-dark-700 transition"
+            className="bg-canvas-cream hover:bg-lifted-cream text-ink-black font-bold px-4 py-1.5 rounded-full border border-border-cream transition cursor-pointer"
           >
             Close
           </button>
@@ -264,4 +252,3 @@ export default function ShortsKitModal({ isOpen, onClose, clip, project }) {
     </div>
   );
 }
-

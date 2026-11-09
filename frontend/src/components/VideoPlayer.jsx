@@ -846,7 +846,7 @@ export default function VideoPlayer({
           {/* Phone Frame Container: Clean bezels, proportional height */}
           <div
             ref={phoneContainerRef}
-            className="relative aspect-[9/16] h-[450px] sm:h-[480px] max-h-[68vh] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-dark-700/80 flex items-center justify-center shrink-0"
+            className="relative aspect-[9/16] h-[450px] sm:h-[480px] max-h-[68vh] bg-black rounded-[36px] overflow-hidden shadow-card-elevated border-4 border-charcoal flex items-center justify-center shrink-0"
           >
             {/* Blurred Background Mode */}
             {cropMode === 'blur_fill' && (
@@ -897,106 +897,49 @@ export default function VideoPlayer({
 
             {/* Video Load Error / Connecting Fallback */}
             {isVideoError && (
-              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-dark-950/90 text-center p-4 space-y-2 select-none">
-                <AlertCircle className="w-8 h-8 text-amber-400 mx-auto animate-pulse" />
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-ink-black/90 text-center p-4 space-y-2 select-none">
+                <AlertCircle className="w-8 h-8 text-signal-orange mx-auto animate-pulse" />
                 <p className="text-xs font-bold text-white">Connecting Media Stream...</p>
-                <p className="text-[10px] text-slate-400 max-w-[200px]">Video file is being initialized or backend server is starting.</p>
+                <p className="text-[10px] text-slate-gray max-w-[200px]">Video file is being initialized or stream is caching.</p>
               </div>
             )}
 
-            {/* Top Floating Control Bar: Speaker Badge on Left & Attribution Credit on Right (Zero Overlapping) */}
+            {/* Top Floating Control Bar: Speaker Badge on Left & Attribution Credit on Right */}
             <div className="absolute top-3 left-3 right-3 z-20 pointer-events-none flex items-center justify-between gap-1.5 select-none">
               {activeSpeakerLabel && cropMode === 'custom_crop' ? (
-                <div className="bg-black/70 backdrop-blur-md border border-lime-neon/40 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-neon max-w-[48%] shrink min-w-0">
-                  <div className="w-1.5 h-1.5 rounded-full bg-lime-neon animate-pulse shrink-0" />
-                  <span className="text-[10px] font-semibold text-white tracking-wide truncate">{activeSpeakerLabel}</span>
+                <div className="bg-white/95 backdrop-blur-md border border-border-cream px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-sm max-w-[48%] shrink min-w-0">
+                  <div className="w-1.5 h-1.5 rounded-full bg-signal-orange animate-pulse shrink-0" />
+                  <span className="text-[10px] font-bold text-ink-black tracking-wide truncate">{activeSpeakerLabel}</span>
                 </div>
               ) : <div />}
 
               {channelCredit && (
-                <div className="bg-black/75 backdrop-blur-md border border-white/20 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-lg max-w-[50%] shrink min-w-0 ml-auto">
-                  <span className="text-[10px] font-bold text-slate-300 tracking-wide truncate">
-                    Credit - <span className="text-white font-extrabold">{channelCredit}</span>
+                <div className="bg-white/95 backdrop-blur-md border border-border-cream px-3 py-1 rounded-full flex items-center gap-1 shadow-sm max-w-[50%] shrink min-w-0 ml-auto">
+                  <span className="text-[10px] font-semibold text-slate-gray tracking-wide truncate">
+                    Credit: <span className="text-ink-black font-extrabold">{channelCredit}</span>
                   </span>
                 </div>
               )}
             </div>
-
-            {/* CAPTIONS TEMPORARILY DISABLED: Commented out per user request */}
-            {/*
-            {!hideCaptionsPreview && captionStyle?.showCaptions !== false && (activeCue || !isPlaying) && (
-              <div
-                onMouseDown={(e) => startCaptionDrag(e, phoneContainerRef)}
-                onTouchStart={(e) => startCaptionDrag(e, phoneContainerRef)}
-                style={{
-                  position: 'absolute',
-                  top: `${activeCaptionY}%`,
-                  left: `${activeCaptionX}%`,
-                  transform: 'translate(-50%, -50%)',
-                  cursor: isDraggingCaption ? 'grabbing' : 'grab',
-                  zIndex: 35,
-                  userSelect: 'none',
-                  touchAction: 'none',
-                  width: '92%',
-                }}
-                className={`group flex flex-col items-center justify-center text-center transition-all ${
-                  isDraggingCaption
-                    ? 'ring-2 ring-lime-neon/90 bg-black/40 rounded-xl py-1 shadow-neon-lg'
-                    : 'hover:ring-1 hover:ring-lime-neon/50 hover:bg-black/20 rounded-xl py-1'
-                }`}
-                title="Click and drag to position caption anywhere on video"
-              >
-                <div
-                  className={`flex items-center gap-1 bg-black/90 text-lime-neon border border-lime-neon/30 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold shadow-md transition-opacity duration-150 mb-1 select-none pointer-events-none ${
-                    isDraggingCaption ? 'opacity-100 ring-1 ring-lime-neon' : 'opacity-0 group-hover:opacity-100'
-                  }`}
-                >
-                  <Move className="w-2.5 h-2.5" />
-                  <span>{isDraggingCaption ? `Position: ${Math.round(activeCaptionY)}%` : 'Drag to Move Caption'}</span>
-                </div>
-
-                <div
-                  key={activeCue?.id || 'static-cue'}
-                  className="inline-block max-w-[95%] text-center select-none transition-all duration-150 ease-out"
-                  style={{
-                    fontFamily: captionStyle?.font || 'Montserrat',
-                    fontSize: `${captionStyle?.fontSize || 19}px`,
-                    fontWeight: 800,
-                    textAlign: captionStyle?.alignment || 'center',
-                    lineHeight: '1.25',
-                    textShadow:
-                      '-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 3px 10px rgba(0,0,0,0.95)',
-                  }}
-                >
-                  {activeCue ? renderSubtitleWords() : (
-                    <span className="text-white/80 font-bold text-sm tracking-wide flex items-center justify-center gap-1.5 py-0.5">
-                      <Move className="w-3.5 h-3.5 text-lime-neon animate-pulse" />
-                      <span>{selectedClip?.title ? `"${selectedClip.title.slice(0, 30)}"` : 'Preview Caption (Drag to Position)'}</span>
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-            */}
           </div>
 
-          {/* DOCKED TIMELINE & CONTROL DECK: Placed neatly in the empty space on the right! */}
-          <div className="w-full sm:w-[350px] lg:w-[370px] flex flex-col gap-2 bg-dark-900/95 border border-dark-700/80 rounded-2xl p-3 pb-6 shadow-2xl shrink-0 max-h-[min(620px,calc(100vh-130px))] overflow-y-auto scrollbar-thin">
+          {/* DOCKED TIMELINE & CONTROL DECK: Warm Lifted Editorial Style */}
+          <div className="w-full sm:w-[350px] lg:w-[370px] flex flex-col gap-2.5 bg-white border border-border-cream rounded-stadium p-4 sm:p-5 shadow-card-soft shrink-0 max-h-[min(620px,calc(100vh-130px))] overflow-y-auto">
             {/* Header: Scene Badge & Aspect Ratio */}
-            <div className="flex items-center justify-between pb-2 border-b border-dark-800">
+            <div className="flex items-center justify-between pb-2 border-b border-border-cream">
               <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-lime-neon animate-pulse"></span>
-                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
+                <span className="text-xs font-extrabold text-ink-black uppercase tracking-wider">
                   Scene #{selectedClip?.id ? selectedClip.id.slice(0, 4) : '1'}
                 </span>
-                <span className="text-[10px] font-mono text-lime-neon bg-lime-neon/10 px-2 py-0.5 rounded-full border border-lime-neon/20 ml-1">
+                <span className="text-[10px] font-mono text-ink-black bg-canvas-cream px-2.5 py-0.5 rounded-full border border-border-cream font-semibold ml-1">
                   {formatSec(clipStart)} – {formatSec(clipEnd)}
                 </span>
               </div>
 
               {/* 9:16 Portrait Shorts Indicator */}
-              <div className="flex items-center px-2 py-0.5 bg-dark-950 rounded-lg border border-dark-800 text-[11px] font-bold text-lime-neon gap-1">
-                <Smartphone className="w-3 h-3" />
+              <div className="flex items-center px-2.5 py-0.5 bg-canvas-cream rounded-full border border-border-cream text-[10px] font-bold text-charcoal gap-1">
+                <Smartphone className="w-3 h-3 text-signal-orange" />
                 9:16 Shorts
               </div>
             </div>
@@ -1007,74 +950,73 @@ export default function VideoPlayer({
                 <div className="flex items-center gap-1.5 shrink min-w-0">
                   <button
                     onClick={togglePlay}
-                    className="w-9 h-9 rounded-xl bg-lime-neon text-black flex items-center justify-center transition shadow-neon-sm hover:scale-105 active:scale-95 cursor-pointer shrink-0"
+                    className="w-9 h-9 rounded-full bg-ink-black hover:bg-black text-white flex items-center justify-center transition shadow-sm hover:scale-105 active:scale-95 cursor-pointer shrink-0"
                     title={isPlaying ? 'Pause' : 'Play'}
                   >
                     {isPlaying ? (
-                      <Pause className="w-4 h-4 fill-black stroke-black" />
+                      <Pause className="w-4 h-4 fill-white stroke-white" />
                     ) : (
-                      <Play className="w-4 h-4 fill-black stroke-black ml-0.5" />
+                      <Play className="w-4 h-4 fill-white stroke-white ml-0.5" />
                     )}
                   </button>
 
-                  <div className="flex items-center gap-0.5 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => onSeek(Math.max(0, currentTime - 5))}
-                      className="p-1.5 rounded-lg bg-dark-950 text-slate-400 hover:text-white border border-dark-800 transition cursor-pointer"
+                      className="p-1.5 rounded-full bg-canvas-cream text-charcoal hover:bg-white border border-border-cream transition cursor-pointer"
                       title="-5s"
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => onSeek(Math.min(totalVideoDuration, currentTime + 5))}
-                      className="p-1.5 rounded-lg bg-dark-950 text-slate-400 hover:text-white border border-dark-800 transition cursor-pointer"
+                      className="p-1.5 rounded-full bg-canvas-cream text-charcoal hover:bg-white border border-border-cream transition cursor-pointer"
                       title="+5s"
                     >
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
-                  {/* Playback & Caption Speed Dropdown (0.1x – 2.0x) */}
-                  <div className="relative flex items-center bg-dark-950 py-1 px-2 rounded-xl border border-dark-800 hover:border-lime-neon/50 text-[11px] font-mono shrink-0 transition group">
-                    <span className="text-lime-neon mr-1.5 text-xs">⚡</span>
+                  {/* Playback Speed Dropdown */}
+                  <div className="relative flex items-center bg-canvas-cream py-1 px-2.5 rounded-full border border-border-cream hover:border-signal-orange text-[11px] font-mono shrink-0 transition group">
+                    <span className="text-signal-orange mr-1.5 text-xs">⚡</span>
                     <select
                       value={playbackRate}
                       onChange={(e) => handlePlaybackRateChange(parseFloat(e.target.value))}
-                      className="bg-transparent text-lime-neon font-black text-xs cursor-pointer focus:outline-none appearance-none pr-5 z-10"
-                      title="Adjust caption & video playback speed (0.1x to 2.0x)"
+                      className="bg-transparent text-ink-black font-bold text-xs cursor-pointer focus:outline-none appearance-none pr-4 z-10"
+                      title="Adjust playback speed"
                     >
-                      <option value="0.1" className="bg-dark-900 text-white font-mono">0.1x (Slow-Mo)</option>
-                      <option value="0.25" className="bg-dark-900 text-white font-mono">0.25x</option>
-                      <option value="0.5" className="bg-dark-900 text-white font-mono">0.5x</option>
-                      <option value="0.75" className="bg-dark-900 text-white font-mono">0.75x</option>
-                      <option value="1.0" className="bg-dark-900 text-lime-neon font-bold font-mono">1.0x (Normal)</option>
-                      <option value="1.25" className="bg-dark-900 text-white font-mono">1.25x</option>
-                      <option value="1.5" className="bg-dark-900 text-white font-mono">1.5x (Fast)</option>
-                      <option value="1.75" className="bg-dark-900 text-white font-mono">1.75x</option>
-                      <option value="2.0" className="bg-dark-900 text-white font-mono">2.0x (Max)</option>
+                      <option value="0.1">0.1x (Slow-Mo)</option>
+                      <option value="0.25">0.25x</option>
+                      <option value="0.5">0.5x</option>
+                      <option value="0.75">0.75x</option>
+                      <option value="1.0">1.0x (Normal)</option>
+                      <option value="1.25">1.25x</option>
+                      <option value="1.5">1.5x (Fast)</option>
+                      <option value="1.75">1.75x</option>
+                      <option value="2.0">2.0x (Max)</option>
                     </select>
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-1.5 pointer-events-none group-hover:text-lime-neon transition-colors" />
+                    <ChevronDown className="w-3 h-3 text-slate-gray absolute right-1.5 pointer-events-none group-hover:text-signal-orange transition-colors" />
                   </div>
                 </div>
 
-                {/* Clip Duration Pill - Strictly No-Wrap */}
-                <div className="shrink-0 whitespace-nowrap bg-dark-950/90 px-2 py-1 rounded-xl border border-dark-800 text-right select-none min-w-[76px]">
-                  <div className="text-[8px] uppercase tracking-wider font-bold text-slate-400 leading-tight whitespace-nowrap">Clip Time</div>
-                  <div className="font-mono text-[11px] font-extrabold text-lime-neon leading-tight flex items-center justify-end gap-1 whitespace-nowrap">
+                {/* Clip Duration Pill */}
+                <div className="shrink-0 whitespace-nowrap bg-canvas-cream px-2.5 py-1 rounded-full border border-border-cream text-right select-none min-w-[76px]">
+                  <div className="font-mono text-[11px] font-extrabold text-ink-black leading-tight flex items-center justify-end gap-1 whitespace-nowrap">
                     <span className="whitespace-nowrap">{formatSec(clipCurrentTime)}</span>
-                    <span className="text-slate-500 font-normal">/</span>
+                    <span className="text-slate-gray font-normal">/</span>
                     <span className="whitespace-nowrap">{formatSec(clipTotalDuration)}</span>
                   </div>
                 </div>
               </div>
 
               {/* Volume Slider */}
-              <div className="flex items-center gap-2 bg-dark-950/80 px-2.5 py-1.5 rounded-xl border border-dark-800 text-xs">
-                <button onClick={toggleMute} className="text-slate-400 hover:text-white cursor-pointer">
+              <div className="flex items-center gap-2 bg-canvas-cream px-3 py-1.5 rounded-full border border-border-cream text-xs">
+                <button onClick={toggleMute} className="text-slate-gray hover:text-ink-black cursor-pointer">
                   {isMuted || volume === 0 ? (
-                    <VolumeX className="w-4 h-4 text-red-400" />
+                    <VolumeX className="w-4 h-4 text-signal-orange" />
                   ) : (
-                    <Volume2 className="w-4 h-4 text-lime-neon" />
+                    <Volume2 className="w-4 h-4 text-ink-black" />
                   )}
                 </button>
                 <input
@@ -1084,22 +1026,22 @@ export default function VideoPlayer({
                   step="0.05"
                   value={isMuted ? 0 : volume}
                   onChange={handleVolumeChange}
-                  className="flex-1 accent-lime-neon cursor-pointer"
+                  className="flex-1 cursor-pointer"
                 />
-                <span className="text-[10px] text-slate-400 font-mono w-7 text-right">
+                <span className="text-[10px] text-slate-gray font-mono w-7 text-right">
                   {Math.round((isMuted ? 0 : volume) * 100)}%
                 </span>
               </div>
             </div>
 
             {/* INTERACTIVE CLIP TIMELINE TRIMMER */}
-            <div className="space-y-2 pt-2 border-t border-dark-800">
+            <div className="space-y-2 pt-2 border-t border-border-cream">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-[11px] font-extrabold text-white flex items-center gap-1.5 uppercase tracking-wide">
-                  <Scissors className="w-3.5 h-3.5 text-lime-neon" />
-                  Clip Timeline Trimmer
+                <span className="text-[11px] font-bold text-ink-black flex items-center gap-1.5 uppercase tracking-wide">
+                  <Scissors className="w-3.5 h-3.5 text-signal-orange" />
+                  Timeline Trimmer
                 </span>
-                <span className="text-[10px] font-mono text-lime-neon bg-lime-neon/10 px-2 py-0.5 rounded-full border border-lime-neon/20 font-bold">
+                <span className="text-[10px] font-mono text-ink-black bg-canvas-cream px-2 py-0.5 rounded-full border border-border-cream font-bold">
                   {formatPreciseSec(clipEnd - clipStart)}
                 </span>
               </div>
@@ -1108,15 +1050,15 @@ export default function VideoPlayer({
               <div
                 ref={trackRef}
                 onClick={handleTrackClick}
-                className="relative w-full h-8 bg-dark-950 rounded-xl border border-dark-750 overflow-hidden cursor-pointer select-none group"
-                title="Click anywhere to seek playhead, drag yellow handles to trim"
+                className="relative w-full h-8 bg-canvas-cream rounded-full border border-border-cream overflow-hidden cursor-pointer select-none group"
+                title="Click anywhere to seek playhead, drag handles to trim"
               >
                 {/* Background Full Timeline Track Bar */}
-                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-dark-800 rounded" />
+                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-dust-taupe rounded-full" />
 
                 {/* Highlighted Selected Clip Span */}
                 <div
-                  className="absolute top-1 bottom-1 bg-lime-neon/20 border-y-2 border-lime-neon/80 rounded"
+                  className="absolute top-1 bottom-1 bg-light-orange/20 border-y-2 border-signal-orange rounded-full"
                   style={{
                     left: `${startPct}%`,
                     width: `${widthPct}%`,
@@ -1125,137 +1067,93 @@ export default function VideoPlayer({
 
                 {/* Playhead Needle */}
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg pointer-events-none z-20"
+                  className="absolute top-0 bottom-0 w-0.5 bg-ink-black shadow-lg pointer-events-none z-20"
                   style={{ left: `${Math.max(0, Math.min(100, playheadPct))}%` }}
                 >
-                  <div className="w-2.5 h-2.5 bg-white rounded-full -ml-[4px] -mt-0.5 shadow-md" />
+                  <div className="w-2.5 h-2.5 bg-ink-black rounded-full -ml-[4px] -mt-0.5 shadow-md" />
                 </div>
 
                 {/* Left Trim Handle (Start) */}
                 <div
                   onMouseDown={handleStartTrim}
                   onTouchStart={handleStartTrim}
-                  className="absolute top-0 bottom-0 w-4 -ml-2 bg-lime-neon hover:bg-lime-400 active:bg-white text-black flex items-center justify-center cursor-ew-resize z-30 rounded-l shadow-neon-sm transition-colors group/handle"
+                  className="absolute top-0 bottom-0 w-4 -ml-2 bg-white hover:bg-canvas-cream active:bg-ink-black active:text-white text-ink-black border border-border-cream flex items-center justify-center cursor-ew-resize z-30 rounded-full shadow-satellite transition-colors group/handle"
                   style={{ left: `${startPct}%` }}
                   title={`Trim Start: ${formatPreciseSec(clipStart)}`}
                 >
-                  <div className="w-0.5 h-4 bg-black/70 rounded-full" />
+                  <div className="w-0.5 h-3.5 bg-signal-orange rounded-full" />
                 </div>
 
                 {/* Right Trim Handle (End) */}
                 <div
                   onMouseDown={handleEndTrim}
                   onTouchStart={handleEndTrim}
-                  className="absolute top-0 bottom-0 w-4 -ml-2 bg-lime-neon hover:bg-lime-400 active:bg-white text-black flex items-center justify-center cursor-ew-resize z-30 rounded-r shadow-neon-sm transition-colors group/handle"
+                  className="absolute top-0 bottom-0 w-4 -ml-2 bg-white hover:bg-canvas-cream active:bg-ink-black active:text-white text-ink-black border border-border-cream flex items-center justify-center cursor-ew-resize z-30 rounded-full shadow-satellite transition-colors group/handle"
                   style={{ left: `${endPct}%` }}
                   title={`Trim End: ${formatPreciseSec(clipEnd)}`}
                 >
-                  <div className="w-0.5 h-4 bg-black/70 rounded-full" />
+                  <div className="w-0.5 h-3.5 bg-signal-orange rounded-full" />
                 </div>
               </div>
 
               {/* Nudge & Precision Timing Adjustments */}
               <div className="grid grid-cols-2 gap-2 text-[10px]">
                 {/* Start Time Nudge */}
-                <div className="bg-dark-950/90 p-2 rounded-xl border border-dark-800 space-y-1">
+                <div className="bg-canvas-cream p-2 rounded-2xl border border-border-cream space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400 font-semibold uppercase text-[9px]">Start</span>
-                    <span className="font-mono font-bold text-lime-neon">{formatPreciseSec(clipStart)}</span>
+                    <span className="text-slate-gray font-semibold uppercase text-[9px]">Start</span>
+                    <span className="font-mono font-bold text-ink-black">{formatPreciseSec(clipStart)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleNudgeStart(-1.0)}
-                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
-                      title="Nudge Start -1s"
-                    >
-                      -1s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNudgeStart(-0.2)}
-                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
-                      title="Nudge Start -0.2s"
-                    >
-                      -0.2s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNudgeStart(0.2)}
-                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
-                      title="Nudge Start +0.2s"
-                    >
-                      +0.2s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNudgeStart(1.0)}
-                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
-                      title="Nudge Start +1s"
-                    >
-                      +1s
-                    </button>
+                    {[-1.0, -0.2, 0.2, 1.0].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => handleNudgeStart(d)}
+                        className="flex-1 py-0.5 bg-white hover:bg-lifted-cream text-charcoal rounded-full border border-border-cream font-mono transition cursor-pointer text-center"
+                      >
+                        {d > 0 ? `+${d}` : d}s
+                      </button>
+                    ))}
                   </div>
                 </div>
 
                 {/* End Time Nudge */}
-                <div className="bg-dark-950/90 p-2 rounded-xl border border-dark-800 space-y-1">
+                <div className="bg-canvas-cream p-2 rounded-2xl border border-border-cream space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400 font-semibold uppercase text-[9px]">End</span>
-                    <span className="font-mono font-bold text-lime-neon">{formatPreciseSec(clipEnd)}</span>
+                    <span className="text-slate-gray font-semibold uppercase text-[9px]">End</span>
+                    <span className="font-mono font-bold text-ink-black">{formatPreciseSec(clipEnd)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleNudgeEnd(-1.0)}
-                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
-                      title="Nudge End -1s"
-                    >
-                      -1s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNudgeEnd(-0.2)}
-                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
-                      title="Nudge End -0.2s"
-                    >
-                      -0.2s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNudgeEnd(0.2)}
-                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
-                      title="Nudge End +0.2s"
-                    >
-                      +0.2s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNudgeEnd(1.0)}
-                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
-                      title="Nudge End +1s"
-                    >
-                      +1s
-                    </button>
+                    {[-1.0, -0.2, 0.2, 1.0].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => handleNudgeEnd(d)}
+                        className="flex-1 py-0.5 bg-white hover:bg-lifted-cream text-charcoal rounded-full border border-border-cream font-mono transition cursor-pointer text-center"
+                      >
+                        {d > 0 ? `+${d}` : d}s
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
             </div>
 
             {/* VIDEO RESIZING & ZOOM SCALE */}
-            <div className="space-y-1.5 pt-2 border-t border-dark-800">
+            <div className="space-y-1.5 pt-2 border-t border-border-cream">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5 uppercase tracking-wide">
-                  <ZoomIn className="w-3.5 h-3.5 text-lime-neon" />
+                <span className="text-[11px] font-bold text-ink-black flex items-center gap-1.5 uppercase tracking-wide">
+                  <ZoomIn className="w-3.5 h-3.5 text-signal-orange" />
                   Video Resizing (Zoom)
                 </span>
-                <span className="font-mono text-[10px] font-bold text-lime-neon bg-lime-neon/10 px-2 py-0.5 rounded border border-lime-neon/20">
+                <span className="font-mono text-[10px] font-bold text-ink-black bg-canvas-cream px-2 py-0.5 rounded-full border border-border-cream">
                   {effectiveZoom.toFixed(2)}x
                 </span>
               </div>
 
               {/* Zoom Slider */}
-              <div className="flex items-center gap-2 bg-dark-950/80 px-2.5 py-1.5 rounded-xl border border-dark-800">
+              <div className="flex items-center gap-2 bg-canvas-cream px-3 py-1.5 rounded-full border border-border-cream">
                 <input
                   type="range"
                   min="1.0"
@@ -1263,7 +1161,7 @@ export default function VideoPlayer({
                   step="0.05"
                   value={activeCropZoom || 1.15}
                   onChange={(e) => onChangeCrop?.({ zoom: parseFloat(e.target.value) })}
-                  className="w-full h-1.5 bg-dark-800 rounded-lg appearance-none cursor-pointer accent-lime-neon"
+                  className="w-full cursor-pointer"
                 />
               </div>
 
@@ -1279,10 +1177,10 @@ export default function VideoPlayer({
                     key={item.label}
                     type="button"
                     onClick={() => onChangeCrop?.({ zoom: item.val })}
-                    className={`py-1 rounded font-bold transition text-center cursor-pointer ${
+                    className={`py-1 rounded-full font-bold transition text-center cursor-pointer border ${
                       Math.abs((activeCropZoom || 1.15) - item.val) < 0.06
-                        ? 'bg-lime-neon text-black shadow-sm font-extrabold'
-                        : 'bg-dark-950 hover:bg-dark-800 text-slate-400 hover:text-white border border-dark-800'
+                        ? 'bg-ink-black text-white border-ink-black shadow-sm'
+                        : 'bg-white text-charcoal hover:bg-canvas-cream border-border-cream'
                     }`}
                   >
                     {item.label}
@@ -1292,18 +1190,18 @@ export default function VideoPlayer({
             </div>
 
             {/* Framing Style Selector */}
-            <div className="space-y-1.5 pt-1 border-t border-dark-800">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+            <div className="space-y-1.5 pt-1 border-t border-border-cream">
+              <label className="text-[10px] font-bold text-slate-gray uppercase tracking-wider block">
                 Framing Style
               </label>
-              <div className="grid grid-cols-2 p-0.5 bg-dark-950 rounded-xl border border-dark-800 text-[11px]">
+              <div className="grid grid-cols-2 p-1 bg-canvas-cream rounded-full border border-border-cream text-[11px]">
                 <button
                   type="button"
                   onClick={() => onChangeCrop?.({ mode: 'blur_fill' })}
-                  className={`py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                  className={`py-1.5 rounded-full font-bold transition cursor-pointer ${
                     cropMode === 'blur_fill'
-                      ? 'bg-lime-neon text-black shadow-sm'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-white text-ink-black shadow-sm'
+                      : 'text-slate-gray hover:text-ink-black'
                   }`}
                 >
                   Blurred BG
@@ -1311,10 +1209,10 @@ export default function VideoPlayer({
                 <button
                   type="button"
                   onClick={() => onChangeCrop?.({ mode: 'custom_crop' })}
-                  className={`py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                  className={`py-1.5 rounded-full font-bold transition cursor-pointer ${
                     cropMode === 'custom_crop'
-                      ? 'bg-lime-neon text-black shadow-sm'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-white text-ink-black shadow-sm'
+                      : 'text-slate-gray hover:text-ink-black'
                   }`}
                 >
                   Smart Crop
@@ -1324,21 +1222,21 @@ export default function VideoPlayer({
 
             {/* AI Auto-Speaker Focus Action */}
             <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-[11px] text-slate-300 font-bold flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-lime-neon fill-lime-neon" />
+              <span className="text-[11px] text-ink-black font-bold flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-signal-orange" />
                 Auto-Speaker Focus
               </span>
               <button
                 type="button"
                 onClick={handleRunAutoTrack}
                 disabled={isAutoTracking}
-                className="px-2.5 py-1 bg-lime-neon hover:bg-lime-400 text-black rounded-lg font-extrabold text-[10px] flex items-center gap-1 transition shadow-neon-sm cursor-pointer disabled:opacity-50"
+                className="px-3 py-1 bg-canvas-cream hover:bg-lifted-cream text-ink-black border border-border-cream rounded-full font-extrabold text-[10px] flex items-center gap-1.5 transition shadow-sm cursor-pointer disabled:opacity-50"
                 title="AI detects all speakers in video and shifts camera automatically"
               >
                 {isAutoTracking ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <Loader2 className="w-3 h-3 animate-spin text-signal-orange" />
                 ) : (
-                  <Sparkles className="w-3 h-3 fill-black" />
+                  <Sparkles className="w-3 h-3 text-signal-orange" />
                 )}
                 <span>{isAutoTracking ? 'Tracking...' : '⚡ Auto-Track (AI)'}</span>
               </button>
@@ -1346,25 +1244,25 @@ export default function VideoPlayer({
 
             {/* AI Tracking Overlay Toggle */}
             <div className="flex items-center justify-between text-xs pt-0.5">
-              <span className="text-[11px] text-slate-400 font-semibold">AI Camera View</span>
+              <span className="text-[11px] text-slate-gray font-semibold">AI Camera View</span>
               <button
                 onClick={onToggleCropInspector}
-                className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1 rounded-full border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
                   isCropInspectorOpen
-                    ? 'bg-lime-neon/20 border-lime-neon text-lime-neon'
-                    : 'bg-dark-950 border-dark-750 text-slate-400 hover:text-white'
+                    ? 'bg-ink-black text-white border-ink-black'
+                    : 'bg-canvas-cream border-border-cream text-charcoal hover:bg-white'
                 }`}
               >
-                <Crop className="w-3.5 h-3.5" />
-                <span>{isCropInspectorOpen ? 'Hide AI View' : 'View AI Framing'}</span>
+                <Crop className="w-3 h-3" />
+                <span>{isCropInspectorOpen ? 'Hide View' : 'View AI Framing'}</span>
               </button>
             </div>
 
             {/* Original Channel Attribution Badge with One-Click Edit */}
-            <div className="flex items-center justify-between text-xs bg-dark-950/80 px-2.5 py-1.5 rounded-xl border border-dark-800 text-[11px]">
-              <span className="text-slate-400 font-semibold flex items-center gap-1.5 shrink-0">
-                <Youtube className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                Channel Credit
+            <div className="flex items-center justify-between text-xs bg-canvas-cream px-3 py-1.5 rounded-full border border-border-cream text-[11px]">
+              <span className="text-slate-gray font-semibold flex items-center gap-1.5 shrink-0">
+                <Youtube className="w-3.5 h-3.5 text-mc-red shrink-0" />
+                Credit
               </span>
               {isEditingChannel ? (
                 <div className="flex items-center gap-1 max-w-[200px]">
@@ -1377,13 +1275,13 @@ export default function VideoPlayer({
                       if (e.key === 'Escape') setIsEditingChannel(false);
                     }}
                     autoFocus
-                    className="bg-dark-900 border border-lime-neon/60 rounded px-1.5 py-0.5 text-xs text-white font-bold w-full outline-none focus:ring-1 focus:ring-lime-neon"
+                    className="bg-white border border-signal-orange rounded-full px-2.5 py-0.5 text-xs text-ink-black font-bold w-full outline-none"
                     placeholder="Channel Name"
                   />
                   <button
                     onClick={handleSaveChannel}
                     type="button"
-                    className="p-1 rounded bg-lime-neon text-black hover:bg-lime-400 shrink-0 cursor-pointer"
+                    className="p-1 rounded-full bg-ink-black text-white shrink-0 cursor-pointer"
                     title="Save"
                   >
                     <Check className="w-3 h-3 stroke-[3]" />
@@ -1391,7 +1289,7 @@ export default function VideoPlayer({
                   <button
                     onClick={() => setIsEditingChannel(false)}
                     type="button"
-                    className="p-1 rounded bg-dark-800 text-slate-400 hover:text-white shrink-0 cursor-pointer"
+                    className="p-1 rounded-full bg-white text-slate-gray shrink-0 cursor-pointer"
                     title="Cancel"
                   >
                     <X className="w-3 h-3" />
@@ -1399,13 +1297,13 @@ export default function VideoPlayer({
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 max-w-[200px]">
-                  <span className="font-bold text-white truncate" title={channelCredit}>
+                  <span className="font-bold text-ink-black truncate" title={channelCredit}>
                     {channelCredit}
                   </span>
                   <button
                     type="button"
                     onClick={handleStartEditChannel}
-                    className="text-slate-400 hover:text-lime-neon p-0.5 transition cursor-pointer"
+                    className="text-slate-gray hover:text-signal-orange p-0.5 transition cursor-pointer"
                     title="Edit Channel Credit"
                   >
                     <Edit2 className="w-3 h-3" />
@@ -1416,7 +1314,8 @@ export default function VideoPlayer({
 
             {/* Render & Shorts Kit Action Buttons */}
             {selectedClip && (
-              <div className="space-y-1.5 pt-1.5 border-t border-dark-800">
+              <div className="space-y-2 pt-2 border-t border-border-cream">
+                {/* Mastercard Signature Ink Black CTA */}
                 <button
                   type="button"
                   onClick={() => {
@@ -1426,7 +1325,7 @@ export default function VideoPlayer({
                       onOpenExport?.('clean', false);
                     }
                   }}
-                  className="w-full bg-lime-neon hover:bg-lime-400 text-black font-extrabold py-2.5 px-3 rounded-xl transition shadow-neon-sm flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer"
+                  className="w-full bg-ink-black hover:bg-black text-white font-extrabold py-3.5 px-4 rounded-cta transition-all hover:scale-[1.01] shadow-card-soft flex items-center justify-center gap-2 text-xs uppercase tracking-wider cursor-pointer"
                   title="Render and download 9:16 Short (1080x1920 HD)"
                 >
                   <Download className="w-4 h-4 stroke-[2.5]" />
@@ -1437,20 +1336,20 @@ export default function VideoPlayer({
                   </span>
                 </button>
 
-                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={onOpenShortsKit}
-                    className="w-full bg-dark-950 hover:bg-dark-800 text-white font-bold border border-dark-700 hover:border-lime-neon/50 py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1.5 text-xs cursor-pointer truncate"
+                    className="w-full bg-white hover:bg-canvas-cream text-charcoal font-bold border border-border-cream py-2 px-2.5 rounded-full transition flex items-center justify-center gap-1.5 text-xs cursor-pointer truncate shadow-sm"
                     title="Download Upload Kit (.MD Description, Creator Credits, & ZIP Bundle)"
                   >
-                    <FileText className="w-3.5 h-3.5 text-lime-neon shrink-0" />
+                    <FileText className="w-3.5 h-3.5 text-signal-orange shrink-0" />
                     <span className="truncate">Shorts Kit</span>
                   </button>
 
                   {onDeleteClip && (
                     <button
                       onClick={() => onDeleteClip(selectedClip)}
-                      className="w-full bg-red-950/30 hover:bg-red-900/50 text-red-400 hover:text-red-200 font-bold border border-red-800/50 py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1.5 text-xs cursor-pointer truncate"
+                      className="w-full bg-white hover:bg-canvas-cream text-clay-brown font-bold border border-border-cream py-2 px-2.5 rounded-full transition flex items-center justify-center gap-1.5 text-xs cursor-pointer truncate shadow-sm"
                       title="Delete this clip"
                     >
                       <Trash2 className="w-3.5 h-3.5 shrink-0" />

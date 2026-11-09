@@ -46,16 +46,16 @@ export default function ProjectsModal({ isOpen, onClose, onSelectProject, onDele
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-dark-900 border border-dark-700 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white border border-border-cream w-full max-w-lg rounded-stadium shadow-card-elevated overflow-hidden max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-dark-700 flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 border-b border-border-cream flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <Film className="w-5 h-5 text-lime-neon" />
-            <h2 className="font-bold text-base text-white">Your Video Projects</h2>
+            <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
+            <h2 className="font-extrabold text-base text-ink-black tracking-tight">Saved Projects</h2>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg">
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="text-slate-gray hover:text-ink-black p-1 rounded-full hover:bg-canvas-cream transition cursor-pointer">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -63,11 +63,11 @@ export default function ProjectsModal({ isOpen, onClose, onSelectProject, onDele
         <div className="p-6 overflow-y-auto space-y-3 flex-1">
           {isLoading ? (
             <div className="py-8 flex justify-center">
-              <Loader2 className="w-8 h-8 text-lime-neon animate-spin" />
+              <Loader2 className="w-7 h-7 text-signal-orange animate-spin" />
             </div>
           ) : projects.length === 0 ? (
-            <div className="text-center py-8 text-slate-500 text-xs">
-              No projects found. Click "+ New Video" to import your first YouTube video!
+            <div className="text-center py-8 text-slate-gray text-xs">
+              No saved projects found. Click "+ New Video" to import your first video.
             </div>
           ) : (
             projects.map((proj) => {
@@ -79,23 +79,23 @@ export default function ProjectsModal({ isOpen, onClose, onSelectProject, onDele
                     onSelectProject(proj.id);
                     onClose();
                   }}
-                  className={`p-3 rounded-xl border cursor-pointer transition flex items-center justify-between gap-3 ${
+                  className={`p-3.5 rounded-[20px] border cursor-pointer transition flex items-center justify-between gap-3 ${
                     isActive
-                      ? 'bg-dark-800 border-lime-neon shadow-neon-sm'
-                      : 'bg-dark-950/70 hover:bg-dark-850 border-dark-700/80'
+                      ? 'bg-lifted-cream border-signal-orange ring-1 ring-signal-orange shadow-sm'
+                      : 'bg-white hover:bg-canvas-cream border-border-cream'
                   }`}
                 >
                   <div className="min-w-0 flex-1">
-                    <h4 className="font-bold text-xs text-white truncate">{proj.title}</h4>
-                    <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
+                    <h4 className="font-bold text-xs text-ink-black truncate">{proj.title}</h4>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-gray mt-1">
                       <span className="font-mono flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-slate-500" />
+                        <Clock className="w-3 h-3 text-slate-gray" />
                         {formatMinSec(proj.duration)}
                       </span>
-                      <span className="bg-dark-800 text-lime-neon font-semibold px-2 py-0.5 rounded-full text-[10px]">
+                      <span className="bg-canvas-cream text-ink-black font-bold px-2 py-0.5 rounded-full border border-border-cream">
                         {proj.clips_count || 0} clips
                       </span>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">
+                      <span className="uppercase font-bold text-slate-gray">
                         {proj.source_type}
                       </span>
                     </div>
@@ -103,7 +103,7 @@ export default function ProjectsModal({ isOpen, onClose, onSelectProject, onDele
 
                   <button
                     onClick={(e) => handleDelete(e, proj.id)}
-                    className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg transition"
+                    className="p-1.5 text-slate-gray hover:text-clay-brown hover:bg-canvas-cream rounded-full transition cursor-pointer shrink-0"
                     title="Delete project"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -117,4 +117,3 @@ export default function ProjectsModal({ isOpen, onClose, onSelectProject, onDele
     </div>
   );
 }
-

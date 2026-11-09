@@ -475,7 +475,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-dark-950 text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-screen bg-canvas-cream text-ink-black overflow-hidden font-sans">
       {/* Top Header */}
       <Header
         onOpenCreateWizard={() => setViewMode('wizard')}
@@ -513,7 +513,7 @@ export default function App() {
           />
 
           {/* CENTER COLUMN: Main Video Stage + Floating Crop + Contained Timeline */}
-          <div className="flex-1 flex flex-col min-h-0 relative border-r border-dark-700/80 bg-dark-950/60 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 relative border-r border-border-cream bg-canvas-cream overflow-hidden">
             <div className="flex-1 flex items-center justify-center min-h-0 relative overflow-hidden">
               <VideoPlayer
                 project={activeProject}
@@ -572,7 +572,7 @@ export default function App() {
           </div>
 
           {/* RIGHT COLUMN: Dialogue Transcript (Captions customizer paused) */}
-          <div className="w-80 lg:w-96 flex flex-col shrink-0 bg-dark-900 overflow-hidden relative">
+          <div className="w-80 lg:w-96 flex flex-col shrink-0 bg-lifted-cream border-l border-border-cream overflow-hidden relative">
             {/* 
             CAPTIONS & SUBTITLE CUSTOMIZER TEMPORARILY DISABLED PER USER REQUEST
             <SubtitleCustomizer
@@ -613,7 +613,7 @@ export default function App() {
         <div className="flex-1 flex items-center justify-center">
           <button
             onClick={() => setViewMode('wizard')}
-            className="bg-lime-neon text-black font-extrabold px-6 py-3 rounded-2xl shadow-neon"
+            className="bg-ink-black hover:bg-black text-white font-extrabold px-6 py-3.5 rounded-cta shadow-card-soft transition-all cursor-pointer"
           >
             Create Your First Shorts Project
           </button>
