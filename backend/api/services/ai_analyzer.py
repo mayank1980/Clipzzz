@@ -222,7 +222,7 @@ def analyze_highlights_with_gemini(
         intro_cutoff = 0.0
     else:
         count = max(3, min(30, target_count))
-        intro_cutoff = 30.0 if total_duration > 90.0 else 0.0
+        intro_cutoff = 0.0 if clipping_mode == 'story_series' else (30.0 if total_duration > 90.0 else 0.0)
 
     if not api_key or not transcript_segments:
         if progress_callback:
@@ -272,7 +272,9 @@ def analyze_highlights_with_gemini(
     ---
 
     DETECTION OBJECTIVES & MANDATORY RULES:
-    1. FULL VIDEO TIMELINE COVERAGE:
+    1. FULL VIDEO TIMELINE COVERAGE & MANDATORY ZERO-START:
+       - Story 1, Part 1 MUST start at 00:00 (0.0s). DO NOT SKIP THE OPENING 1-2 MINUTES!
+       - The initial setup, background context, and hook must be captured as Part 1 so viewers understand the story premise.
        - Scan the ENTIRE video timeline from 00:00 to the end ({total_duration:.1f}s).
        - DO NOT ARTIFICIALLY CAP AT 3 OR 4 PARTS! Generate all sequential episodes: Part 1, Part 2, Part 3, Part 4, Part 5, Part 6... up to Part N until the narrative concludes!
        - If the video contains multiple stories or a single long case/interview, cover the FULL duration across the entire timeline!
@@ -282,9 +284,9 @@ def analyze_highlights_with_gemini(
     3. YOUTUBE TREND & AUDIENCE RETENTION OPTIMIZATION:
        - The first 3 seconds of every part MUST hook the viewer with intense curiosity, suspense, or emotional investment.
        - End each part with high suspense (cliffhanger) or a memorable takeaway/punchline so viewers binge the next episode.
-    4. ZERO MID-SENTENCE CUTS:
+    4. ZERO GAPS BETWEEN SEQUENTIAL PARTS:
        - Every part must start at the clean beginning of a thought/sentence and end cleanly.
-       - Part 2 starts where Part 1 ends, Part 3 starts where Part 2 ends.
+       - Part 2 starts where Part 1 ends, Part 3 starts where Part 2 ends. There should be ZERO skipped gaps in the story.
 
     Return JSON:
     {{
@@ -516,28 +518,26 @@ def extract_smart_nlp_highlights(
             if reg_start >= total_segs:
                 break
 
-            # Find the best narrative starting sentence in this region:
-            # Look for story starters like 'jab', 'ek', 'us', 'hum', 'maine', 'so', 'then', 'when'
-            best_story_start_idx = reg_start
-            best_start_score = -1.0
-            search_limit = min(reg_end, reg_start + min(40, story_region_len // 2))
+            # Story 1 ALWAYS starts from the absolute beginning (00:00 / index 0)
+            # so the opening incident, background context, and premise are never skipped!
+            if s_idx == 0:
+                best_story_start_idx = 0
+            else:
+                best_story_start_idx = reg_start
+                best_start_score = -1.0
+                search_limit = min(reg_end, reg_start + min(30, story_region_len // 3))
 
-            for j in range(reg_start, search_limit):
-                seg_txt = transcript_segments[j].get('text', '').strip().lower()
-                seg_start_t = float(transcript_segments[j].get('start', 0.0))
-                # Skip video intro (first 35s) for the very first story only
-                if s_idx == 0 and seg_start_t < 35.0 and total_duration > 90.0:
-                    continue
+                for j in range(reg_start, search_limit):
+                    seg_txt = transcript_segments[j].get('text', '').strip().lower()
+                    starter_bonus = 0.0
+                    if any(seg_txt.startswith(w) for w in ['jab', 'ek', 'us', 'hum', 'maine', 'yeh', 'when', 'there', 'once', 'after', 'second', 'doosri']):
+                        starter_bonus = 25.0
 
-                starter_bonus = 0.0
-                if any(seg_txt.startswith(w) for w in ['jab', 'ek', 'us', 'hum', 'maine', 'yeh', 'when', 'there', 'once', 'after']):
-                    starter_bonus = 25.0
-                
-                score_data = calculate_segment_scores(transcript_segments[j].get('text', ''), 2.0)
-                tot = score_data['composite'] + starter_bonus
-                if tot > best_start_score:
-                    best_start_score = tot
-                    best_story_start_idx = j
+                    score_data = calculate_segment_scores(transcript_segments[j].get('text', ''), 2.0)
+                    tot = score_data['composite'] + starter_bonus
+                    if tot > best_start_score:
+                        best_start_score = tot
+                        best_story_start_idx = j
 
             # Generate 3 to 5 sequential chronological parts for this story
             story_id = f"story_{s_idx + 1}"
