@@ -207,10 +207,16 @@ export default function App() {
     const newMode = partial.mode !== undefined ? partial.mode : selectedClip.crop_mode;
 
     // Synchronize manual coordinates into keyframes so both live player and FFmpeg export stay locked
-    const isManualCoordChange = partial.x !== undefined || partial.y !== undefined || partial.zoom !== undefined;
-    const newKeyframes = isManualCoordChange
-      ? [{ time: 0, x: newX, y: newY, zoom: newZoom, speaker: 'Manual Focus' }]
-      : (partial.keyframes !== undefined ? partial.keyframes : (selectedClip.crop_keyframes || []));
+    let newKeyframes;
+    if (partial.keyframes !== undefined) {
+      newKeyframes = partial.keyframes;
+    } else if (partial.x !== undefined || partial.y !== undefined) {
+      newKeyframes = [{ time: 0, x: newX, y: newY, zoom: newZoom, speaker: 'Manual Focus' }];
+    } else if (partial.zoom !== undefined && Array.isArray(selectedClip.crop_keyframes) && selectedClip.crop_keyframes.length > 0) {
+      newKeyframes = selectedClip.crop_keyframes.map((kf) => ({ ...kf, zoom: newZoom }));
+    } else {
+      newKeyframes = selectedClip.crop_keyframes || [];
+    }
 
     const updated = {
       ...selectedClip,

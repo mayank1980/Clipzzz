@@ -762,6 +762,14 @@ export default function VideoPlayer({
 
   const roundSec = (val) => Math.round(val * 10) / 10;
 
+  const formatPreciseSec = (seconds) => {
+    if (isNaN(seconds) || seconds === null) return '0:00';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds % 1) * 10);
+    return `${m}:${s < 10 ? '0' : ''}${s}.${ms}s`;
+  };
+
   const handleTrackClick = (e) => {
     if (!trackRef.current) return;
     const rect = trackRef.current.getBoundingClientRect();
@@ -776,16 +784,23 @@ export default function VideoPlayer({
     const handleMove = (moveEvt) => {
       if (!trackRef.current) return;
       const rect = trackRef.current.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (moveEvt.clientX - rect.left) / rect.width));
-      const newStart = Math.min(pct * totalVideoDuration, clipEnd - 2.0);
+      const clientX = moveEvt.clientX ?? moveEvt.touches?.[0]?.clientX;
+      if (clientX === undefined) return;
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const newStart = Math.min(pct * totalVideoDuration, clipEnd - 1.5);
       onUpdateClipBounds?.(roundSec(newStart), clipEnd);
+      onSeek?.(newStart);
     };
     const handleUp = () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
     };
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchmove', handleMove);
+    window.addEventListener('touchend', handleUp);
   };
 
   const handleEndTrim = (e) => {
@@ -793,16 +808,35 @@ export default function VideoPlayer({
     const handleMove = (moveEvt) => {
       if (!trackRef.current) return;
       const rect = trackRef.current.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (moveEvt.clientX - rect.left) / rect.width));
-      const newEnd = Math.max(pct * totalVideoDuration, clipStart + 2.0);
+      const clientX = moveEvt.clientX ?? moveEvt.touches?.[0]?.clientX;
+      if (clientX === undefined) return;
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const newEnd = Math.max(pct * totalVideoDuration, clipStart + 1.5);
       onUpdateClipBounds?.(clipStart, roundSec(newEnd));
+      onSeek?.(Math.max(clipStart, newEnd - 0.5));
     };
     const handleUp = () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
     };
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchmove', handleMove);
+    window.addEventListener('touchend', handleUp);
+  };
+
+  const handleNudgeStart = (delta) => {
+    const newStart = Math.max(0, Math.min(clipEnd - 1.5, clipStart + delta));
+    onUpdateClipBounds?.(roundSec(newStart), clipEnd);
+    onSeek?.(newStart);
+  };
+
+  const handleNudgeEnd = (delta) => {
+    const newEnd = Math.max(clipStart + 1.5, Math.min(totalVideoDuration, clipEnd + delta));
+    onUpdateClipBounds?.(clipStart, roundSec(newEnd));
+    onSeek?.(Math.max(clipStart, newEnd - 0.5));
   };
 
   return (
@@ -1058,7 +1092,204 @@ export default function VideoPlayer({
               </div>
             </div>
 
+            {/* INTERACTIVE CLIP TIMELINE TRIMMER */}
+            <div className="space-y-2 pt-2 border-t border-dark-800">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[11px] font-extrabold text-white flex items-center gap-1.5 uppercase tracking-wide">
+                  <Scissors className="w-3.5 h-3.5 text-lime-neon" />
+                  Clip Timeline Trimmer
+                </span>
+                <span className="text-[10px] font-mono text-lime-neon bg-lime-neon/10 px-2 py-0.5 rounded-full border border-lime-neon/20 font-bold">
+                  {formatPreciseSec(clipEnd - clipStart)}
+                </span>
+              </div>
 
+              {/* Trimmer Track */}
+              <div
+                ref={trackRef}
+                onClick={handleTrackClick}
+                className="relative w-full h-8 bg-dark-950 rounded-xl border border-dark-750 overflow-hidden cursor-pointer select-none group"
+                title="Click anywhere to seek playhead, drag yellow handles to trim"
+              >
+                {/* Background Full Timeline Track Bar */}
+                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-dark-800 rounded" />
+
+                {/* Highlighted Selected Clip Span */}
+                <div
+                  className="absolute top-1 bottom-1 bg-lime-neon/20 border-y-2 border-lime-neon/80 rounded"
+                  style={{
+                    left: `${startPct}%`,
+                    width: `${widthPct}%`,
+                  }}
+                />
+
+                {/* Playhead Needle */}
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg pointer-events-none z-20"
+                  style={{ left: `${Math.max(0, Math.min(100, playheadPct))}%` }}
+                >
+                  <div className="w-2.5 h-2.5 bg-white rounded-full -ml-[4px] -mt-0.5 shadow-md" />
+                </div>
+
+                {/* Left Trim Handle (Start) */}
+                <div
+                  onMouseDown={handleStartTrim}
+                  onTouchStart={handleStartTrim}
+                  className="absolute top-0 bottom-0 w-4 -ml-2 bg-lime-neon hover:bg-lime-400 active:bg-white text-black flex items-center justify-center cursor-ew-resize z-30 rounded-l shadow-neon-sm transition-colors group/handle"
+                  style={{ left: `${startPct}%` }}
+                  title={`Trim Start: ${formatPreciseSec(clipStart)}`}
+                >
+                  <div className="w-0.5 h-4 bg-black/70 rounded-full" />
+                </div>
+
+                {/* Right Trim Handle (End) */}
+                <div
+                  onMouseDown={handleEndTrim}
+                  onTouchStart={handleEndTrim}
+                  className="absolute top-0 bottom-0 w-4 -ml-2 bg-lime-neon hover:bg-lime-400 active:bg-white text-black flex items-center justify-center cursor-ew-resize z-30 rounded-r shadow-neon-sm transition-colors group/handle"
+                  style={{ left: `${endPct}%` }}
+                  title={`Trim End: ${formatPreciseSec(clipEnd)}`}
+                >
+                  <div className="w-0.5 h-4 bg-black/70 rounded-full" />
+                </div>
+              </div>
+
+              {/* Nudge & Precision Timing Adjustments */}
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                {/* Start Time Nudge */}
+                <div className="bg-dark-950/90 p-2 rounded-xl border border-dark-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-semibold uppercase text-[9px]">Start</span>
+                    <span className="font-mono font-bold text-lime-neon">{formatPreciseSec(clipStart)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleNudgeStart(-1.0)}
+                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
+                      title="Nudge Start -1s"
+                    >
+                      -1s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNudgeStart(-0.2)}
+                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
+                      title="Nudge Start -0.2s"
+                    >
+                      -0.2s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNudgeStart(0.2)}
+                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
+                      title="Nudge Start +0.2s"
+                    >
+                      +0.2s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNudgeStart(1.0)}
+                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
+                      title="Nudge Start +1s"
+                    >
+                      +1s
+                    </button>
+                  </div>
+                </div>
+
+                {/* End Time Nudge */}
+                <div className="bg-dark-950/90 p-2 rounded-xl border border-dark-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-semibold uppercase text-[9px]">End</span>
+                    <span className="font-mono font-bold text-lime-neon">{formatPreciseSec(clipEnd)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleNudgeEnd(-1.0)}
+                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
+                      title="Nudge End -1s"
+                    >
+                      -1s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNudgeEnd(-0.2)}
+                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
+                      title="Nudge End -0.2s"
+                    >
+                      -0.2s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNudgeEnd(0.2)}
+                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
+                      title="Nudge End +0.2s"
+                    >
+                      +0.2s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNudgeEnd(1.0)}
+                      className="flex-1 py-1 bg-dark-900 hover:bg-dark-800 text-slate-300 hover:text-white rounded border border-dark-750 font-mono transition cursor-pointer"
+                      title="Nudge End +1s"
+                    >
+                      +1s
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* VIDEO RESIZING & ZOOM SCALE */}
+            <div className="space-y-1.5 pt-2 border-t border-dark-800">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5 uppercase tracking-wide">
+                  <ZoomIn className="w-3.5 h-3.5 text-lime-neon" />
+                  Video Resizing (Zoom)
+                </span>
+                <span className="font-mono text-[10px] font-bold text-lime-neon bg-lime-neon/10 px-2 py-0.5 rounded border border-lime-neon/20">
+                  {effectiveZoom.toFixed(2)}x
+                </span>
+              </div>
+
+              {/* Zoom Slider */}
+              <div className="flex items-center gap-2 bg-dark-950/80 px-2.5 py-1.5 rounded-xl border border-dark-800">
+                <input
+                  type="range"
+                  min="1.0"
+                  max="2.5"
+                  step="0.05"
+                  value={activeCropZoom || 1.15}
+                  onChange={(e) => onChangeCrop?.({ zoom: parseFloat(e.target.value) })}
+                  className="w-full h-1.5 bg-dark-800 rounded-lg appearance-none cursor-pointer accent-lime-neon"
+                />
+              </div>
+
+              {/* Preset Zoom Pills */}
+              <div className="grid grid-cols-4 gap-1 text-[10px]">
+                {[
+                  { label: '1.0x Wide', val: 1.0 },
+                  { label: '1.15x Std', val: 1.15 },
+                  { label: '1.35x Med', val: 1.35 },
+                  { label: '1.6x Close', val: 1.6 },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => onChangeCrop?.({ zoom: item.val })}
+                    className={`py-1 rounded font-bold transition text-center cursor-pointer ${
+                      Math.abs((activeCropZoom || 1.15) - item.val) < 0.06
+                        ? 'bg-lime-neon text-black shadow-sm font-extrabold'
+                        : 'bg-dark-950 hover:bg-dark-800 text-slate-400 hover:text-white border border-dark-800'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* Framing Style Selector */}
             <div className="space-y-1.5 pt-1 border-t border-dark-800">

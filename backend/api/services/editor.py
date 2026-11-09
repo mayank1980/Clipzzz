@@ -504,9 +504,8 @@ def render_shorts_clip(
     if crop_mode == 'center_crop' or crop_mode == 'custom_crop':
         effective_zoom = max(1.08, min(2.5, float(crop_zoom)))
         if crop_keyframes and len(crop_keyframes) > 0:
-            kf_zoom = crop_keyframes[0].get('zoom')
-            if kf_zoom:
-                effective_zoom = max(1.08, min(2.5, float(kf_zoom)))
+            for kf in crop_keyframes:
+                kf['zoom'] = effective_zoom
             expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.0, zoom=effective_zoom)
             expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.0, zoom=effective_zoom)
             vf = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"

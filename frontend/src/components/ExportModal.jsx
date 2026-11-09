@@ -132,17 +132,21 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
 
     try {
       let renderRes;
+      const renderPayload = {
+        crop_mode: activeClip.crop_mode,
+        crop_x: activeClip.crop_x,
+        crop_y: activeClip.crop_y,
+        crop_zoom: activeClip.crop_zoom,
+        start_time: activeClip.start_time,
+        end_time: activeClip.end_time,
+        caption_style: activeClip.caption_style,
+        force,
+      };
+
       if (mode === 'clean') {
-        renderRes = await api.renderCleanClip(activeClip.id, { force });
+        renderRes = await api.renderCleanClip(activeClip.id, renderPayload);
       } else {
-        renderRes = await api.renderClip(activeClip.id, {
-          crop_mode: activeClip.crop_mode,
-          crop_x: activeClip.crop_x,
-          crop_y: activeClip.crop_y,
-          crop_zoom: activeClip.crop_zoom,
-          caption_style: activeClip.caption_style,
-          force,
-        });
+        renderRes = await api.renderClip(activeClip.id, renderPayload);
       }
 
       // Instant cache hit: video was already rendered with identical settings

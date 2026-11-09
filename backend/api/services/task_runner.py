@@ -504,8 +504,16 @@ def _run_clip_render(clip_id: str, clean: bool = False):
             active_caption_style['showCaptions'] = False
 
         # On-Demand YuNet Neural Keyframe Evaluation if not yet computed
-        crop_kfs = clip.crop_keyframes or []
-        if len(crop_kfs) <= 1 and getattr(project, 'auto_speaker_tracking', True):
+        crop_kfs = list(clip.crop_keyframes or [])
+        user_zoom = max(1.0, min(2.5, float(clip.crop_zoom or 1.15)))
+
+        is_user_customized = False
+        if crop_kfs and len(crop_kfs) > 0:
+            first_kf = crop_kfs[0]
+            if first_kf.get('speaker') in ('Manual Focus', 'Manual Framing') or clip.crop_mode == 'manual_crop':
+                is_user_customized = True
+
+        if not is_user_customized and len(crop_kfs) <= 1 and getattr(project, 'auto_speaker_tracking', True):
             try:
                 from .face_tracker import generate_camera_keyframes
                 computed_kfs = generate_camera_keyframes(source_video_path, clip.start_time, clip.duration)
@@ -514,10 +522,14 @@ def _run_clip_render(clip_id: str, clean: bool = False):
                     clip.crop_keyframes = computed_kfs
                     clip.crop_x = computed_kfs[0]['x']
                     clip.crop_y = computed_kfs[0]['y']
-                    clip.crop_zoom = computed_kfs[0].get('zoom', 1.15)
+                    clip.crop_zoom = user_zoom
                     clip.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom'])
             except Exception as fe:
                 print(f"[_run_clip_render] On-demand neural tracking notice: {fe}")
+
+        # Ensure all keyframes respect the user's selected zoom/resizing
+        for kf in crop_kfs:
+            kf['zoom'] = user_zoom
 
         from .upload_kit import extract_channel_credit
         channel_name = getattr(project, 'channel_name', '') or extract_channel_credit(project.title)
@@ -529,7 +541,7 @@ def _run_clip_render(clip_id: str, clean: bool = False):
             crop_mode=clip.crop_mode,
             crop_x=clip.crop_x,
             crop_y=clip.crop_y,
-            crop_zoom=clip.crop_zoom,
+            crop_zoom=user_zoom,
             crop_keyframes=crop_kfs,
             caption_style=active_caption_style,
             segments=project.transcript_raw if not clean else None,
