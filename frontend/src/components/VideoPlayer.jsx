@@ -840,9 +840,9 @@ export default function VideoPlayer({
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full h-full p-2 overflow-y-auto min-h-0">
+    <div className="flex flex-col items-center w-full h-full px-4 py-4 overflow-y-auto min-h-0">
       {/* 9:16 PORTRAIT SHORTS LAYOUT: PHONE ON LEFT, TIMELINE DECK ON RIGHT */}
-      <div className="flex flex-row items-center justify-center gap-4 w-full max-w-4xl py-1 my-auto">
+      <div className="flex flex-row items-center justify-center gap-5 w-full max-w-4xl py-2 my-auto">
           {/* Phone Frame Container: Clean bezels, proportional height */}
           <div
             ref={phoneContainerRef}
@@ -924,7 +924,7 @@ export default function VideoPlayer({
           </div>
 
           {/* DOCKED TIMELINE & CONTROL DECK: Warm Lifted Editorial Style */}
-          <div className="w-full sm:w-[350px] lg:w-[370px] flex flex-col gap-2.5 bg-white border border-border-cream rounded-stadium p-4 sm:p-5 shadow-card-soft shrink-0 max-h-[min(620px,calc(100vh-130px))] overflow-y-auto">
+          <div className="w-full sm:w-[350px] lg:w-[370px] flex flex-col gap-2.5 bg-white border border-border-cream rounded-stadium p-4 sm:p-5 shadow-card-soft shrink-0 max-h-[min(620px,calc(100vh-165px))] overflow-y-auto">
             {/* Header: Scene Badge & Aspect Ratio */}
             <div className="flex items-center justify-between pb-2 border-b border-border-cream">
               <div className="flex items-center gap-1.5">

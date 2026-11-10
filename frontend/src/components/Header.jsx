@@ -15,10 +15,10 @@ export default function Header({
   const hasKey = userProfile?.has_gemini_key;
 
   return (
-    <div className="sticky top-3 z-40 px-4 sm:px-6 w-full max-w-7xl mx-auto">
-      <header className="bg-white/95 backdrop-blur-md border border-border-cream rounded-full px-5 py-2.5 flex items-center justify-between shadow-nav-pill transition-all">
+    <div className="shrink-0 z-40 w-full bg-canvas-cream border-b border-border-cream px-4 sm:px-6 py-3">
+      <header className="w-full max-w-7xl mx-auto bg-white/95 backdrop-blur-md border border-border-cream rounded-full px-5 py-2.5 flex items-center justify-between gap-3 shadow-nav-pill transition-all">
         {/* Brand Gesture */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           {/* Interlocking Editorial Circles */}
           <div className="relative flex items-center w-8 h-5 select-none" title="Clipzzz AI">
             <div className="w-5 h-5 rounded-full bg-mc-red shadow-sm"></div>
@@ -38,7 +38,7 @@ export default function Header({
 
         {/* Center Project Indicator (when editing) */}
         {isEditorView && activeProject && (
-          <div className="hidden md:flex items-center gap-2 bg-canvas-cream px-3.5 py-1 rounded-full border border-border-cream max-w-sm">
+          <div className="hidden md:flex items-center gap-2 bg-canvas-cream px-3.5 py-1 rounded-full border border-border-cream max-w-[240px] lg:max-w-sm min-w-0">
             <Video className="w-3.5 h-3.5 text-signal-orange shrink-0" />
             <span className="text-xs text-ink-black font-semibold truncate">{activeProject.title}</span>
             <span className="text-[10px] bg-white text-slate-gray px-2 py-0.5 rounded-full border border-border-cream shrink-0 font-medium">
@@ -57,7 +57,7 @@ export default function Header({
         )}
 
         {/* Right Actions */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 whitespace-nowrap">
           {/* Linked Key Status Pill */}
           <button
             onClick={onOpenKeyModal}
