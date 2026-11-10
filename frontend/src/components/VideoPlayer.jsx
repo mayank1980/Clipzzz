@@ -59,7 +59,7 @@ export default function VideoPlayer({
   const videoRef = useRef(null);
   const splitVideoRefs = useRef([]);
 
-  const computePanelCropBox = (rawX, rawY, mode = 'solo', zoomVal = 1.15) => {
+  const computePanelCropBox = (rawX, rawY, mode = 'solo', zoomVal = 1.15, panelIdx = 0) => {
     const SRC_AR = 16.0 / 9.0;
     const effZoom = Math.max(1.08, Math.min(2.5, Number(zoomVal) || 1.15));
     const zoomScale = effZoom / 1.15;
@@ -69,16 +69,21 @@ export default function VideoPlayer({
       const panelAr = 9.0 / 8.0;
       hf = Math.max(0.35, Math.min(0.94, 0.80 / zoomScale));
       wf = Math.max(0.24, Math.min(0.95, (hf * panelAr) / SRC_AR));
+    } else if (mode === 'split_3' && panelIdx < 2) {
+      // 3-person grid top row: two 540x960 portrait panes (9:16)
+      const panelAr = 9.0 / 16.0;
+      hf = Math.max(0.40, Math.min(0.95, 1.0 / effZoom));
+      wf = Math.max(0.20, Math.min(0.90, (hf * panelAr) / SRC_AR));
     } else if (mode === 'split_3') {
-      const panelAr = 1080.0 / 640.0;
-      wf = Math.max(0.24, Math.min(0.88, 0.45 / zoomScale));
-      hf = Math.max(0.22, Math.min(0.95, (wf * SRC_AR) / panelAr));
-      wf = (hf * panelAr) / SRC_AR;
+      // 3-person grid bottom row: full-width 1080x960 pane (9:8)
+      const panelAr = 9.0 / 8.0;
+      hf = Math.max(0.35, Math.min(0.94, 0.80 / zoomScale));
+      wf = Math.max(0.24, Math.min(0.95, (hf * panelAr) / SRC_AR));
     } else if (mode === 'split_4') {
-      const panelAr = 1080.0 / 480.0;
-      wf = Math.max(0.24, Math.min(0.88, 0.42 / zoomScale));
-      hf = Math.max(0.18, Math.min(0.95, (wf * SRC_AR) / panelAr));
-      wf = (hf * panelAr) / SRC_AR;
+      // 4-person 2x2 grid: four 540x960 portrait panes (9:16)
+      const panelAr = 9.0 / 16.0;
+      hf = Math.max(0.40, Math.min(0.95, 1.0 / effZoom));
+      wf = Math.max(0.20, Math.min(0.90, (hf * panelAr) / SRC_AR));
     } else {
       hf = 1.0 / effZoom;
       wf = (hf * (9.0 / 16.0)) / SRC_AR;
@@ -89,7 +94,7 @@ export default function VideoPlayer({
     const cx = Math.max(0.0, Math.min(100.0, ((normX - wf / 2.0) / spanX) * 100.0));
 
     let cy;
-    if (mode === 'solo') {
+    if (mode === 'solo' || mode === 'split_4' || (mode === 'split_3' && panelIdx < 2)) {
       cy = Math.max(25.0, Math.min(45.0, Number(rawY)));
     } else {
       const spanY = Math.max(0.001, 1.0 - hf);
@@ -670,9 +675,9 @@ export default function VideoPlayer({
     activeKf.panels.length >= 2;
 
   const splitPanels = isSplitScreen
-    ? activeKf.panels.slice(0, 4).map((p) =>
+    ? activeKf.panels.slice(0, 4).map((p, idx) =>
         p.raw_x !== undefined && p.raw_y !== undefined
-          ? computePanelCropBox(p.raw_x, p.raw_y, activeKfMode, effectiveZoom)
+          ? computePanelCropBox(p.raw_x, p.raw_y, activeKfMode, effectiveZoom, idx)
           : { x: p.x ?? 50, y: p.y ?? 50, wf: p.wf ?? 0.45, hf: p.hf ?? 0.5 }
       )
     : [];
@@ -1035,13 +1040,27 @@ export default function VideoPlayer({
             )}
 
             {/* Video Stage Container (Persistent Panel 0 prevents remounting videoRef on solo/split transitions) */}
-            <div className={`relative z-10 w-full h-full flex ${cropMode === 'blur_fill' ? 'items-center justify-center' : 'flex-col bg-black'}`}>
+            <div
+              className={`relative z-10 w-full h-full ${
+                cropMode === 'blur_fill'
+                  ? 'flex items-center justify-center'
+                  : isSplitScreen && (activeKfMode === 'split_3' || activeKfMode === 'split_4')
+                    ? 'grid grid-cols-2 grid-rows-2 bg-black'
+                    : 'flex flex-col bg-black'
+              }`}
+            >
               {/* Primary Panel (Solo or Split Panel 0) */}
               <div
                 className={
                   cropMode === 'blur_fill'
                     ? 'w-full flex items-center justify-center'
-                    : `flex-1 w-full relative overflow-hidden ${isSplitScreen ? 'border-b border-ink-black' : ''}`
+                    : `w-full h-full relative overflow-hidden ${
+                        isSplitScreen && (activeKfMode === 'split_3' || activeKfMode === 'split_4')
+                          ? 'border-b border-r border-ink-black'
+                          : isSplitScreen
+                            ? 'flex-1 border-b border-ink-black'
+                            : 'flex-1'
+                      }`
                 }
               >
                 <video
@@ -1094,14 +1113,28 @@ export default function VideoPlayer({
                 />
               </div>
 
-              {/* Additional Vertical Split Panels (2, 3, or 4 Stacked Speakers) */}
+              {/* Additional Split Panels (Split-2 stacked, Split-3 2+1 Grid, or Split-4 2x2 Grid) */}
               {isSplitScreen &&
-                splitPanels.slice(1).map((panelBox, idx) => (
-                  <div
-                    key={idx + 1}
-                    onClick={togglePlay}
-                    className="flex-1 w-full relative overflow-hidden border-b border-ink-black last:border-b-0 cursor-pointer"
-                  >
+                splitPanels.slice(1).map((panelBox, idx) => {
+                  const cellIdx = idx + 1;
+                  const cellBorderClass =
+                    activeKfMode === 'split_3'
+                      ? cellIdx === 1
+                        ? 'border-b border-ink-black'
+                        : 'col-span-2'
+                      : activeKfMode === 'split_4'
+                        ? cellIdx === 1
+                          ? 'border-b border-ink-black'
+                          : cellIdx === 2
+                            ? 'border-r border-ink-black'
+                            : ''
+                        : 'flex-1 border-b border-ink-black last:border-b-0';
+                  return (
+                    <div
+                      key={cellIdx}
+                      onClick={togglePlay}
+                      className={`w-full h-full relative overflow-hidden cursor-pointer ${cellBorderClass}`}
+                    >
                     <video
                       ref={(el) => {
                         splitVideoRefs.current[idx] = el;
@@ -1123,7 +1156,8 @@ export default function VideoPlayer({
                       }}
                     />
                   </div>
-                ))}
+                  );
+                })}
             </div>
 
             {/* Video Load Error / Connecting Fallback */}

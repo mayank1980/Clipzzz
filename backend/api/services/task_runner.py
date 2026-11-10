@@ -309,8 +309,11 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 # Automatically enhance framing & multi-speaker keyframes for matched clips if missing or default
                 if (not matched.crop_keyframes or len(matched.crop_keyframes) <= 1 or matched.crop_x == 50.0) and video_full_path and os.path.exists(video_full_path):
                     try:
-                        from .face_tracker import generate_camera_keyframes
-                        computed_kfs = generate_camera_keyframes(video_full_path, matched.start_time, matched.duration)
+                        from .face_tracker import generate_camera_keyframes, analyze_clip_initial_framing
+                        if total_clips > 6:
+                            computed_kfs = analyze_clip_initial_framing(video_full_path, matched.start_time, matched.duration)
+                        else:
+                            computed_kfs = generate_camera_keyframes(video_full_path, matched.start_time, matched.duration)
                         if computed_kfs:
                             matched.crop_keyframes = computed_kfs
                             matched.crop_x = computed_kfs[0]['x']
@@ -329,6 +332,53 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             project.progress = 80 + int((already_created_count / max(1, total_clips)) * 18)
             project.save(update_fields=['status_message', 'progress'])
 
+        missing_indices = [i for i in range(len(highlights)) if i not in highlight_to_clip]
+        precomputed_kfs = {}
+        used_fast_initial_framing = False
+
+        if missing_indices and getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from .face_tracker import generate_camera_keyframes, analyze_clip_initial_framing
+
+            use_fast_initial = len(missing_indices) > 6
+            used_fast_initial_framing = use_fast_initial
+            worker_count = min(8 if use_fast_initial else 6, len(missing_indices))
+
+            update_ai_status(
+                85,
+                f"Framing {len(missing_indices)} clips in parallel ({worker_count} workers)..."
+            )
+
+            def _track_one(item_idx: int):
+                item_h = highlights[item_idx]
+                s_t = float(item_h['start'])
+                e_t = float(item_h['end'])
+                dur_t = max(1.0, e_t - s_t)
+                if use_fast_initial:
+                    kfs = analyze_clip_initial_framing(video_full_path, s_t, dur_t)
+                else:
+                    kfs = generate_camera_keyframes(video_full_path, s_t, dur_t)
+                return item_idx, kfs
+
+            completed_tracks = 0
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                futures = {pool.submit(_track_one, m_idx): m_idx for m_idx in missing_indices}
+                for fut in as_completed(futures):
+                    m_idx = futures[fut]
+                    try:
+                        ret_idx, ret_kfs = fut.result()
+                        if ret_kfs:
+                            precomputed_kfs[ret_idx] = ret_kfs
+                    except Exception as track_err:
+                        print(f"[_run_video_pipeline] Parallel tracking notice for clip {m_idx + 1}: {track_err}")
+                    completed_tracks += 1
+                    if completed_tracks % 8 == 0 or completed_tracks == len(missing_indices):
+                        pct_track = 85 + int((completed_tracks / max(1, len(missing_indices))) * 10)
+                        update_ai_status(
+                            pct_track,
+                            f"Framed {completed_tracks}/{len(missing_indices)} clips..."
+                        )
+
         created_count = 0
         # Pass 2: Create only the remaining clips that are missing
         for idx, h in enumerate(highlights):
@@ -339,11 +389,12 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             c_end = float(h['end'])
             c_dur = max(1.0, c_end - c_start)
 
-            pct = 85 + int(((idx + 1) / max(1, total_clips)) * 14)
+            pct = 95 + int(((idx + 1) / max(1, total_clips)) * 4)
             clip_title = h.get('title', f"Clip {idx + 1}")
-            project.progress = pct
-            project.status_message = f"Assembling Shorts Package ({idx + 1}/{total_clips}): '{clip_title[:28]}' ({c_dur:.0f}s)..."
-            project.save(update_fields=['progress', 'status_message'])
+            if idx == 0 or (idx + 1) % 8 == 0 or (idx + 1) == total_clips:
+                project.progress = pct
+                project.status_message = f"Assembling Shorts Package ({idx + 1}/{total_clips}): '{clip_title[:28]}' ({c_dur:.0f}s)..."
+                project.save(update_fields=['progress', 'status_message'])
 
             # Fast In-Memory Transcript Word Slicing (Instant array slice & 0.0s rebase)
             aligned_words = []
@@ -388,22 +439,21 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             is_speaker_centered = True
 
             # Fast, accurate primary speaker centering and dynamic camera keyframes on clip creation
-            if getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
+            computed_kfs = precomputed_kfs.get(idx)
+            if computed_kfs:
+                crop_keyframes = computed_kfs
+                crop_x = computed_kfs[0]['x']
+                crop_y = computed_kfs[0]['y']
+                crop_zoom = computed_kfs[0].get('zoom', 1.15)
+            elif getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
                 try:
-                    from .face_tracker import generate_camera_keyframes, detect_primary_speaker_center
-                    computed_kfs = generate_camera_keyframes(video_full_path, c_start, c_dur)
+                    from .face_tracker import analyze_clip_initial_framing
+                    computed_kfs = analyze_clip_initial_framing(video_full_path, c_start, c_dur)
                     if computed_kfs:
                         crop_keyframes = computed_kfs
                         crop_x = computed_kfs[0]['x']
                         crop_y = computed_kfs[0]['y']
                         crop_zoom = computed_kfs[0].get('zoom', 1.15)
-                    else:
-                        center_info = detect_primary_speaker_center(video_full_path, c_start, sample_duration=min(4.0, c_dur))
-                        if center_info and center_info.get('x'):
-                            crop_x = center_info['x']
-                            crop_y = center_info.get('y', 35.0)
-                            crop_zoom = center_info.get('zoom', 1.15)
-                            crop_keyframes = [{"time": 0.0, "mode": "solo", "x": crop_x, "y": crop_y, "zoom": crop_zoom, "speaker": "Speaker Focus"}]
                 except Exception as track_err:
                     print(f"[_run_video_pipeline] Auto-tracking notice for clip {idx + 1}: {track_err}")
 
@@ -465,6 +515,15 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             project.status_message = f'Ready! Generated {total_clips} clips.'
         project.save(update_fields=['status', 'progress', 'status_message'])
 
+        # Non-blocking background enrichment: fill continuous second-by-second camera keyframes
+        # after Studio is already open so large batches don't make the user wait.
+        if used_fast_initial_framing and video_full_path and os.path.exists(video_full_path):
+            threading.Thread(
+                target=_enrich_project_keyframes_async,
+                args=(str(project.id), video_full_path),
+                daemon=True,
+            ).start()
+
     except Exception as e:
         traceback.print_exc()
         project.status = 'failed'
@@ -477,6 +536,61 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             project.error_message = err_msg
             project.status_message = f"Failed: {err_msg[:100]}"
         project.save(update_fields=['status', 'error_message', 'status_message'])
+
+
+def _enrich_project_keyframes_async(project_id: str, video_full_path: str):
+    """
+    Background worker that upgrades single-frame initial clip framing into full continuous
+    multi-speaker camera keyframes without blocking Studio availability.
+    """
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from .face_tracker import generate_camera_keyframes
+
+        clips = list(
+            VideoClip.objects.filter(project_id=project_id).order_by('part_number', 'start_time')
+        )
+        pending = [
+            c for c in clips
+            if c.crop_mode != 'manual_crop'
+            and (
+                len(c.crop_keyframes or []) <= 1
+                or any(isinstance(kf, dict) and kf.get('initial') for kf in (c.crop_keyframes or []))
+            )
+            and not (c.crop_keyframes and c.crop_keyframes[0].get('speaker') in ('Manual Focus', 'Manual Framing'))
+        ]
+        if not pending:
+            return
+
+        def _compute_for_clip(clip_obj):
+            return str(clip_obj.id), generate_camera_keyframes(video_full_path, clip_obj.start_time, clip_obj.duration)
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(_compute_for_clip, c) for c in pending]
+            for fut in as_completed(futures):
+                try:
+                    cid, computed_kfs = fut.result()
+                    if not computed_kfs:
+                        continue
+                    fresh = VideoClip.objects.filter(id=cid).first()
+                    if not fresh or fresh.crop_mode == 'manual_crop':
+                        continue
+                    fresh_kfs = fresh.crop_keyframes or []
+                    is_still_initial = len(fresh_kfs) <= 1 or any(isinstance(kf, dict) and kf.get('initial') for kf in fresh_kfs)
+                    if not is_still_initial:
+                        continue
+                    first_spk = (fresh.crop_keyframes[0].get('speaker') if fresh.crop_keyframes else '')
+                    if first_spk in ('Manual Focus', 'Manual Framing'):
+                        continue
+                    fresh.crop_keyframes = computed_kfs
+                    fresh.crop_x = computed_kfs[0]['x']
+                    fresh.crop_y = computed_kfs[0]['y']
+                    fresh.crop_zoom = fresh.crop_zoom or computed_kfs[0].get('zoom', 1.15)
+                    fresh.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom'])
+                except Exception as ce:
+                    print(f"[_enrich_project_keyframes_async] Clip keyframe enrichment notice: {ce}")
+    except Exception as e:
+        print(f"[_enrich_project_keyframes_async] Enrichment notice: {e}")
 
 
 def render_clip_async(clip_id: str):
@@ -534,7 +648,8 @@ def _run_clip_render(clip_id: str, clean: bool = False):
             if first_kf.get('speaker') in ('Manual Focus', 'Manual Framing') or clip.crop_mode == 'manual_crop':
                 is_user_customized = True
 
-        if not is_user_customized and len(crop_kfs) <= 1 and getattr(project, 'auto_speaker_tracking', True):
+        needs_keyframes = len(crop_kfs) <= 1 or any(isinstance(kf, dict) and kf.get('initial') for kf in crop_kfs)
+        if not is_user_customized and needs_keyframes and getattr(project, 'auto_speaker_tracking', True):
             try:
                 from .face_tracker import generate_camera_keyframes
                 computed_kfs = generate_camera_keyframes(source_video_path, clip.start_time, clip.duration)

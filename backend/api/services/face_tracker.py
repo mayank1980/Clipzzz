@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import subprocess
+import threading
 from typing import List, Dict, Any, Tuple
 
 def to_916_crop_x(face_cx_pct: float, zoom: float = 1.15) -> float:
@@ -40,11 +41,17 @@ def to_916_crop_y(face_cy_pct: float, zoom: float = 1.15) -> float:
     clamped_y = round(max(25.0, min(45.0, float(face_cy_pct))), 1)
     return clamped_y
 
-def compute_panel_crop_box(face_cx_pct: float, face_cy_pct: float, mode: str = 'solo', zoom: float = 1.15) -> Dict[str, float]:
+def compute_panel_crop_box(
+    face_cx_pct: float,
+    face_cy_pct: float,
+    mode: str = 'solo',
+    zoom: float = 1.15,
+    panel_idx: int = 0
+) -> Dict[str, float]:
     """
     Computes normalized 16:9 crop dimensions (wf, hf) and scroll coordinates (x, y in 0-100%)
-    for either full 9:16 ('solo') or stacked vertical split panels ('split_2', 'split_3', 'split_4').
-    Preserves exact 16:9 -> panel aspect ratio so both CSS preview and FFmpeg match 1:1 with zero stretch.
+    for either full 9:16 ('solo'), 2-row stacked ('split_2'), 2+1 Grid ('split_3'), or 2x2 Grid ('split_4').
+    Preserves exact 16:9 -> panel aspect ratio so CSS preview and FFmpeg match 1:1 with zero stretch.
     """
     SRC_AR = 16.0 / 9.0
     eff_zoom = max(1.08, min(2.5, float(zoom)))
@@ -55,18 +62,21 @@ def compute_panel_crop_box(face_cx_pct: float, face_cy_pct: float, mode: str = '
         panel_ar = 9.0 / 8.0
         hf = max(0.35, min(0.94, 0.80 / zoom_scale))
         wf = max(0.24, min(0.95, hf * panel_ar / SRC_AR))
+    elif mode == 'split_3' and panel_idx < 2:
+        # 3-person grid top row: two 540x960 portrait panels (AR = 9:16)
+        panel_ar = 9.0 / 16.0
+        hf = max(0.40, min(0.95, 1.0 / eff_zoom))
+        wf = max(0.20, min(0.90, hf * panel_ar / SRC_AR))
     elif mode == 'split_3':
-        # 3 vertical stacked panels: 1080x640 each (AR = 1.6875)
-        panel_ar = 1080.0 / 640.0
-        wf = max(0.24, min(0.88, 0.45 / zoom_scale))
-        hf = max(0.22, min(0.95, wf * SRC_AR / panel_ar))
-        wf = hf * panel_ar / SRC_AR
+        # 3-person grid bottom row: full-width 1080x960 panel (AR = 1.125)
+        panel_ar = 9.0 / 8.0
+        hf = max(0.35, min(0.94, 0.80 / zoom_scale))
+        wf = max(0.24, min(0.95, hf * panel_ar / SRC_AR))
     elif mode == 'split_4':
-        # 4 vertical stacked panels: 1080x480 each (AR = 2.25)
-        panel_ar = 1080.0 / 480.0
-        wf = max(0.24, min(0.88, 0.42 / zoom_scale))
-        hf = max(0.18, min(0.95, wf * SRC_AR / panel_ar))
-        wf = hf * panel_ar / SRC_AR
+        # 4-person 2x2 grid: four 540x960 portrait panels (AR = 9:16)
+        panel_ar = 9.0 / 16.0
+        hf = max(0.40, min(0.95, 1.0 / eff_zoom))
+        wf = max(0.20, min(0.90, hf * panel_ar / SRC_AR))
     else:
         # Solo 9:16 portrait (AR = 0.5625)
         hf = 1.0 / eff_zoom
@@ -77,6 +87,9 @@ def compute_panel_crop_box(face_cx_pct: float, face_cy_pct: float, mode: str = '
     crop_x = max(0.0, min(100.0, ((norm_x - wf / 2.0) / span_x) * 100.0))
 
     if mode == 'solo':
+        crop_y = to_916_crop_y(face_cy_pct, zoom=eff_zoom)
+    elif mode in ('split_4',) or (mode == 'split_3' and panel_idx < 2):
+        # Portrait 9:16 grid cell uses same golden upper-third eye placement
         crop_y = to_916_crop_y(face_cy_pct, zoom=eff_zoom)
     else:
         span_y = max(0.001, 1.0 - hf)
@@ -95,9 +108,9 @@ def compute_panel_crop_box(face_cx_pct: float, face_cy_pct: float, mode: str = '
 
 def dedupe_frame_people(faces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Filters duplicate/overlapping boxes on the same person (same horizontal column)
-    and insignificant background detections so split screens trigger strictly for
-    distinct foreground people standing/sitting side-by-side.
+    Filters duplicate/overlapping boxes on the same person (same body/face column)
+    and weak/background detections so split screens trigger strictly for genuinely
+    distinct foreground people in the frame — never duplicating the same person twice.
     Returns up to 4 people sorted left-to-right by horizontal center (cx).
     """
     if not faces:
@@ -108,12 +121,17 @@ def dedupe_frame_people(faces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for f in ranked:
         if f.get('area', 0) < max_area * 0.28:
             continue
-        if f.get('confidence', 0.5) < 0.40:
+        if f.get('confidence', 0.5) < 0.45:
             continue
+        f_w_pct = float(f.get('w_pct', 10.0))
         is_dup = False
         for k in kept:
-            # Same person if horizontally within 16% (prevents shirt/hand detections below chin from splitting a solo speaker)
-            if abs(f['cx'] - k['cx']) < 16.0:
+            k_w_pct = float(k.get('w_pct', 10.0))
+            dx = abs(f['cx'] - k['cx'])
+            dy = abs(f['cy'] - k['cy'])
+            # Minimum horizontal separation scaled by face width prevents ear/shoulder/double-crop on same person
+            min_horiz_sep = max(18.0, (f_w_pct + k_w_pct) * 1.15)
+            if dx < 16.0 or (dx < min_horiz_sep and dy < 38.0):
                 is_dup = True
                 break
         if not is_dup:
@@ -122,6 +140,60 @@ def dedupe_frame_people(faces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             break
     kept.sort(key=lambda p: p['cx'])
     return kept
+
+
+def classify_frame_shot(distinct_people: List[Dict[str, Any]], zoom: float = 1.15) -> Dict[str, Any]:
+    """
+    Shared shot layout classifier:
+      - 1 person -> 'solo' centered portrait
+      - 2 distinct foreground people -> 'split_2' stacked
+      - 3 distinct foreground people -> 'split_3' (2+1 Grid)
+      - 4+ distinct foreground people -> 'split_4' (2x2 Grid)
+    Guarantees two split panes never duplicate overlapping regions of the same person.
+    """
+    if not distinct_people:
+        return {"mode": "solo", "panels": None, "target_people": []}
+
+    split_eligible = [
+        p for p in distinct_people
+        if float(p.get('confidence', 0.0)) >= 0.54 and float(p.get('area_pct', 1.0)) >= 0.60
+    ]
+    split_eligible.sort(key=lambda p: p['cx'])
+
+    # Enforce strict adjacent separation so 2 panels never frame the same person twice
+    spaced: List[Dict[str, Any]] = []
+    for p in split_eligible:
+        if not spaced or (p['cx'] - spaced[-1]['cx']) >= 18.0:
+            spaced.append(p)
+
+    xs = [p['cx'] for p in spaced]
+    horiz_span = (max(xs) - min(xs)) if len(spaced) > 1 else 0.0
+
+    if len(spaced) >= 2 and horiz_span >= 24.0:
+        n_panes = min(4, len(spaced))
+        mode = f"split_{n_panes}"
+        panels = [
+            compute_panel_crop_box(p['cx'], p['cy'], mode=mode, zoom=zoom, panel_idx=p_idx)
+            for p_idx, p in enumerate(spaced[:n_panes])
+        ]
+        label = (
+            "2-Person Split" if n_panes == 2
+            else ("3-Person Grid" if n_panes == 3 else "4-Person Grid")
+        )
+        return {
+            "mode": mode,
+            "panels": panels,
+            "x": panels[0]["x"],
+            "y": panels[0]["y"],
+            "speaker": label,
+            "target_people": spaced[:n_panes],
+        }
+
+    return {
+        "mode": "solo",
+        "panels": None,
+        "target_people": distinct_people,
+    }
 
 def ensure_yunet_model() -> str:
     """
@@ -173,54 +245,49 @@ class AutoCameraEngine:
                     self.yunet_path,
                     "",
                     (320, 320),
-                    score_threshold=0.18,
+                    score_threshold=0.36,
                     nms_threshold=0.30,
                     top_k=5000
                 )
             except Exception as e:
                 print(f"[AutoCameraEngine] YuNet init notice: {e}")
 
-        # 2. Multi-Cascade Suite: Frontal, Left Profile, Right Profile, and Upper Body (Reading/Looking Down)
+        # 2. Secondary Cascade Suite: Frontal + Bilateral Profile (no noisy upperbody/HOG hallucinations)
         alt2_path = cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'
         prof_path = cv2.data.haarcascades + 'haarcascade_profileface.xml'
-        upper_path = cv2.data.haarcascades + 'haarcascade_upperbody.xml'
         self.face_cascade_alt2 = cv2.CascadeClassifier(alt2_path) if os.path.exists(alt2_path) else None
         self.profile_cascade = cv2.CascadeClassifier(prof_path) if os.path.exists(prof_path) else None
-        self.upperbody_cascade = cv2.CascadeClassifier(upper_path) if os.path.exists(upper_path) else None
+        self.upperbody_cascade = None
         self.hog_detector = None
-        try:
-            hog = cv2.HOGDescriptor()
-            hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-            self.hog_detector = hog
-        except Exception:
-            pass
 
     def _has_valid_face_skin(self, bgr_crop: np.ndarray) -> bool:
         if bgr_crop is None or bgr_crop.size == 0:
             return False
         hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
-        # Handle all skin tones (fair, olive, tan, deep) under diverse lighting
-        # Skin hue spans both yellow-orange (0-35) and deep warm red (165-180)
-        lower_skin1 = np.array([0, 12, 25], dtype=np.uint8)
-        upper_skin1 = np.array([36, 255, 255], dtype=np.uint8)
+        # Restrict HSV strictly toward genuine human skin hues (reject green grass, olive camo, foliage)
+        lower_skin1 = np.array([0, 22, 35], dtype=np.uint8)
+        upper_skin1 = np.array([25, 255, 255], dtype=np.uint8)
         mask1 = cv2.inRange(hsv, lower_skin1, upper_skin1)
 
-        lower_skin2 = np.array([165, 12, 25], dtype=np.uint8)
+        lower_skin2 = np.array([168, 22, 35], dtype=np.uint8)
         upper_skin2 = np.array([180, 255, 255], dtype=np.uint8)
         mask2 = cv2.inRange(hsv, lower_skin2, upper_skin2)
 
         mask = cv2.bitwise_or(mask1, mask2)
         skin_pct = (mask > 0).mean() * 100.0
-        return skin_pct >= 4.0
+        return skin_pct >= 14.0
 
-    def detect_faces_in_frame(self, frame: np.ndarray, target_w: int = 640) -> List[Dict[str, Any]]:
+    def detect_faces_in_frame(self, frame: np.ndarray, target_w: int = 480, check_profile: bool = True) -> List[Dict[str, Any]]:
         orig_h, orig_w = frame.shape[:2]
         if orig_w == 0 or orig_h == 0:
             return []
 
         scale = float(target_w) / orig_w
-        new_h = int(orig_h * scale)
+        new_h = max(1, int(orig_h * scale))
         small = cv2.resize(frame, (target_w, new_h), interpolation=cv2.INTER_LINEAR)
+        frame_area = float(target_w * new_h)
+        min_face_dim = max(16, int(target_w * 0.032))
+        min_face_area = max(320, int(frame_area * 0.0028))
 
         results = []
 
@@ -238,8 +305,8 @@ class AutoCameraEngine:
                         fh = min(new_h - y1, int(f[3]))
                         score = float(f[14]) if len(f) > 14 else 0.8
 
-                        # Reject noise/speckles on walls (must be genuine face size)
-                        if score < 0.20 or fw < 20 or fh < 22 or (fw * fh) < 450:
+                        # Reject noise/speckles on walls & scenery
+                        if score < 0.40 or fw < min_face_dim or fh < min_face_dim or (fw * fh) < min_face_area:
                             continue
 
                         cx_pct = ((x1 + fw / 2.0) / float(target_w)) * 100.0
@@ -249,9 +316,9 @@ class AutoCameraEngine:
                         if cy_pct < 4.0 or cy_pct > 95.0 or cx_pct < 2.0 or cx_pct > 98.0:
                             continue
 
-                        # Skin tone validation on smaller/marginal detections to eliminate wall/brick false positives
+                        # Skin tone validation on marginal detections to eliminate non-face textures
                         crop = small[y1:y1+fh, x1:x1+fw]
-                        if (fw * fh < 1400 or score < 0.65) and not self._has_valid_face_skin(crop):
+                        if score < 0.66 and not self._has_valid_face_skin(crop):
                             continue
 
                         results.append({
@@ -259,6 +326,8 @@ class AutoCameraEngine:
                             'y': y1,
                             'w': fw,
                             'h': fh,
+                            'w_pct': (fw / float(target_w)) * 100.0,
+                            'area_pct': ((fw * fh) / frame_area) * 100.0,
                             'cx': float(cx_pct),
                             'cy': float(cy_pct),
                             'area': int(fw * fh),
@@ -267,7 +336,7 @@ class AutoCameraEngine:
 
                     # Fast path: only skip cascades if YuNet already found 2+ distinct prominent faces
                     distinct_yn = dedupe_frame_people(results)
-                    if len(distinct_yn) >= 2 and all(r['area'] >= 900 and r['confidence'] >= 0.60 for r in distinct_yn):
+                    if len(distinct_yn) >= 2 and all(r.get('area_pct', 0) >= 0.50 and r['confidence'] >= 0.58 for r in distinct_yn):
                         primary = max(results, key=lambda r: r['area'])
                         self.current_focal_x = primary['cx']
                         self.current_focal_y = primary['cy']
@@ -275,94 +344,129 @@ class AutoCameraEngine:
             except Exception as e:
                 pass
 
-        # 2. Multi-Cascade Robust Suite: Frontal, Left Profile, Right Profile (Turned/Reading Faces)
-        has_prominent_yunet = any(r['area'] >= 900 and r['confidence'] >= 0.60 for r in results)
+        # 2. Multi-Cascade Suite: Frontal & Bilateral Profile (Zero noisy upperbody/HOG hallucinations)
+        has_prominent_yunet = any(r.get('area_pct', 0) >= 0.45 and r['confidence'] >= 0.58 for r in results)
+        if has_prominent_yunet:
+            # Fast path when YuNet already detected a clear face:
+            # - On normal timeline frames (check_profile=False), return immediately (~20-26ms).
+            # - On profile check frames, sweep downsampled 320px gray frame ONLY for an
+            #   independent side-facing speaker far (>=22%) from existing YuNet faces.
+            if check_profile and self.profile_cascade and not self.profile_cascade.empty():
+                prof_w = min(320, target_w)
+                prof_scale = float(prof_w) / float(target_w)
+                prof_h = max(1, int(new_h * prof_scale))
+                gray_prof = cv2.cvtColor(
+                    cv2.resize(small, (prof_w, prof_h), interpolation=cv2.INTER_AREA),
+                    cv2.COLOR_BGR2GRAY
+                )
+                inv_scale = 1.0 / prof_scale
+                prof_dets = []
+                lp = self.profile_cascade.detectMultiScale(
+                    gray_prof, scaleFactor=1.12, minNeighbors=4, minSize=(20, 20)
+                )
+                for (x, y, w, h) in lp:
+                    prof_dets.append((int(x * inv_scale), int(y * inv_scale), int(w * inv_scale), int(h * inv_scale)))
+
+                flipped_prof = cv2.flip(gray_prof, 1)
+                rp = self.profile_cascade.detectMultiScale(
+                    flipped_prof, scaleFactor=1.12, minNeighbors=4, minSize=(20, 20)
+                )
+                for (fx, y, w, h) in rp:
+                    orig_px = prof_w - fx - w
+                    prof_dets.append((int(orig_px * inv_scale), int(y * inv_scale), int(w * inv_scale), int(h * inv_scale)))
+
+                for (px, py, pw, ph) in prof_dets:
+                    px = max(0, min(target_w - 1, px))
+                    py = max(0, min(new_h - 1, py))
+                    pw = min(target_w - px, pw)
+                    ph = min(new_h - py, ph)
+                    if pw < min_face_dim or ph < min_face_dim or (pw * ph) < min_face_area:
+                        continue
+                    cx_pct = ((px + pw / 2.0) / float(target_w)) * 100.0
+                    cy_pct = ((py + ph / 2.0) / float(new_h)) * 100.0
+                    if not (4.0 <= cy_pct <= 96.0 and 2.0 <= cx_pct <= 98.0):
+                        continue
+                    # Never duplicate or add an ear/shoulder next to an already-found YuNet face
+                    if any(abs(cx_pct - r['cx']) < 22.0 for r in results):
+                        continue
+                    crop = small[py:py+ph, px:px+pw]
+                    if not self._has_valid_face_skin(crop):
+                        continue
+                    results.append({
+                        'x': px,
+                        'y': py,
+                        'w': pw,
+                        'h': ph,
+                        'w_pct': (pw / float(target_w)) * 100.0,
+                        'area_pct': ((pw * ph) / frame_area) * 100.0,
+                        'cx': float(cx_pct),
+                        'cy': float(cy_pct),
+                        'area': int(pw * ph),
+                        'confidence': 0.60,
+                    })
+
+            primary = max(results, key=lambda r: r['area'])
+            self.current_focal_x = primary['cx']
+            self.current_focal_y = primary['cy']
+            return results
+
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         detections = []
 
-        # Frontal Alt2 (only needed if YuNet didn't find a strong frontal face)
-        if not has_prominent_yunet and self.face_cascade_alt2 and not self.face_cascade_alt2.empty():
+        # Frontal Alt2 (when YuNet missed a frontal face)
+        if self.face_cascade_alt2 and not self.face_cascade_alt2.empty():
             faces_alt2 = self.face_cascade_alt2.detectMultiScale(
                 gray,
-                scaleFactor=1.08,
-                minNeighbors=3,
+                scaleFactor=1.12,
+                minNeighbors=5,
                 minSize=(22, 22)
             )
             for (x, y, w, h) in faces_alt2:
                 ratio = w / float(h)
-                if 0.60 <= ratio <= 1.40:
+                if 0.65 <= ratio <= 1.35:
                     crop = small[y:y+h, x:x+w]
                     if self._has_valid_face_skin(crop):
-                        detections.append((x, y, w, h, 0.75))
+                        detections.append((x, y, w, h, 0.58))
 
-        # Left & Right Profile Cascades: always run if fewer than 2 people found so far (catches side-facing second speakers)
-        if self.profile_cascade and not self.profile_cascade.empty():
+        # Left & Right Profile Cascades (strict minNeighbors=5 + skin check so scenery/camo never triggers splits)
+        if check_profile and self.profile_cascade and not self.profile_cascade.empty():
             prof_faces = self.profile_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.05,
-                minNeighbors=3 if has_prominent_yunet else 2,
+                scaleFactor=1.12,
+                minNeighbors=5,
                 minSize=(24, 24)
             )
             for (x, y, w, h) in prof_faces:
                 crop = small[y:y+h, x:x+w]
                 if self._has_valid_face_skin(crop):
-                    detections.append((x, y, w, h, 0.78))
+                    detections.append((x, y, w, h, 0.58))
 
             flipped_gray = cv2.flip(gray, 1)
             prof_right = self.profile_cascade.detectMultiScale(
                 flipped_gray,
-                scaleFactor=1.05,
-                minNeighbors=3 if has_prominent_yunet else 2,
+                scaleFactor=1.12,
+                minNeighbors=5,
                 minSize=(24, 24)
             )
             for (fx, fy, fw, fh) in prof_right:
                 orig_x = target_w - (fx + fw)
                 crop = small[fy:fy+fh, orig_x:orig_x+fw]
                 if self._has_valid_face_skin(crop):
-                    detections.append((orig_x, fy, fw, fh, 0.78))
-
-        # 3. Upper Body Cascade (Person reading letter, looking down at phone or table)
-        if not results and not detections and self.upperbody_cascade and not self.upperbody_cascade.empty():
-            upper_bodies = self.upperbody_cascade.detectMultiScale(
-                gray,
-                scaleFactor=1.06,
-                minNeighbors=2,
-                minSize=(36, 36)
-            )
-            for (ux, uy, uw, uh) in upper_bodies:
-                head_w = int(uw * 0.55)
-                head_h = int(uh * 0.45)
-                head_x = int(ux + (uw - head_w) / 2)
-                head_y = uy
-                crop = small[head_y:head_y+head_h, head_x:head_x+head_w]
-                if self._has_valid_face_skin(crop):
-                    detections.append((head_x, head_y, head_w, head_h, 0.70))
-
-        # 4. HOG People Detector Fallback (Torso / seated human body on frame borders)
-        if not results and not detections and self.hog_detector is not None:
-            try:
-                boxes, weights = self.hog_detector.detectMultiScale(small, winStride=(8, 8), padding=(4, 4), scale=1.08)
-                for (bx, by, bw, bh), weight in zip(boxes, weights):
-                    if weight > 0.12 and bh >= 60:
-                        hw = int(bw * 0.50)
-                        hh = int(bh * 0.30)
-                        hx = int(bx + (bw - hw) / 2)
-                        hy = int(by + bh * 0.05)
-                        detections.append((hx, hy, hw, hh, float(weight)))
-            except Exception:
-                pass
+                    detections.append((orig_x, fy, fw, fh, 0.58))
 
         for det in detections:
             x, y, w, h = det[0], det[1], det[2], det[3]
-            conf = det[4] if len(det) > 4 else 0.70
+            conf = det[4] if len(det) > 4 else 0.58
             cx_pct = ((x + w / 2.0) / float(target_w)) * 100.0
             cy_pct = ((y + h / 2.0) / float(new_h)) * 100.0
-            if 4.0 <= cy_pct <= 96.0 and 2.0 <= cx_pct <= 98.0:
+            if 4.0 <= cy_pct <= 96.0 and 2.0 <= cx_pct <= 98.0 and (w * h) >= min_face_area:
                 results.append({
                     'x': int(x),
                     'y': int(y),
                     'w': int(w),
                     'h': int(h),
+                    'w_pct': (w / float(target_w)) * 100.0,
+                    'area_pct': ((w * h) / frame_area) * 100.0,
                     'cx': float(cx_pct),
                     'cy': float(cy_pct),
                     'area': int(w * h),
@@ -557,32 +661,33 @@ class AutoCameraEngine:
         video_path: str,
         start_sec: float,
         duration: float = 30.0,
-        sample_interval: float = 0.32
+        sample_interval: float = 0.45
     ) -> List[Dict[str, Any]]:
         """
         Responsive Multi-Speaker Camera Tracking Engine with:
-        1. YuNet neural face detection (Zero wall false-positives).
-        2. Bilateral profile and reading/looking-down posture detection.
+        1. YuNet neural face detection (Zero wall/scenery false-positives).
+        2. Bilateral profile detection for side-facing speakers.
         3. Mathematical 9:16 Projection: Subjects always centered dead in frame.
-        4. Sticky Memory: Holds speaker framing if face obscured, never snaps to empty wall.
-        5. Fast-Paced Debounce (0.32s): rapidly follows active speaker in fast back-and-forth dialogue.
-        6. Centroid-Radius spatial clustering for physical speaker seats.
+        4. Instantaneous layout transitions: 1 person -> solo, 2 -> split_2, 3 -> split_3 Grid, 4 -> split_4 Grid.
+        5. Sticky solo fallback if face briefly turns away, without locking scenery into split screen.
         """
         if not os.path.exists(video_path):
-            return [{"time": 0.0, "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
+            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
-        frame_w = 640
-        frame_h = 360
+        frame_w = 480
+        frame_h = 270
         frame_sz = frame_w * frame_h * 3
-        fps = 1.0 / max(0.2, sample_interval)
+        fps = 1.0 / max(0.25, sample_interval)
 
         sampled_timeline: List[Dict[str, Any]] = []
 
         cmd = [
             'ffmpeg', '-y',
+            '-threads', '2',
             '-ss', f"{start_sec:.2f}",
             '-t', f"{duration:.2f}",
             '-i', video_path,
+            '-an',
             '-vf', f"fps={fps:.3f},scale={frame_w}:{frame_h}",
             '-c:v', 'rawvideo',
             '-pix_fmt', 'bgr24',
@@ -602,7 +707,7 @@ class AutoCameraEngine:
                 frame = np.frombuffer(buf, dtype=np.uint8).reshape((frame_h, frame_w, 3))
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                faces = self.detect_faces_in_frame(frame, target_w=frame_w)
+                faces = self.detect_faces_in_frame(frame, target_w=frame_w, check_profile=(i % 4 == 0))
 
                 # Measure lip motion dynamics in lower mouth region
                 for fc in faces:
@@ -630,7 +735,7 @@ class AutoCameraEngine:
                 cap.set(cv2.CAP_PROP_POS_MSEC, (start_sec + rel_t) * 1000.0)
                 ret, frame = cap.read()
                 if ret and frame is not None:
-                    faces = self.detect_faces_in_frame(frame, target_w=frame_w)
+                    faces = self.detect_faces_in_frame(frame, target_w=frame_w, check_profile=True)
                     for fc in faces:
                         fc['lip_motion'] = 12.0
                     sampled_timeline.append({"time": rel_t, "faces": faces})
@@ -654,46 +759,61 @@ class AutoCameraEngine:
         last_valid_mode = "solo"
         last_valid_x = self.current_focal_x
         last_valid_y = self.current_focal_y
+        last_solo_x = self.current_focal_x
+        last_solo_y = self.current_focal_y
         last_valid_label = "Speaker Focus"
         last_valid_panels = None
         has_any_split = False
+        empty_streak = 0
 
         for st in sampled_timeline:
             t = st["time"]
             faces = st["faces"]
 
             if not faces:
-                # Sticky memory: hold previous shot layout/position seamlessly
-                raw_track.append({
-                    "time": t,
-                    "mode": last_valid_mode,
-                    "x": last_valid_x,
-                    "y": last_valid_y,
-                    "panels": last_valid_panels,
-                    "speaker": last_valid_label,
-                    "has_face": False
-                })
+                empty_streak += 1
+                # Hold multi-split for at most 1 missed sample during a blink;
+                # if B-roll/scenery (0 faces) continues, revert cleanly to solo centered focus.
+                if last_valid_mode.startswith("split_") and empty_streak <= 1:
+                    raw_track.append({
+                        "time": t,
+                        "mode": last_valid_mode,
+                        "x": last_valid_x,
+                        "y": last_valid_y,
+                        "panels": last_valid_panels,
+                        "speaker": last_valid_label,
+                        "has_face": False
+                    })
+                else:
+                    last_valid_mode = "solo"
+                    last_valid_panels = None
+                    last_valid_x = last_solo_x
+                    last_valid_y = last_solo_y
+                    last_valid_label = "Speaker Focus"
+                    raw_track.append({
+                        "time": t,
+                        "mode": "solo",
+                        "x": last_solo_x,
+                        "y": last_solo_y,
+                        "panels": None,
+                        "speaker": "Speaker Focus",
+                        "has_face": False
+                    })
                 continue
 
+            empty_streak = 0
             distinct_people = dedupe_frame_people(faces)
             if not distinct_people:
                 distinct_people = [max(faces, key=lambda f: f.get('area', 0))]
 
-            xs = [p['cx'] for p in distinct_people]
-            horiz_span = (max(xs) - min(xs)) if len(distinct_people) > 1 else 0.0
-            is_multi_split = len(distinct_people) >= 2 and horiz_span >= 18.0
-
-            if is_multi_split:
+            shot = classify_frame_shot(distinct_people, zoom=1.15)
+            if shot["mode"].startswith("split_"):
                 has_any_split = True
-                n_panes = min(4, len(distinct_people))
-                mode = f"split_{n_panes}"
-                panels = []
-                for p in distinct_people[:n_panes]:
-                    box = compute_panel_crop_box(p['cx'], p['cy'], mode=mode, zoom=1.15)
-                    panels.append(box)
-                px = panels[0]["x"]
-                py = panels[0]["y"]
-                label = f"{n_panes}-Person Split"
+                mode = shot["mode"]
+                panels = shot["panels"]
+                px = shot["x"]
+                py = shot["y"]
+                label = shot["speaker"]
             else:
                 mode = "solo"
                 panels = None
@@ -712,6 +832,8 @@ class AutoCameraEngine:
 
                 px = to_916_crop_x(target_f["cx"], zoom=1.15)
                 py = to_916_crop_y(target_f["cy"], zoom=1.15)
+                last_solo_x = px
+                last_solo_y = py
 
             last_valid_mode = mode
             last_valid_x = px
@@ -746,7 +868,7 @@ class AutoCameraEngine:
                 "speaker": solo["label"]
             }]
 
-        # 2. Synthesize stable broadcast shots (solo cuts + vertical multi-person split screens) with deadband hysteresis
+        # 2. Synthesize instant layout transitions (1 <-> 2 <-> 3 Grid <-> 4 Grid) + smooth solo stabilization
         keyframes = []
         current_mode = None
         current_shot_x = None
@@ -754,8 +876,9 @@ class AutoCameraEngine:
         current_panels = None
         current_label = None
         last_cut_time = -999.0
-        min_dwell = 1.5   # Minimum hold time per shot layout
-        deadband = 8.5    # Deadband %: movements within 8.5% hold steady
+        solo_min_dwell = 1.2   # Smooth hold against micro head nods within solo shots
+        mode_min_dwell = 0.40  # Instant cut across person-count transitions (solo <-> split_2/3/4)
+        deadband = 8.5
 
         pending_switch = None
         pending_count = 0
@@ -780,6 +903,7 @@ class AutoCameraEngine:
             py = pt["y"]
             panels = pt["panels"]
             label = pt["speaker"]
+            has_face = pt.get("has_face", False)
 
             if current_shot_x is None:
                 current_mode = mode
@@ -804,7 +928,21 @@ class AutoCameraEngine:
                 pending_count = 0
                 continue
 
-            if time_since_cut >= min_dwell:
+            if mode_changed:
+                # Instant switch when genuine faces enter or leave the shot (`1 <-> 2 <-> 3 <-> 4`)
+                if time_since_cut >= mode_min_dwell and (has_face or time_since_cut >= 0.90):
+                    current_mode = mode
+                    current_shot_x = px
+                    current_shot_y = py
+                    current_panels = panels
+                    current_label = label
+                    keyframes.append(_make_kf(t, current_mode, current_shot_x, current_shot_y, current_label, current_panels))
+                    last_cut_time = t
+                    pending_switch = None
+                    pending_count = 0
+                continue
+
+            if time_since_cut >= solo_min_dwell:
                 if (
                     pending_switch is not None
                     and pending_switch["mode"] == mode
@@ -815,10 +953,7 @@ class AutoCameraEngine:
                     pending_switch = {"mode": mode, "x": px, "y": py, "panels": panels, "label": label}
                     pending_count = 1
 
-                # Require 3 frames (~1.0s) before dropping from multi-split back to solo so brief turns don't flicker;
-                # otherwise confirm layout/speaker shift after 2 frames (~0.6s) or large immediate scene cut (>22%)
-                needed = 3 if (current_mode.startswith("split_") and mode == "solo") else 2
-                if pending_count >= needed or (not mode_changed and dist >= 22.0):
+                if pending_count >= 2 or dist >= 22.0:
                     current_mode = pending_switch["mode"]
                     current_shot_x = pending_switch["x"]
                     current_shot_y = pending_switch["y"]
@@ -838,15 +973,114 @@ class AutoCameraEngine:
 
 _FACE_CACHE: Dict[str, Any] = {}
 _CAMERA_ENGINE = AutoCameraEngine()
+_THREAD_LOCAL = threading.local()
+
+
+def _get_thread_camera_engine() -> AutoCameraEngine:
+    """Return a per-thread AutoCameraEngine so parallel clip workers never share mutable OpenCV detectors."""
+    engine = getattr(_THREAD_LOCAL, "camera_engine", None)
+    if engine is None:
+        engine = AutoCameraEngine()
+        _THREAD_LOCAL.camera_engine = engine
+    return engine
+
+
+def _get_thread_video_capture(video_path: str):
+    """Reuse an open VideoCapture handle per thread/video_path to avoid reopening large MP4s 60+ times."""
+    cached_path = getattr(_THREAD_LOCAL, "cap_path", None)
+    cap = getattr(_THREAD_LOCAL, "cap", None)
+    if cached_path == video_path and cap is not None and cap.isOpened():
+        return cap
+    if cap is not None:
+        try:
+            cap.release()
+        except Exception:
+            pass
+    cap = cv2.VideoCapture(video_path)
+    _THREAD_LOCAL.cap_path = video_path
+    _THREAD_LOCAL.cap = cap
+    return cap
+
+
+def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: float) -> list:
+    """
+    Fast thread-safe framing sampler for rapid multi-clip assembly.
+    Samples 2 key moments per clip using a persistent thread-local VideoCapture and produces
+    exact timestamped solo / split_2 / split_3 Grid / split_4 Grid keyframes (NEVER locking a solo
+    opening scene into split screen just because another segment later has 2 people).
+    """
+    engine = _get_thread_camera_engine()
+    if not video_path or not os.path.exists(video_path):
+        return [{"time": 0.0, "mode": "solo", "x": 50.0, "y": 35.0, "zoom": 1.15, "speaker": "Speaker Focus", "initial": True}]
+
+    safe_dur = max(1.0, float(duration or 1.0))
+    offsets = sorted({
+        round(min(safe_dur * 0.12, 0.4), 2),
+        round(safe_dur * 0.50, 2),
+    })
+
+    cap = _get_thread_video_capture(video_path)
+    sampled_kfs = []
+    for idx_off, off in enumerate(offsets):
+        cap.set(cv2.CAP_PROP_POS_MSEC, (float(start_sec) + off) * 1000.0)
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            continue
+        faces = engine.detect_faces_in_frame(frame, target_w=480, check_profile=True)
+        if not faces:
+            continue
+        distinct_people = dedupe_frame_people(faces)
+        if not distinct_people:
+            distinct_people = [max(faces, key=lambda f: f.get('area', 0))]
+
+        t_stamp = 0.0 if idx_off == 0 else off
+        shot = classify_frame_shot(distinct_people, zoom=1.15)
+        if shot["mode"].startswith("split_"):
+            kf = {
+                "time": round(t_stamp, 2),
+                "mode": shot["mode"],
+                "x": shot["x"],
+                "y": shot["y"],
+                "zoom": 1.15,
+                "speaker": shot["speaker"],
+                "panels": shot["panels"],
+                "initial": True,
+            }
+        else:
+            primary = max(distinct_people, key=lambda f: f.get('area', 0))
+            kf = {
+                "time": round(t_stamp, 2),
+                "mode": "solo",
+                "x": to_916_crop_x(primary['cx'], zoom=1.15),
+                "y": to_916_crop_y(primary['cy'], zoom=1.15),
+                "zoom": 1.15,
+                "speaker": "Speaker Focus",
+                "initial": True,
+            }
+
+        if sampled_kfs:
+            prev = sampled_kfs[-1]
+            same_mode = prev["mode"] == kf["mode"]
+            if same_mode and abs(prev["x"] - kf["x"]) < 8.5:
+                continue
+        sampled_kfs.append(kf)
+
+    if sampled_kfs:
+        sampled_kfs[0]["time"] = 0.0
+        return sampled_kfs
+
+    return [{"time": 0.0, "mode": "solo", "x": 50.0, "y": 35.0, "zoom": 1.15, "speaker": "Speaker Focus", "initial": True}]
+
 
 def detect_primary_speaker_center(video_path: str, start_sec: float = 0.0, sample_duration: float = 2.0) -> dict:
     """
     Returns robust speaker center coordinates using YuNet neural face detection and Sticky Memory.
     """
-    return _CAMERA_ENGINE.analyze_clip_framing(video_path, start_sec=start_sec, duration=sample_duration)
+    return _get_thread_camera_engine().analyze_clip_framing(video_path, start_sec=start_sec, duration=sample_duration)
+
 
 def generate_camera_keyframes(video_path: str, start_sec: float, duration: float) -> list:
     """
     Generates dynamic multi-speaker camera keyframes across a clip with 0.5s debounce and debate split support.
     """
-    return _CAMERA_ENGINE.generate_clip_camera_keyframes(video_path, start_sec, duration)
+    return _get_thread_camera_engine().generate_clip_camera_keyframes(video_path, start_sec, duration)

@@ -514,7 +514,6 @@ def build_ffmpeg_split_filter(
 
         if mode.startswith('split_') and len(panels) >= 2:
             n_panes = min(4, len(panels))
-            panel_h = 1920 // n_panes
             p_in_lbls = "".join([f"[pin_{seg_idx}_{p_i}]" for p_i in range(n_panes)])
             filter_parts.append(f"{src_lbl}split={n_panes}{p_in_lbls}")
 
@@ -522,7 +521,7 @@ def build_ffmpeg_split_filter(
             for p_i in range(n_panes):
                 p = panels[p_i]
                 if 'raw_x' in p and 'raw_y' in p:
-                    box = compute_panel_crop_box(p['raw_x'], p['raw_y'], mode=mode, zoom=effective_zoom)
+                    box = compute_panel_crop_box(p['raw_x'], p['raw_y'], mode=mode, zoom=effective_zoom, panel_idx=p_i)
                 else:
                     box = p
                 wf = float(box.get('wf', 0.45))
@@ -530,13 +529,30 @@ def build_ffmpeg_split_filter(
                 cx = max(0.0, min(100.0, float(box.get('x', 50.0)))) / 100.0
                 cy = max(0.0, min(100.0, float(box.get('y', 50.0)))) / 100.0
                 pan_out = f"[pan_{seg_idx}_{p_i}]"
+
+                if (mode == 'split_3' and p_i < 2) or mode == 'split_4':
+                    cell_w, cell_h = 540, 960
+                else:
+                    cell_w, cell_h = 1080, 960
+
                 filter_parts.append(
                     f"[pin_{seg_idx}_{p_i}]crop=w='iw*{wf:.5f}':h='ih*{hf:.5f}':x='(iw-ow)*{cx:.5f}':y='(ih-oh)*{cy:.5f}',"
-                    f"scale=1080:{panel_h}:flags=lanczos,setsar=1{pan_out}"
+                    f"scale={cell_w}:{cell_h}:flags=lanczos,setsar=1{pan_out}"
                 )
                 p_out_lbls.append(pan_out)
 
-            filter_parts.append(f"{''.join(p_out_lbls)}vstack=inputs={n_panes}{out_lbl}")
+            if n_panes == 3 and mode == 'split_3':
+                top_row = f"[top_{seg_idx}]"
+                filter_parts.append(f"{p_out_lbls[0]}{p_out_lbls[1]}hstack=inputs=2{top_row}")
+                filter_parts.append(f"{top_row}{p_out_lbls[2]}vstack=inputs=2{out_lbl}")
+            elif n_panes == 4 and mode == 'split_4':
+                top_row = f"[top_{seg_idx}]"
+                bot_row = f"[bot_{seg_idx}]"
+                filter_parts.append(f"{p_out_lbls[0]}{p_out_lbls[1]}hstack=inputs=2{top_row}")
+                filter_parts.append(f"{p_out_lbls[2]}{p_out_lbls[3]}hstack=inputs=2{bot_row}")
+                filter_parts.append(f"{top_row}{bot_row}vstack=inputs=2{out_lbl}")
+            else:
+                filter_parts.append(f"{''.join(p_out_lbls)}vstack=inputs={n_panes}{out_lbl}")
         else:
             cx = max(0.0, min(100.0, float(kf.get('x', default_x)))) / 100.0
             cy = max(0.0, min(100.0, float(kf.get('y', default_y)))) / 100.0
