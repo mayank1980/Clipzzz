@@ -82,7 +82,7 @@ export default function TranscriptPanel({
       </div>
 
       {/* Timestamped dialogue list */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2.5 font-sans text-xs">
+      <div className="flex-1 overflow-y-auto pl-3 pr-1.5 py-3 space-y-2.5 font-sans text-xs">
         {(!displayedSegments || displayedSegments.length === 0) && (
           <div className="text-center py-8 text-slate-gray">
             No dialogue segments found for this range.

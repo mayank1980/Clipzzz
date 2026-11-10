@@ -116,17 +116,29 @@ export default function ClipsList({
           isSelected
             ? 'bg-white border-signal-orange ring-1 ring-signal-orange'
             : isChild
-            ? 'bg-lifted-cream hover:bg-white border-border-cream'
+            ? 'bg-white/80 hover:bg-white border-border-cream'
             : 'bg-white hover:bg-canvas-cream border-border-cream'
-        } ${isChild ? 'ml-2.5 w-[calc(100%-0.625rem)] border-l-2 border-l-signal-orange' : ''}`}
+        }`}
       >
-        {/* Top Row: Score + Part + Duration */}
-        <div className="flex items-center justify-between gap-1 mb-2">
-          <div className="flex items-center gap-1.5 overflow-hidden">
+        {/* Top Row: Score + Part + Ending Tag on Left, Duration + Delete on Right */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex items-center flex-wrap gap-1.5 min-w-0">
             <span className="text-[10px] font-extrabold bg-canvas-cream text-ink-black border border-border-cream px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm shrink-0">
               <Flame className="w-3 h-3 text-signal-orange fill-signal-orange" />
               {clip.score}/100
             </span>
+
+            {clip.part_number && clip.total_parts ? (
+              <span className="text-[10px] bg-canvas-cream text-ink-black px-2 py-0.5 rounded-full border border-border-cream font-mono font-bold shrink-0">
+                Part {clip.part_number}/{clip.total_parts}
+              </span>
+            ) : (
+              clip.category && (
+                <span className="text-[10px] bg-canvas-cream text-charcoal px-2 py-0.5 rounded-full border border-border-cream font-bold shrink-0">
+                  {clip.category}
+                </span>
+              )
+            )}
 
             {clip.ending_type && (
               <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider bg-canvas-cream text-charcoal border border-border-cream shrink-0">
@@ -135,18 +147,8 @@ export default function ClipsList({
             )}
           </div>
 
-          <span className="text-[10px] text-charcoal uppercase font-bold tracking-wider flex items-center gap-1 truncate">
-            {clip.part_number && clip.total_parts ? (
-              <span className="bg-canvas-cream text-ink-black px-2 py-0.5 rounded-full border border-border-cream font-mono font-bold">
-                Part {clip.part_number}/{clip.total_parts}
-              </span>
-            ) : (
-              clip.category || 'Short'
-            )}
-          </span>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[10px] text-slate-gray font-mono flex items-center gap-0.5">
+          <div className="flex items-center gap-1 shrink-0 pt-0.5">
+            <span className="text-[10px] text-slate-gray font-mono flex items-center gap-0.5 whitespace-nowrap">
               <Clock className="w-3 h-3 text-slate-gray" />
               {formatTime(clip.duration)}
             </span>
@@ -212,7 +214,7 @@ export default function ClipsList({
   };
 
   return (
-    <div className="w-72 lg:w-80 shrink-0 bg-lifted-cream border-r border-border-cream flex flex-col min-h-0 select-none">
+    <div className="w-80 xl:w-[340px] shrink-0 bg-lifted-cream border-r border-border-cream flex flex-col min-h-0 select-none">
       {/* Sidebar Header */}
       <div className="p-3.5 border-b border-border-cream bg-white space-y-2.5">
         <div className="flex items-center justify-between">
@@ -303,7 +305,7 @@ export default function ClipsList({
       </div>
 
       {/* Vertical Clips Scrollable List */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex-1 overflow-y-auto pl-3 pr-1.5 py-3 space-y-3">
         {viewMode === 'stories' && storyGroups.length > 0 ? (
           <>
             {storyGroups.map((group) => {
