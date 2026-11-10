@@ -10,6 +10,8 @@ from .views import (
     get_current_user,
     save_gemini_key,
     upload_cookies,
+    orbit_status,
+    orbit_start,
 )
 
 router = DefaultRouter()
@@ -26,5 +28,7 @@ urlpatterns = [
 
     path('validate-key/', validate_gemini_key, name='validate_gemini_key'),
     path('settings/cookies/', upload_cookies, name='upload_cookies'),
+    path('orbit/status/', orbit_status, name='orbit_status'),
+    path('orbit/start/', orbit_start, name='orbit_start'),
     path('', include(router.urls)),
 ]

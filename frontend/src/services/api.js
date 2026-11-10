@@ -187,4 +187,15 @@ export const api = {
     });
     return res.data;
   },
+
+  // Connected Orbit Pro Downloader Bridge (separate project at D:\Downloader on :8001)
+  getOrbitStatus: async () => {
+    const res = await client.get('/orbit/status/');
+    return res.data;
+  },
+
+  startOrbitEngine: async () => {
+    const res = await client.post('/orbit/start/');
+    return res.data;
+  },
 };

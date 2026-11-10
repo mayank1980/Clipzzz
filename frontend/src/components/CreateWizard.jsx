@@ -22,9 +22,19 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 
-export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyModal }) {
+export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyModal, initialUrl = '', onOpenOrbit }) {
   const [sourceType, setSourceType] = useState('youtube'); // 'youtube' or 'upload'
-  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [youtubeUrl, setYoutubeUrl] = useState(initialUrl || '');
+
+  useEffect(() => {
+    if (initialUrl) {
+      setSourceType('youtube');
+      setYoutubeUrl(initialUrl);
+      setIsLinkConfirmed(false);
+      setVideoInfo(null);
+      setInspectError('');
+    }
+  }, [initialUrl]);
   const [selectedFile, setSelectedFile] = useState(null);
 
   // Settings requested by user
@@ -317,37 +327,59 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   const maskedKey = userProfile?.masked_gemini_key;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
-      {/* Top Greeting & Eyebrow */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-border-cream">
-        <div>
-          <div className="flex items-center gap-2 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-1">
-            <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
-            <span>CLIPIT • Find the moment. Clip it.</span>
-          </div>
-          <h1 className="text-3xl font-extrabold text-ink-black tracking-tight">
-            Long videos in. Perfect clips out.
-          </h1>
-          <p className="text-xs text-slate-gray mt-1">
-            Transform long YouTube videos, podcasts, and interviews into engaging 9:16 vertical Shorts ready to share.
-          </p>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-12 pb-10 relative">
+      {/* Decorative Ghost Watermark Headline behind First Page Hero (matching Orbit Pro aesthetic) */}
+      <div
+        className="absolute top-2 left-1/2 -translate-x-1/2 select-none pointer-events-none text-[88px] sm:text-[150px] md:text-[190px] font-semibold tracking-tighter opacity-[0.06] text-ink-black whitespace-nowrap z-0 leading-none"
+        aria-hidden="true"
+      >
+        CLIPIT
+      </div>
+
+      {/* Top Editorial Hero & Controls */}
+      <div className="relative z-10 text-center max-w-3xl mx-auto mb-8 pb-6 border-b border-border-cream">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-lifted-cream border border-border-cream mb-5 shadow-sm">
+          <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-ink-black">
+            CLIPIT • Find the moment. Clip it.
+          </span>
         </div>
 
-        {/* Masked Key Status Badge */}
-        <button
-          type="button"
-          onClick={onOpenKeyModal}
-          className="flex items-center gap-2.5 bg-white border border-border-cream px-4 py-2 rounded-full cursor-pointer hover:border-signal-orange transition shadow-sm self-start sm:self-center"
-          title="Click to view or update your encrypted Gemini key"
-        >
-          <span className={`w-2.5 h-2.5 rounded-full ${hasKey ? 'bg-signal-orange' : 'bg-slate-gray'}`}></span>
-          <div className="text-left">
-            <div className="text-[9px] text-slate-gray font-bold uppercase tracking-wider">Gemini 2.5 Flash</div>
-            <div className="text-xs font-mono font-bold text-ink-black">
-              {hasKey ? maskedKey : 'Setup Required'}
-            </div>
-          </div>
-        </button>
+        <h1 className="text-4xl sm:text-5xl font-medium leading-[1.08] tracking-tight text-ink-black mb-3">
+          Long videos in. <span className="text-signal-orange">Perfect clips out.</span>
+        </h1>
+        <p className="text-sm text-charcoal max-w-xl mx-auto mb-5 leading-relaxed">
+          Transform long YouTube, Facebook, Vimeo & Twitch videos into engaging 9:16 vertical Shorts with multi-person split screens.
+        </p>
+
+        {/* Action Strip: Masked Key Status + Orbit Pro Downloader Link */}
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
+          <button
+            type="button"
+            onClick={onOpenKeyModal}
+            className="flex items-center gap-2.5 bg-white border border-border-cream px-4 py-2 rounded-full cursor-pointer hover:border-signal-orange transition shadow-sm"
+            title="Click to view or update your encrypted Gemini key"
+          >
+            <span className={`w-2 h-2 rounded-full ${hasKey ? 'bg-signal-orange' : 'bg-slate-gray'}`}></span>
+            <span className="text-[10px] text-slate-gray font-bold uppercase tracking-wider">Gemini AI</span>
+            <span className="text-xs font-mono font-bold text-ink-black">
+              {hasKey ? maskedKey : 'Setup Key'}
+            </span>
+          </button>
+
+          {onOpenOrbit && (
+            <button
+              type="button"
+              onClick={onOpenOrbit}
+              className="flex items-center gap-2 bg-white border border-border-cream hover:border-signal-orange px-4 py-2 rounded-full cursor-pointer transition shadow-sm text-xs font-bold text-ink-black"
+              title="Open connected Orbit Pro Downloader (4K Video, 320kbps MP3, Instagram, Pinterest)"
+            >
+              <Download className="w-3.5 h-3.5 text-signal-orange" />
+              <span>Orbit Pro Downloader (4K / MP3 / IG / Pin)</span>
+              <ArrowRight className="w-3.5 h-3.5 text-signal-orange" />
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoading ? (

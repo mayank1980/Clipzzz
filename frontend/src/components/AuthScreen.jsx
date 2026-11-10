@@ -130,9 +130,15 @@ export default function AuthScreen({ onAuthSuccess }) {
 
   return (
     <div className="min-h-screen bg-canvas-cream flex flex-col justify-center items-center p-6 relative overflow-hidden font-sans">
-      {/* Decorative Warm Orbital Arcs */}
+      {/* Decorative Warm Orbital Arcs & Giant Ghost Watermark */}
       <div className="absolute top-10 left-1/4 w-[500px] h-[500px] rounded-full border border-light-orange/20 pointer-events-none orbital-arc"></div>
       <div className="absolute bottom-10 right-1/4 w-[600px] h-[600px] rounded-full border border-light-orange/15 pointer-events-none orbital-arc"></div>
+      <div
+        className="absolute top-6 left-1/2 -translate-x-1/2 select-none pointer-events-none text-[100px] sm:text-[170px] md:text-[220px] font-semibold tracking-tighter opacity-[0.045] text-ink-black whitespace-nowrap z-0"
+        aria-hidden="true"
+      >
+        CLIPIT
+      </div>
 
       {/* Main Stadium Auth Card */}
       <div className="w-full max-w-md bg-white border border-border-cream rounded-stadium p-8 sm:p-10 shadow-card-elevated relative z-10">

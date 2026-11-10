@@ -826,3 +826,77 @@ def upload_cookies(request):
         'success': True,
         'message': 'cookies.txt saved and activated successfully for YouTube downloads!'
     })
+
+
+def _find_orbit_root() -> str:
+    candidates = [
+        os.path.abspath(os.path.join(settings.BASE_DIR, '..', '..', 'Downloader')),
+        r'D:\Downloader',
+    ]
+    for p in candidates:
+        if os.path.exists(os.path.join(p, 'backend', 'manage.py')):
+            return p
+    return ''
+
+
+def _probe_orbit_health(port: int = 8001) -> bool:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health/', timeout=0.9) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def orbit_status(request):
+    """Checks whether the separate Orbit Pro Downloader project & API (:8001) are available and running."""
+    orbit_root = _find_orbit_root()
+    running = _probe_orbit_health(8001)
+    return Response({
+        'available': bool(orbit_root),
+        'running': running,
+        'api_base': 'http://127.0.0.1:8001/api',
+        'standalone_ui': 'http://localhost:3000',
+    })
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def orbit_start(request):
+    """Launches the separate D:\\Downloader Orbit Pro backend engine on port 8001 if not already running."""
+    import subprocess, time
+    if _probe_orbit_health(8001):
+        return Response({'running': True, 'api_base': 'http://127.0.0.1:8001/api'})
+
+    orbit_root = _find_orbit_root()
+    if not orbit_root:
+        return Response(
+            {'running': False, 'error': 'Orbit Pro Downloader folder (D:\\Downloader) not found.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    py_exe = os.path.join(orbit_root, 'venv', 'Scripts', 'python.exe')
+    if not os.path.exists(py_exe):
+        py_exe = 'python'
+
+    backend_dir = os.path.join(orbit_root, 'backend')
+    creation_flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' and hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+    try:
+        subprocess.Popen(
+            [py_exe, 'manage.py', 'runserver', '127.0.0.1:8001', '--noreload'],
+            cwd=backend_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creation_flags,
+        )
+    except Exception as e:
+        return Response({'running': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    for _ in range(14):
+        if _probe_orbit_health(8001):
+            return Response({'running': True, 'api_base': 'http://127.0.0.1:8001/api'})
+        time.sleep(0.4)
+
+    return Response({'running': False, 'error': 'Orbit Pro backend is initializing. Retry in a moment.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
