@@ -1,9 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-title CLIPIT - 1-Click Setup & Unified Suite Launcher
+title CLIPIT - 1-Click Setup & Launcher
 
 echo ==============================================================================
-echo        CLIPIT + Orbit Pro - 1-Click Setup & Auto-Launch Studio
+echo        CLIPIT - Find the moment. Clip it.
+echo        Long videos in. Perfect clips out.
 echo ==============================================================================
 echo.
 
@@ -18,8 +19,8 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b %ERRORLEVEL%
 )
 
-:: Step 2: Launch CLIPIT + Connected Orbit Pro and open browser
+:: Step 2: Launch CLIPIT and open browser
 echo.
-echo [2/2] Launching CLIPIT & Orbit Pro services and opening web studio...
+echo [2/2] Launching CLIPIT services and opening studio...
 call run_clipit.bat
 

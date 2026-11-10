@@ -22,19 +22,9 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 
-export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyModal, initialUrl = '', onOpenOrbit }) {
+export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyModal }) {
   const [sourceType, setSourceType] = useState('youtube'); // 'youtube' or 'upload'
-  const [youtubeUrl, setYoutubeUrl] = useState(initialUrl || '');
-
-  useEffect(() => {
-    if (initialUrl) {
-      setSourceType('youtube');
-      setYoutubeUrl(initialUrl);
-      setIsLinkConfirmed(false);
-      setVideoInfo(null);
-      setInspectError('');
-    }
-  }, [initialUrl]);
+  const [youtubeUrl, setYoutubeUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
 
   // Settings requested by user
@@ -328,9 +318,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-12 pb-10 relative">
-      {/* Decorative Ghost Watermark Headline behind First Page Hero (matching Orbit Pro aesthetic) */}
+      {/* Decorative Giant Ghost Watermark behind Hero */}
       <div
-        className="absolute top-2 left-1/2 -translate-x-1/2 select-none pointer-events-none text-[88px] sm:text-[150px] md:text-[190px] font-semibold tracking-tighter opacity-[0.06] text-ink-black whitespace-nowrap z-0 leading-none"
+        className="absolute top-3 left-1/2 -translate-x-1/2 select-none pointer-events-none text-[100px] sm:text-[165px] md:text-[215px] font-black tracking-tight text-ink-black/[0.055] whitespace-nowrap z-0 leading-none"
         aria-hidden="true"
       >
         CLIPIT
@@ -352,7 +342,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           Transform long YouTube, Facebook, Vimeo & Twitch videos into engaging 9:16 vertical Shorts with multi-person split screens.
         </p>
 
-        {/* Action Strip: Masked Key Status + Orbit Pro Downloader Link */}
+        {/* Action Strip: Masked Key Status */}
         <div className="flex flex-wrap items-center justify-center gap-2.5">
           <button
             type="button"
@@ -366,19 +356,6 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
               {hasKey ? maskedKey : 'Setup Key'}
             </span>
           </button>
-
-          {onOpenOrbit && (
-            <button
-              type="button"
-              onClick={onOpenOrbit}
-              className="flex items-center gap-2 bg-white border border-border-cream hover:border-signal-orange px-4 py-2 rounded-full cursor-pointer transition shadow-sm text-xs font-bold text-ink-black"
-              title="Open connected Orbit Pro Downloader (4K Video, 320kbps MP3, Instagram, Pinterest)"
-            >
-              <Download className="w-3.5 h-3.5 text-signal-orange" />
-              <span>Orbit Pro Downloader (4K / MP3 / IG / Pin)</span>
-              <ArrowRight className="w-3.5 h-3.5 text-signal-orange" />
-            </button>
-          )}
         </div>
       </div>
 

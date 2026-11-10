@@ -12,16 +12,14 @@ import CaptionEditDrawer from './components/captions/CaptionEditDrawer';
 import ExportModal from './components/ExportModal';
 import ShortsKitModal from './components/ShortsKitModal';
 import ProjectsModal from './components/ProjectsModal';
-import OrbitDownloaderPanel from './components/OrbitDownloaderPanel';
 import { api, API_BASE_URL } from './services/api';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
-  // View state: 'wizard' | 'editor' | 'downloader'
+  // View state: 'wizard' | 'editor'
   const [viewMode, setViewMode] = useState('wizard');
-  const [prefilledUrl, setPrefilledUrl] = useState('');
   const [activeProject, setActiveProject] = useState(null);
   const [selectedClip, setSelectedClip] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -500,28 +498,16 @@ export default function App() {
         userProfile={currentUser}
         onLogout={handleLogout}
         isEditorView={viewMode === 'editor'}
-        viewMode={viewMode}
-        onSwitchView={(mode) => setViewMode(mode)}
       />
 
       {/* Main View Router */}
-      {viewMode === 'downloader' ? (
-        /* CONNECTED ORBIT PRO DOWNLOADER SUITE (D:\Downloader Engine) */
-        <OrbitDownloaderPanel
-          onSendToClipit={(videoUrl) => {
-            setPrefilledUrl(videoUrl);
-            setViewMode('wizard');
-          }}
-        />
-      ) : viewMode === 'wizard' ? (
+      {viewMode === 'wizard' ? (
         /* STEP 3: CLIPIT Creation Wizard */
         <div className="flex-1 overflow-y-auto">
           <CreateWizard
             onProjectCreated={handleProjectCreated}
             userProfile={currentUser}
             onOpenKeyModal={() => setIsKeyModalOpen(true)}
-            initialUrl={prefilledUrl}
-            onOpenOrbit={() => setViewMode('downloader')}
           />
         </div>
       ) : activeProject ? (

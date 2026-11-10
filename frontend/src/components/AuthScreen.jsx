@@ -130,11 +130,9 @@ export default function AuthScreen({ onAuthSuccess }) {
 
   return (
     <div className="min-h-screen bg-canvas-cream flex flex-col justify-center items-center p-6 relative overflow-hidden font-sans">
-      {/* Decorative Warm Orbital Arcs & Giant Ghost Watermark */}
-      <div className="absolute top-10 left-1/4 w-[500px] h-[500px] rounded-full border border-light-orange/20 pointer-events-none orbital-arc"></div>
-      <div className="absolute bottom-10 right-1/4 w-[600px] h-[600px] rounded-full border border-light-orange/15 pointer-events-none orbital-arc"></div>
+      {/* Giant Ghost CLIPIT Watermark on Warm Canvas */}
       <div
-        className="absolute top-6 left-1/2 -translate-x-1/2 select-none pointer-events-none text-[100px] sm:text-[170px] md:text-[220px] font-semibold tracking-tighter opacity-[0.045] text-ink-black whitespace-nowrap z-0"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 select-none pointer-events-none text-[130px] sm:text-[220px] md:text-[310px] font-black tracking-[0.06em] text-ink-black/[0.05] whitespace-nowrap z-0 leading-none"
         aria-hidden="true"
       >
         CLIPIT
