@@ -357,9 +357,18 @@ class VideoClipViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         clip = self.get_object()
+        prev_start = clip.start_time
+        prev_end = clip.end_time
         serializer = ClipUpdateSerializer(clip, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
+            if clip.start_time != prev_start or clip.end_time != prev_end:
+                clip.duration = max(1.0, round(float(clip.end_time) - float(clip.start_time), 1))
+                clip.render_status = 'pending'
+                clip.clean_render_status = 'pending'
+                clip.rendered_hash = ''
+                clip.rendered_clean_hash = ''
+                clip.save(update_fields=['duration', 'render_status', 'clean_render_status', 'rendered_hash', 'rendered_clean_hash'])
             return Response(VideoClipSerializer(clip).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

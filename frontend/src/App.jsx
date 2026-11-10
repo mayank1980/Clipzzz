@@ -26,6 +26,7 @@ export default function App() {
   const [selectedClip, setSelectedClip] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const cropSaveTimerRef = useRef(null);
+  const boundsSaveTimerRef = useRef(null);
   const [aspectRatio, setAspectRatio] = useState('9:16');
   const [isCropInspectorOpen, setIsCropInspectorOpen] = useState(false);
 
@@ -176,13 +177,19 @@ export default function App() {
     }
   };
 
-  const handleUpdateClipBounds = async (newStart, newEnd) => {
+  const handleUpdateClipBounds = (newStart, newEnd) => {
     if (!selectedClip) return;
+    const cleanStart = Math.max(0, Math.round(Number(newStart) * 10) / 10);
+    const cleanEnd = Math.max(cleanStart + 1.0, Math.round(Number(newEnd) * 10) / 10);
     const updated = {
       ...selectedClip,
-      start_time: newStart,
-      end_time: newEnd,
-      duration: Math.max(1, Math.round((newEnd - newStart) * 10) / 10),
+      start_time: cleanStart,
+      end_time: cleanEnd,
+      duration: Math.max(1, Math.round((cleanEnd - cleanStart) * 10) / 10),
+      render_status: 'pending',
+      clean_render_status: 'pending',
+      rendered_file: null,
+      rendered_clean_file: null,
     };
     setSelectedClip(updated);
 
@@ -191,14 +198,19 @@ export default function App() {
       clips: prev.clips.map((c) => (c.id === updated.id ? updated : c)),
     }));
 
-    try {
-      await api.updateClip(updated.id, {
-        start_time: newStart,
-        end_time: newEnd,
-      });
-    } catch (err) {
-      console.error('Failed to update clip timing', err);
+    if (boundsSaveTimerRef.current) {
+      clearTimeout(boundsSaveTimerRef.current);
     }
+    boundsSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await api.updateClip(updated.id, {
+          start_time: cleanStart,
+          end_time: cleanEnd,
+        });
+      } catch (err) {
+        console.error('Failed to update clip timing', err);
+      }
+    }, 280);
   };
 
   const handleChangeCrop = (partial) => {

@@ -28,6 +28,7 @@ import {
   X,
   Trash2,
   Move,
+  RotateCcw,
   AlertCircle,
 } from 'lucide-react';
 import { api, API_BASE_URL } from '../services/api';
@@ -141,6 +142,10 @@ export default function VideoPlayer({
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [timelineZoom, setTimelineZoom] = useState(100);
+  const [trimViewMode, setTrimViewMode] = useState('focus'); // 'focus' | 'full'
+  const [trimWindow, setTrimWindow] = useState({ start: 0, end: 60 });
+  const [activeDragHandle, setActiveDragHandle] = useState(null); // 'start' | 'end' | 'playhead' | null
+  const [initialClipBounds, setInitialClipBounds] = useState(null);
   const [localFrameTime, setLocalFrameTime] = useState(0);
   const [internalPlaybackRate, setInternalPlaybackRate] = useState(1.0);
   const playbackRate = externalPlaybackRate !== undefined ? externalPlaybackRate : internalPlaybackRate;
@@ -840,15 +845,32 @@ export default function VideoPlayer({
     });
   };
 
-  // Timeline scrubber calculation and trimming handles
+  // Timeline scrubber & pro clip-focused trim editor math
   const totalVideoDuration = duration || project?.duration || 100;
   const clipStart = selectedClip?.start_time ?? 0;
   const clipEnd = selectedClip?.end_time ?? Math.min(totalVideoDuration, 30);
 
-  const startPct = (clipStart / totalVideoDuration) * 100;
-  const endPct = (clipEnd / totalVideoDuration) * 100;
-  const widthPct = Math.max(1, endPct - startPct);
-  const playheadPct = (currentTime / totalVideoDuration) * 100;
+  // Anchor zoomed trim context window whenever selected clip changes
+  useEffect(() => {
+    if (!selectedClip) return;
+    const s = selectedClip.start_time ?? 0;
+    const e = selectedClip.end_time ?? Math.min(totalVideoDuration, s + 30);
+    const len = Math.max(2, e - s);
+    const pad = Math.max(12, Math.min(45, len * 0.4));
+    const wStart = Math.max(0, Math.floor(s - pad));
+    const wEnd = Math.min(totalVideoDuration, Math.ceil(e + pad));
+    setTrimWindow({ start: wStart, end: Math.max(wStart + 5, wEnd) });
+    setInitialClipBounds({ start: s, end: e });
+  }, [selectedClip?.id, totalVideoDuration]);
+
+  const viewStart = trimViewMode === 'full' ? 0 : Math.max(0, Math.min(trimWindow.start, clipStart));
+  const viewEnd = trimViewMode === 'full' ? totalVideoDuration : Math.min(totalVideoDuration, Math.max(trimWindow.end, clipEnd, viewStart + 5));
+  const viewSpan = Math.max(1, viewEnd - viewStart);
+
+  const startPct = Math.max(0, Math.min(100, ((clipStart - viewStart) / viewSpan) * 100));
+  const endPct = Math.max(0, Math.min(100, ((clipEnd - viewStart) / viewSpan) * 100));
+  const widthPct = Math.max(1.5, endPct - startPct);
+  const playheadPct = Math.max(0, Math.min(100, ((exactCurrentTime - viewStart) / viewSpan) * 100));
 
   const roundSec = (val) => Math.round(val * 10) / 10;
 
@@ -860,28 +882,55 @@ export default function VideoPlayer({
     return `${m}:${s < 10 ? '0' : ''}${s}.${ms}s`;
   };
 
-  const handleTrackClick = (e) => {
+  const handleTrackMouseDown = (e) => {
     if (!trackRef.current) return;
-    const rect = trackRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const pct = Math.max(0, Math.min(1, clickX / rect.width));
-    const targetTime = pct * totalVideoDuration;
-    onSeek(targetTime);
+    setActiveDragHandle('playhead');
+
+    const updateSeekFromEvent = (evt) => {
+      if (!trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const clientX = evt.clientX ?? evt.touches?.[0]?.clientX;
+      if (clientX === undefined) return;
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const targetTime = viewStart + pct * viewSpan;
+      setLocalFrameTime(targetTime);
+      onSeek(targetTime);
+    };
+
+    updateSeekFromEvent(e);
+
+    const handleMove = (moveEvt) => updateSeekFromEvent(moveEvt);
+    const handleUp = () => {
+      setActiveDragHandle(null);
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchmove', handleMove);
+    window.addEventListener('touchend', handleUp);
   };
 
   const handleStartTrim = (e) => {
     e.stopPropagation();
+    setActiveDragHandle('start');
     const handleMove = (moveEvt) => {
       if (!trackRef.current) return;
       const rect = trackRef.current.getBoundingClientRect();
       const clientX = moveEvt.clientX ?? moveEvt.touches?.[0]?.clientX;
       if (clientX === undefined) return;
       const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      const newStart = Math.min(pct * totalVideoDuration, clipEnd - 1.5);
-      onUpdateClipBounds?.(roundSec(newStart), clipEnd);
-      onSeek?.(newStart);
+      const rawTime = viewStart + pct * viewSpan;
+      const newStart = Math.max(0, Math.min(rawTime, clipEnd - 1.5));
+      const rounded = roundSec(newStart);
+      onUpdateClipBounds?.(rounded, clipEnd);
+      setLocalFrameTime(rounded);
+      onSeek?.(rounded);
     };
     const handleUp = () => {
+      setActiveDragHandle(null);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
       window.removeEventListener('touchmove', handleMove);
@@ -895,17 +944,23 @@ export default function VideoPlayer({
 
   const handleEndTrim = (e) => {
     e.stopPropagation();
+    setActiveDragHandle('end');
     const handleMove = (moveEvt) => {
       if (!trackRef.current) return;
       const rect = trackRef.current.getBoundingClientRect();
       const clientX = moveEvt.clientX ?? moveEvt.touches?.[0]?.clientX;
       if (clientX === undefined) return;
       const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      const newEnd = Math.max(pct * totalVideoDuration, clipStart + 1.5);
-      onUpdateClipBounds?.(clipStart, roundSec(newEnd));
-      onSeek?.(Math.max(clipStart, newEnd - 0.5));
+      const rawTime = viewStart + pct * viewSpan;
+      const newEnd = Math.min(totalVideoDuration, Math.max(rawTime, clipStart + 1.5));
+      const rounded = roundSec(newEnd);
+      onUpdateClipBounds?.(clipStart, rounded);
+      const previewPos = Math.max(clipStart, rounded - 0.3);
+      setLocalFrameTime(previewPos);
+      onSeek?.(previewPos);
     };
     const handleUp = () => {
+      setActiveDragHandle(null);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
       window.removeEventListener('touchmove', handleMove);
@@ -919,15 +974,46 @@ export default function VideoPlayer({
 
   const handleNudgeStart = (delta) => {
     const newStart = Math.max(0, Math.min(clipEnd - 1.5, clipStart + delta));
-    onUpdateClipBounds?.(roundSec(newStart), clipEnd);
-    onSeek?.(newStart);
+    const rounded = roundSec(newStart);
+    onUpdateClipBounds?.(rounded, clipEnd);
+    onSeek?.(rounded);
   };
 
   const handleNudgeEnd = (delta) => {
     const newEnd = Math.max(clipStart + 1.5, Math.min(totalVideoDuration, clipEnd + delta));
-    onUpdateClipBounds?.(clipStart, roundSec(newEnd));
-    onSeek?.(Math.max(clipStart, newEnd - 0.5));
+    const rounded = roundSec(newEnd);
+    onUpdateClipBounds?.(clipStart, rounded);
+    onSeek?.(Math.max(clipStart, rounded - 0.5));
   };
+
+  const handleSetInHere = () => {
+    const t = roundSec(Math.max(0, Math.min(clipEnd - 1.5, exactCurrentTime)));
+    onUpdateClipBounds?.(t, clipEnd);
+  };
+
+  const handleSetOutHere = () => {
+    const t = roundSec(Math.max(clipStart + 1.5, Math.min(totalVideoDuration, exactCurrentTime)));
+    onUpdateClipBounds?.(clipStart, t);
+  };
+
+  const handlePreviewEnd = () => {
+    const target = Math.max(clipStart, clipEnd - 3.0);
+    onSeek?.(target);
+    if (videoRef.current && videoRef.current.paused) {
+      videoRef.current.play().catch(() => {});
+    }
+  };
+
+  const handleResetTrim = () => {
+    if (!initialClipBounds) return;
+    onUpdateClipBounds?.(initialClipBounds.start, initialClipBounds.end);
+    onSeek?.(initialClipBounds.start);
+  };
+
+  const isTrimModified = initialClipBounds && (
+    Math.abs(clipStart - initialClipBounds.start) > 0.05 ||
+    Math.abs(clipEnd - initialClipBounds.end) > 0.05
+  );
 
   return (
     <div className="flex flex-col items-center w-full h-full px-4 py-4 overflow-y-auto min-h-0">
@@ -1179,68 +1265,189 @@ export default function VideoPlayer({
               </div>
             </div>
 
-            {/* INTERACTIVE CLIP TIMELINE TRIMMER */}
+            {/* PRO CLIP TRIM EDITOR (Zoomed Focus Window + Set In/Out + Filmstrip Ticks) */}
             <div className="space-y-2 pt-2 border-t border-border-cream">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-[11px] font-bold text-ink-black flex items-center gap-1.5 uppercase tracking-wide">
+              {/* Top Header Row: Title, Focus/Full Switcher, Reset & Clip Duration */}
+              <div className="flex items-center justify-between gap-1 text-xs">
+                <span className="text-[11px] font-bold text-ink-black flex items-center gap-1.5 uppercase tracking-wide shrink-0">
                   <Scissors className="w-3.5 h-3.5 text-signal-orange" />
-                  Timeline Trimmer
+                  Trim Editor
                 </span>
-                <span className="text-[10px] font-mono text-ink-black bg-canvas-cream px-2 py-0.5 rounded-full border border-border-cream font-bold">
-                  {formatPreciseSec(clipEnd - clipStart)}
-                </span>
+
+                <div className="flex items-center gap-1">
+                  {/* Zoomed Clip Focus vs Full Timeline toggle */}
+                  <div className="flex p-0.5 bg-canvas-cream rounded-full border border-border-cream text-[9px]">
+                    <button
+                      type="button"
+                      onClick={() => setTrimViewMode('focus')}
+                      className={`px-2 py-0.5 rounded-full font-bold transition cursor-pointer ${
+                        trimViewMode === 'focus'
+                          ? 'bg-white text-ink-black shadow-sm'
+                          : 'text-slate-gray hover:text-ink-black'
+                      }`}
+                      title="Zoom timeline around active clip for precise handle dragging"
+                    >
+                      Focus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTrimViewMode('full')}
+                      className={`px-2 py-0.5 rounded-full font-bold transition cursor-pointer ${
+                        trimViewMode === 'full'
+                          ? 'bg-white text-ink-black shadow-sm'
+                          : 'text-slate-gray hover:text-ink-black'
+                      }`}
+                      title="View full video timeline"
+                    >
+                      Full
+                    </button>
+                  </div>
+
+                  {isTrimModified && (
+                    <button
+                      type="button"
+                      onClick={handleResetTrim}
+                      className="p-1 bg-canvas-cream hover:bg-white text-charcoal hover:text-signal-orange rounded-full border border-border-cream transition cursor-pointer"
+                      title="Reset trim to original bounds"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  )}
+
+                  <span className="text-[10px] font-mono text-ink-black bg-canvas-cream px-2 py-0.5 rounded-full border border-border-cream font-bold shrink-0">
+                    {formatPreciseSec(clipEnd - clipStart)}
+                  </span>
+                </div>
               </div>
 
-              {/* Trimmer Track (inset padding prevents end handles & playhead dot from clipping at 0%/100%) */}
-              <div className="relative w-full h-8 bg-canvas-cream rounded-full border border-border-cream px-2.5 cursor-pointer select-none group">
-                <div
-                  ref={trackRef}
-                  onClick={handleTrackClick}
-                  className="relative w-full h-full"
-                  title="Click anywhere to seek playhead, drag handles to trim"
-                >
-                  {/* Background Full Timeline Track Bar */}
-                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-dust-taupe rounded-full" />
-
-                  {/* Highlighted Selected Clip Span */}
+              {/* Interactive Multi-Track Trimmer Bar with Waveform Bars & Live Playhead */}
+              <div className="space-y-1">
+                <div className="relative w-full h-11 bg-canvas-cream rounded-2xl border border-border-cream px-3 cursor-pointer select-none group">
                   <div
-                    className="absolute top-1.5 bottom-1.5 bg-light-orange/25 border-y-2 border-signal-orange rounded-full"
-                    style={{
-                      left: `${startPct}%`,
-                      width: `${widthPct}%`,
-                    }}
-                  />
-
-                  {/* Playhead Needle */}
-                  <div
-                    className="absolute top-0 bottom-0 w-0.5 bg-ink-black shadow-lg pointer-events-none z-20"
-                    style={{ left: `${Math.max(0, Math.min(100, playheadPct))}%` }}
+                    ref={trackRef}
+                    onMouseDown={handleTrackMouseDown}
+                    onTouchStart={handleTrackMouseDown}
+                    className="relative w-full h-full"
+                    title="Click or drag anywhere to scrub playhead; drag handles to trim Start / End"
                   >
-                    <div className="w-2.5 h-2.5 bg-ink-black rounded-full -ml-[4px] -mt-0.5 shadow-md" />
-                  </div>
+                    {/* Subtle Editorial Waveform / Filmstrip Ticks */}
+                    <div className="absolute inset-0 flex items-center justify-between pointer-events-none px-0.5">
+                      {[35, 55, 75, 45, 85, 60, 40, 90, 70, 50, 80, 65, 45, 75, 95, 55, 40, 70, 85, 60, 50, 80, 65, 45, 75, 90, 55, 40, 70, 60, 45, 75].map((hPct, i, arr) => {
+                        const barPct = (i / (arr.length - 1)) * 100;
+                        const inClip = barPct >= startPct && barPct <= endPct;
+                        return (
+                          <div
+                            key={i}
+                            className={`w-[2px] rounded-full transition-colors ${
+                              inClip ? 'bg-signal-orange/65' : 'bg-dust-taupe/80'
+                            }`}
+                            style={{ height: `${Math.round(hPct * 0.45)}%` }}
+                          />
+                        );
+                      })}
+                    </div>
 
-                  {/* Left Trim Handle (Start) */}
-                  <div
-                    onMouseDown={handleStartTrim}
-                    onTouchStart={handleStartTrim}
-                    className="absolute top-0.5 bottom-0.5 w-4 -ml-2 bg-white hover:bg-canvas-cream active:bg-ink-black active:text-white text-ink-black border border-border-cream flex items-center justify-center cursor-ew-resize z-30 rounded-full shadow-satellite transition-colors group/handle"
-                    style={{ left: `${startPct}%` }}
-                    title={`Trim Start: ${formatPreciseSec(clipStart)}`}
-                  >
-                    <div className="w-0.5 h-3 bg-signal-orange rounded-full" />
-                  </div>
+                    {/* Highlighted Selected Clip Region */}
+                    <div
+                      className="absolute top-1 bottom-1 bg-light-orange/20 border-y-2 border-signal-orange rounded-lg pointer-events-none"
+                      style={{
+                        left: `${startPct}%`,
+                        width: `${widthPct}%`,
+                      }}
+                    />
 
-                  {/* Right Trim Handle (End) */}
-                  <div
-                    onMouseDown={handleEndTrim}
-                    onTouchStart={handleEndTrim}
-                    className="absolute top-0.5 bottom-0.5 w-4 -ml-2 bg-white hover:bg-canvas-cream active:bg-ink-black active:text-white text-ink-black border border-border-cream flex items-center justify-center cursor-ew-resize z-30 rounded-full shadow-satellite transition-colors group/handle"
-                    style={{ left: `${endPct}%` }}
-                    title={`Trim End: ${formatPreciseSec(clipEnd)}`}
-                  >
-                    <div className="w-0.5 h-3 bg-signal-orange rounded-full" />
+                    {/* Live Playhead Cursor */}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-ink-black pointer-events-none z-20"
+                      style={{ left: `${playheadPct}%` }}
+                    >
+                      <div className="w-2.5 h-2.5 bg-ink-black rounded-full -ml-[4px] -mt-1 border border-white shadow-sm" />
+                      {activeDragHandle === 'playhead' && (
+                        <span className="absolute -top-6 left-1/2 -translate-x-1/2 bg-ink-black text-white text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap shadow">
+                          {formatPreciseSec(exactCurrentTime)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Left Trim Handle (In Point) */}
+                    <div
+                      onMouseDown={handleStartTrim}
+                      onTouchStart={handleStartTrim}
+                      className={`absolute top-0.5 bottom-0.5 w-3.5 -ml-[7px] flex items-center justify-center cursor-ew-resize z-30 rounded-full border shadow-satellite transition-colors ${
+                        activeDragHandle === 'start'
+                          ? 'bg-ink-black border-ink-black text-white scale-110'
+                          : 'bg-white hover:bg-canvas-cream border-border-cream text-signal-orange'
+                      }`}
+                      style={{ left: `${startPct}%` }}
+                      title={`Drag Start: ${formatPreciseSec(clipStart)}`}
+                    >
+                      <div className={`w-0.5 h-4 rounded-full ${activeDragHandle === 'start' ? 'bg-white' : 'bg-signal-orange'}`} />
+                      {activeDragHandle === 'start' && (
+                        <span className="absolute -top-6 left-1/2 -translate-x-1/2 bg-signal-orange text-white text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap shadow">
+                          {formatPreciseSec(clipStart)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Right Trim Handle (Out Point) */}
+                    <div
+                      onMouseDown={handleEndTrim}
+                      onTouchStart={handleEndTrim}
+                      className={`absolute top-0.5 bottom-0.5 w-3.5 -ml-[7px] flex items-center justify-center cursor-ew-resize z-30 rounded-full border shadow-satellite transition-colors ${
+                        activeDragHandle === 'end'
+                          ? 'bg-ink-black border-ink-black text-white scale-110'
+                          : 'bg-white hover:bg-canvas-cream border-border-cream text-signal-orange'
+                      }`}
+                      style={{ left: `${endPct}%` }}
+                      title={`Drag End: ${formatPreciseSec(clipEnd)}`}
+                    >
+                      <div className={`w-0.5 h-4 rounded-full ${activeDragHandle === 'end' ? 'bg-white' : 'bg-signal-orange'}`} />
+                      {activeDragHandle === 'end' && (
+                        <span className="absolute -top-6 left-1/2 -translate-x-1/2 bg-signal-orange text-white text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap shadow">
+                          {formatPreciseSec(clipEnd)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                {/* Time Ruler Labels */}
+                <div className="flex items-center justify-between px-1 text-[9px] font-mono text-slate-gray">
+                  <span>{formatSec(viewStart)}</span>
+                  <span>{formatSec(viewStart + viewSpan / 2)}</span>
+                  <span>{formatSec(viewEnd)}</span>
+                </div>
+              </div>
+
+              {/* 1-Click Frame Cut Bar: Set Start Here / Preview Last 3s / Set End Here */}
+              <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                <button
+                  type="button"
+                  onClick={handleSetInHere}
+                  className="py-1 px-2 bg-canvas-cream hover:bg-white text-ink-black font-bold rounded-full border border-border-cream transition cursor-pointer flex items-center justify-center gap-1"
+                  title="Set clip Start directly to current playhead position"
+                >
+                  <span className="text-signal-orange font-mono font-black">[</span>
+                  <span>Set Start</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePreviewEnd}
+                  className="py-1 px-2 bg-canvas-cream hover:bg-white text-charcoal font-bold rounded-full border border-border-cream transition cursor-pointer flex items-center justify-center gap-1"
+                  title="Jump to final 3 seconds and play to check cut ending"
+                >
+                  <Play className="w-2.5 h-2.5 text-signal-orange fill-signal-orange" />
+                  <span>End Check</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSetOutHere}
+                  className="py-1 px-2 bg-canvas-cream hover:bg-white text-ink-black font-bold rounded-full border border-border-cream transition cursor-pointer flex items-center justify-center gap-1"
+                  title="Set clip End directly to current playhead position"
+                >
+                  <span>Set End</span>
+                  <span className="text-signal-orange font-mono font-black">]</span>
+                </button>
               </div>
 
               {/* Nudge & Precision Timing Adjustments */}
@@ -1248,7 +1455,14 @@ export default function VideoPlayer({
                 {/* Start Time Nudge */}
                 <div className="bg-canvas-cream p-2 rounded-2xl border border-border-cream space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-gray font-semibold uppercase text-[9px]">Start</span>
+                    <button
+                      type="button"
+                      onClick={() => onSeek?.(clipStart)}
+                      className="text-slate-gray hover:text-signal-orange font-semibold uppercase text-[9px] cursor-pointer"
+                      title="Jump to Start"
+                    >
+                      Start
+                    </button>
                     <span className="font-mono font-bold text-ink-black">{formatPreciseSec(clipStart)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-1">
@@ -1268,7 +1482,14 @@ export default function VideoPlayer({
                 {/* End Time Nudge */}
                 <div className="bg-canvas-cream p-2 rounded-2xl border border-border-cream space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-gray font-semibold uppercase text-[9px]">End</span>
+                    <button
+                      type="button"
+                      onClick={() => onSeek?.(Math.max(clipStart, clipEnd - 0.5))}
+                      className="text-slate-gray hover:text-signal-orange font-semibold uppercase text-[9px] cursor-pointer"
+                      title="Jump near End"
+                    >
+                      End
+                    </button>
                     <span className="font-mono font-bold text-ink-black">{formatPreciseSec(clipEnd)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-1">
