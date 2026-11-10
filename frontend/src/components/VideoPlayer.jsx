@@ -56,6 +56,47 @@ export default function VideoPlayer({
   onChangePlaybackRate,
 }) {
   const videoRef = useRef(null);
+  const splitVideoRefs = useRef([]);
+
+  const computePanelCropBox = (rawX, rawY, mode = 'solo', zoomVal = 1.15) => {
+    const SRC_AR = 16.0 / 9.0;
+    const effZoom = Math.max(1.08, Math.min(2.5, Number(zoomVal) || 1.15));
+    const zoomScale = effZoom / 1.15;
+    let wf, hf;
+
+    if (mode === 'split_2') {
+      const panelAr = 9.0 / 8.0;
+      hf = Math.max(0.35, Math.min(0.94, 0.80 / zoomScale));
+      wf = Math.max(0.24, Math.min(0.95, (hf * panelAr) / SRC_AR));
+    } else if (mode === 'split_3') {
+      const panelAr = 1080.0 / 640.0;
+      wf = Math.max(0.24, Math.min(0.88, 0.45 / zoomScale));
+      hf = Math.max(0.22, Math.min(0.95, (wf * SRC_AR) / panelAr));
+      wf = (hf * panelAr) / SRC_AR;
+    } else if (mode === 'split_4') {
+      const panelAr = 1080.0 / 480.0;
+      wf = Math.max(0.24, Math.min(0.88, 0.42 / zoomScale));
+      hf = Math.max(0.18, Math.min(0.95, (wf * SRC_AR) / panelAr));
+      wf = (hf * panelAr) / SRC_AR;
+    } else {
+      hf = 1.0 / effZoom;
+      wf = (hf * (9.0 / 16.0)) / SRC_AR;
+    }
+
+    const spanX = Math.max(0.001, 1.0 - wf);
+    const normX = Math.max(0.0, Math.min(1.0, Number(rawX) / 100.0));
+    const cx = Math.max(0.0, Math.min(100.0, ((normX - wf / 2.0) / spanX) * 100.0));
+
+    let cy;
+    if (mode === 'solo') {
+      cy = Math.max(25.0, Math.min(45.0, Number(rawY)));
+    } else {
+      const spanY = Math.max(0.001, 1.0 - hf);
+      const targetY = Math.min(0.92, (Number(rawY) + Math.min(6.0, hf * 10.0)) / 100.0);
+      cy = Math.max(0.0, Math.min(100.0, ((targetY - hf / 2.0) / spanY) * 100.0));
+    }
+    return { x: cx, y: cy, wf, hf };
+  };
 
   const channelCredit = useMemo(() => {
     if (project?.channel_name && project.channel_name.trim()) {
@@ -231,17 +272,40 @@ export default function VideoPlayer({
     }
   };
 
+  const syncSplitVideos = () => {
+    const main = videoRef.current;
+    if (!main) return;
+    splitVideoRefs.current.forEach((sv) => {
+      if (!sv) return;
+      if (Math.abs((sv.currentTime || 0) - main.currentTime) > 0.12) {
+        try {
+          sv.currentTime = main.currentTime;
+        } catch (e) {}
+      }
+      if (sv.playbackRate !== main.playbackRate) {
+        sv.playbackRate = main.playbackRate;
+      }
+      if (!main.paused && sv.paused) {
+        sv.play().catch(() => {});
+      } else if (main.paused && !sv.paused) {
+        sv.pause();
+      }
+    });
+  };
+
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const curr = videoRef.current.currentTime;
     setLocalFrameTime(curr);
     onTimeUpdate(curr);
+    syncSplitVideos();
 
     // Loop within clip bounds if a clip is active
     if (selectedClip) {
       if (curr >= selectedClip.end_time) {
         videoRef.current.currentTime = selectedClip.start_time;
         videoRef.current.playbackRate = playbackRate;
+        syncSplitVideos();
       }
     }
   };
@@ -264,6 +328,9 @@ export default function VideoPlayer({
           videoRef.current.playbackRate = playbackRate;
         }
 
+        // Keep split-screen video clones locked frame-for-frame
+        syncSplitVideos();
+
         // 3. Throttle parent App.jsx re-renders to ~12 FPS (every 80ms) so CPU and UI thread stay 100% smooth
         const now = performance.now();
         if (now - lastParentUpdate >= 80) {
@@ -276,6 +343,8 @@ export default function VideoPlayer({
 
     if (isPlaying) {
       animId = requestAnimationFrame(syncLoop);
+    } else {
+      syncSplitVideos();
     }
     return () => cancelAnimationFrame(animId);
   }, [isPlaying, selectedClip?.id, selectedClip?.start_time, selectedClip?.end_time, playbackRate]);
@@ -534,11 +603,12 @@ export default function VideoPlayer({
     ? selectedClip.duration
     : duration || 1;
 
-  // Dynamic Real-Time Keyframe Camera Tracking (Multi-Speaker Framing)
+  // Dynamic Real-Time Keyframe Camera Tracking (Multi-Speaker Framing & Vertical Split Screen)
   let activeCropX = cropSettings?.x ?? 50.0;
   let activeCropY = cropSettings?.y ?? 45.0;
   let activeCropZoom = cropSettings?.zoom ?? 1.0;
   let activeSpeakerLabel = '';
+  let activeKf = null;
 
   const keyframes = Array.isArray(cropSettings?.keyframes) && cropSettings.keyframes.length > 0
     ? [...cropSettings.keyframes].sort((a, b) => (a.time || 0) - (b.time || 0))
@@ -551,10 +621,11 @@ export default function VideoPlayer({
     activeSpeakerLabel = 'Manual Framing';
   } else if (keyframes && keyframes.length > 0) {
     if (keyframes.length === 1) {
-      activeCropX = keyframes[0].x ?? activeCropX;
-      activeCropY = keyframes[0].y ?? activeCropY;
-      activeCropZoom = keyframes[0].zoom ?? activeCropZoom;
-      activeSpeakerLabel = keyframes[0].speaker || 'Speaker Focus';
+      activeKf = keyframes[0];
+      activeCropX = activeKf.x ?? activeCropX;
+      activeCropY = activeKf.y ?? activeCropY;
+      activeCropZoom = activeKf.zoom ?? activeCropZoom;
+      activeSpeakerLabel = activeKf.speaker || 'Speaker Focus';
     } else {
       let curIdx = 0;
       for (let i = 0; i < keyframes.length; i++) {
@@ -565,12 +636,12 @@ export default function VideoPlayer({
         }
       }
 
-      const curKf = keyframes[curIdx];
-      // Clean, instantaneous broadcast cuts on speaker turns (zero shaky panning across walls)
-      activeCropX = curKf.x;
-      activeCropY = curKf.y;
-      activeCropZoom = curKf.zoom || 1.0;
-      activeSpeakerLabel = curKf.speaker || 'Speaker Focus';
+      activeKf = keyframes[curIdx];
+      // Clean, instantaneous broadcast cuts on speaker turns & multi-person splits
+      activeCropX = activeKf.x;
+      activeCropY = activeKf.y;
+      activeCropZoom = activeKf.zoom || 1.0;
+      activeSpeakerLabel = activeKf.speaker || 'Speaker Focus';
     }
   } else {
     activeCropX = cropSettings?.x ?? 50.0;
@@ -579,14 +650,33 @@ export default function VideoPlayer({
     activeSpeakerLabel = 'Speaker Focus';
   }
 
-  // Mathematical 9:16 Porting for 16:9 horizontal video:
-  // In a 9:16 frame, a 16:9 video scaled to full height (zoom=1.0) is (16/9)^2 = 3.1605 times container width.
-  // Using effectiveZoom >= 1.08 provides graceful vertical headroom so Vertical Tilt (Y) never exposes black gaps.
-  const zoom = Math.max(1.0, Math.min(2.5, activeCropZoom || 1.0));
+  // User manual zoom slider overrides keyframe base zoom proportionally when adjusted
+  const zoom = Math.max(1.0, Math.min(2.5, (cropSettings?.zoom ?? activeCropZoom) || 1.0));
   const effectiveZoom = Math.max(1.08, zoom);
   const cropX = Math.max(0.0, Math.min(100.0, activeCropX));
   const cropY = Math.max(0.0, Math.min(100.0, activeCropY));
   const cropMode = cropSettings?.mode || 'custom_crop';
+
+  const activeKfMode = String(activeKf?.mode || 'solo');
+  const isSplitScreen =
+    cropMode === 'custom_crop' &&
+    activeKfMode.startsWith('split_') &&
+    Array.isArray(activeKf?.panels) &&
+    activeKf.panels.length >= 2;
+
+  const splitPanels = isSplitScreen
+    ? activeKf.panels.slice(0, 4).map((p) =>
+        p.raw_x !== undefined && p.raw_y !== undefined
+          ? computePanelCropBox(p.raw_x, p.raw_y, activeKfMode, effectiveZoom)
+          : { x: p.x ?? 50, y: p.y ?? 50, wf: p.wf ?? 0.45, hf: p.hf ?? 0.5 }
+      )
+    : [];
+
+  useEffect(() => {
+    if (isSplitScreen) {
+      syncSplitVideos();
+    }
+  }, [isSplitScreen, splitPanels.length]);
 
   // Format words with all 26 captions.js animations and seamless highlight transitions
   const renderSubtitleWords = () => {
@@ -858,42 +948,97 @@ export default function VideoPlayer({
               />
             )}
 
-            {/* Foreground Video */}
-            <video
-              ref={videoRef}
-              src={videoSrc}
-              preload="auto"
-              onClick={togglePlay}
-              onError={() => setIsVideoError(true)}
-              onPlay={() => {
-                setIsPlaying(true);
-                if (videoRef.current) {
-                  videoRef.current.playbackRate = playbackRate;
-                  videoRef.current.defaultPlaybackRate = playbackRate;
+            {/* Video Stage Container (Persistent Panel 0 prevents remounting videoRef on solo/split transitions) */}
+            <div className={`relative z-10 w-full h-full flex ${cropMode === 'blur_fill' ? 'items-center justify-center' : 'flex-col bg-black'}`}>
+              {/* Primary Panel (Solo or Split Panel 0) */}
+              <div
+                className={
+                  cropMode === 'blur_fill'
+                    ? 'w-full flex items-center justify-center'
+                    : `flex-1 w-full relative overflow-hidden ${isSplitScreen ? 'border-b border-ink-black' : ''}`
                 }
-              }}
-              onPause={() => setIsPlaying(false)}
-              onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={handleLoadedMetadata}
-              className={`cursor-pointer ${
-                cropMode === 'blur_fill'
-                  ? 'relative z-10 w-full object-contain'
-                  : 'absolute z-10 max-w-none max-h-none pointer-events-auto'
-              }`}
-              style={
-                cropMode !== 'blur_fill'
-                  ? {
-                      width: `${(316.05 * effectiveZoom).toFixed(2)}%`,
-                      height: `${(100 * effectiveZoom).toFixed(2)}%`,
-                      left: `${(-((3.1605 * effectiveZoom - 1) * (cropX / 100)) * 100).toFixed(2)}%`,
-                      top: `${(-((effectiveZoom - 1) * (cropY / 100)) * 100).toFixed(2)}%`,
-                      objectFit: 'fill',
-                      transition: 'none',
+              >
+                <video
+                  ref={videoRef}
+                  src={videoSrc}
+                  preload="auto"
+                  onClick={togglePlay}
+                  onError={() => setIsVideoError(true)}
+                  onPlay={() => {
+                    setIsPlaying(true);
+                    if (videoRef.current) {
+                      videoRef.current.playbackRate = playbackRate;
+                      videoRef.current.defaultPlaybackRate = playbackRate;
                     }
-                  : {}
-              }
-              playsInline
-            />
+                    syncSplitVideos();
+                  }}
+                  onPause={() => {
+                    setIsPlaying(false);
+                    syncSplitVideos();
+                  }}
+                  onTimeUpdate={handleTimeUpdate}
+                  onLoadedMetadata={handleLoadedMetadata}
+                  className={`cursor-pointer ${
+                    cropMode === 'blur_fill'
+                      ? 'relative z-10 w-full object-contain'
+                      : 'absolute z-10 max-w-none max-h-none pointer-events-auto'
+                  }`}
+                  style={
+                    cropMode !== 'blur_fill'
+                      ? isSplitScreen && splitPanels[0]
+                        ? {
+                            width: `${(100 / splitPanels[0].wf).toFixed(2)}%`,
+                            height: `${(100 / splitPanels[0].hf).toFixed(2)}%`,
+                            left: `${(-((1 / splitPanels[0].wf - 1) * (splitPanels[0].x / 100)) * 100).toFixed(2)}%`,
+                            top: `${(-((1 / splitPanels[0].hf - 1) * (splitPanels[0].y / 100)) * 100).toFixed(2)}%`,
+                            objectFit: 'fill',
+                            transition: 'none',
+                          }
+                        : {
+                            width: `${(316.05 * effectiveZoom).toFixed(2)}%`,
+                            height: `${(100 * effectiveZoom).toFixed(2)}%`,
+                            left: `${(-((3.1605 * effectiveZoom - 1) * (cropX / 100)) * 100).toFixed(2)}%`,
+                            top: `${(-((effectiveZoom - 1) * (cropY / 100)) * 100).toFixed(2)}%`,
+                            objectFit: 'fill',
+                            transition: 'none',
+                          }
+                      : {}
+                  }
+                  playsInline
+                />
+              </div>
+
+              {/* Additional Vertical Split Panels (2, 3, or 4 Stacked Speakers) */}
+              {isSplitScreen &&
+                splitPanels.slice(1).map((panelBox, idx) => (
+                  <div
+                    key={idx + 1}
+                    onClick={togglePlay}
+                    className="flex-1 w-full relative overflow-hidden border-b border-ink-black last:border-b-0 cursor-pointer"
+                  >
+                    <video
+                      ref={(el) => {
+                        splitVideoRefs.current[idx] = el;
+                      }}
+                      src={videoSrc}
+                      preload="auto"
+                      muted
+                      playsInline
+                      tabIndex={-1}
+                      onLoadedMetadata={() => syncSplitVideos()}
+                      className="absolute z-10 max-w-none max-h-none pointer-events-none"
+                      style={{
+                        width: `${(100 / panelBox.wf).toFixed(2)}%`,
+                        height: `${(100 / panelBox.hf).toFixed(2)}%`,
+                        left: `${(-((1 / panelBox.wf - 1) * (panelBox.x / 100)) * 100).toFixed(2)}%`,
+                        top: `${(-((1 / panelBox.hf - 1) * (panelBox.y / 100)) * 100).toFixed(2)}%`,
+                        objectFit: 'fill',
+                        transition: 'none',
+                      }}
+                    />
+                  </div>
+                ))}
+            </div>
 
             {/* Video Load Error / Connecting Fallback */}
             {isVideoError && (

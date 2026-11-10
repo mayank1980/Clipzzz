@@ -38,7 +38,7 @@ export default function ClipsList({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // Group clips into stories and standalone
+  // Group clips into stories and standalone (reacts to both clips and sortBy!)
   const { storyGroups, standaloneClips } = useMemo(() => {
     if (!clips) return { storyGroups: [], standaloneClips: [] };
 
@@ -55,6 +55,7 @@ export default function ClipsList({
             clips: [],
             totalDuration: 0,
             avgScore: 0,
+            maxScore: 0,
           });
         }
         const group = groupsMap.get(key);
@@ -66,16 +67,27 @@ export default function ClipsList({
     });
 
     const groups = Array.from(groupsMap.values()).map((g) => {
-      g.clips.sort((a, b) => (a.part_number || 1) - (b.part_number || 1) || a.start_time - b.start_time);
+      if (sortBy === 'score') {
+        g.clips.sort((a, b) => (b.score || 0) - (a.score || 0) || a.start_time - b.start_time);
+      } else {
+        g.clips.sort((a, b) => (a.part_number || 1) - (b.part_number || 1) || a.start_time - b.start_time);
+      }
       const totalScore = g.clips.reduce((acc, c) => acc + (c.score || 85), 0);
       g.avgScore = Math.round(totalScore / Math.max(1, g.clips.length));
+      g.maxScore = Math.max(...g.clips.map((c) => c.score || 0));
       return g;
     });
 
-    groups.sort((a, b) => (a.clips[0]?.start_time || 0) - (b.clips[0]?.start_time || 0));
+    if (sortBy === 'score') {
+      groups.sort((a, b) => b.maxScore - a.maxScore || b.avgScore - a.avgScore || (a.clips[0]?.start_time || 0) - (b.clips[0]?.start_time || 0));
+      standalone.sort((a, b) => (b.score || 0) - (a.score || 0) || a.start_time - b.start_time);
+    } else {
+      groups.sort((a, b) => (a.clips[0]?.start_time || 0) - (b.clips[0]?.start_time || 0));
+      standalone.sort((a, b) => a.start_time - b.start_time);
+    }
 
     return { storyGroups: groups, standaloneClips: standalone };
-  }, [clips]);
+  }, [clips, sortBy]);
 
   const sortedClips = useMemo(() => {
     if (!clips) return [];

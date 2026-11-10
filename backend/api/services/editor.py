@@ -456,6 +456,109 @@ def compute_clip_render_hash(clip, mode: str = 'captioned') -> str:
 
     return hashlib.sha256(';'.join(components).encode('utf-8')).hexdigest()
 
+def build_ffmpeg_split_filter(
+    crop_keyframes: List[Dict[str, Any]],
+    default_x: float,
+    default_y: float,
+    effective_zoom: float,
+    duration: float,
+    subtitles_filter: str = ""
+) -> Tuple[bool, str]:
+    """
+    Builds a multi-panel vertical split-screen FFmpeg filter_complex graph when any keyframe
+    uses 'split_2', 'split_3', or 'split_4'. Handles seamless solo <-> split layout transitions.
+    Returns (True, filter_complex_str) if split panels exist, else (False, "").
+    """
+    if not crop_keyframes:
+        return False, ""
+
+    has_split = any(
+        str(kf.get('mode', '')).startswith('split_') and len(kf.get('panels') or []) >= 2
+        for kf in crop_keyframes
+    )
+    if not has_split:
+        return False, ""
+
+    from .face_tracker import compute_panel_crop_box
+
+    sorted_kfs = sorted(crop_keyframes, key=lambda k: float(k.get('time', 0.0)))
+    segments = []
+    for idx, kf in enumerate(sorted_kfs):
+        t_start = max(0.0, float(kf.get('time', 0.0)))
+        if t_start >= duration - 0.05 and idx > 0:
+            continue
+        t_end = float(sorted_kfs[idx + 1].get('time', duration)) if idx + 1 < len(sorted_kfs) else (duration + 0.1)
+        t_end = min(duration + 0.1, max(t_start + 0.05, t_end))
+        if t_end - t_start >= 0.05:
+            segments.append((t_start, t_end, kf))
+
+    if not segments:
+        segments = [(0.0, duration + 0.1, sorted_kfs[0])]
+
+    filter_parts: List[str] = []
+    num_segs = len(segments)
+
+    if num_segs > 1:
+        split_labels = "".join([f"[s{i}]" for i in range(num_segs)])
+        filter_parts.append(f"[0:v]split={num_segs}{split_labels}")
+
+    seg_outputs: List[str] = []
+    for seg_idx, (ts, te, kf) in enumerate(segments):
+        src_lbl = "[0:v]" if num_segs == 1 else f"[tr_{seg_idx}]"
+        if num_segs > 1:
+            filter_parts.append(f"[s{seg_idx}]trim=start={ts:.3f}:end={te:.3f},setpts=PTS-STARTPTS{src_lbl}")
+
+        mode = str(kf.get('mode', 'solo'))
+        panels = kf.get('panels') or []
+        out_lbl = f"[seg_{seg_idx}]"
+
+        if mode.startswith('split_') and len(panels) >= 2:
+            n_panes = min(4, len(panels))
+            panel_h = 1920 // n_panes
+            p_in_lbls = "".join([f"[pin_{seg_idx}_{p_i}]" for p_i in range(n_panes)])
+            filter_parts.append(f"{src_lbl}split={n_panes}{p_in_lbls}")
+
+            p_out_lbls = []
+            for p_i in range(n_panes):
+                p = panels[p_i]
+                if 'raw_x' in p and 'raw_y' in p:
+                    box = compute_panel_crop_box(p['raw_x'], p['raw_y'], mode=mode, zoom=effective_zoom)
+                else:
+                    box = p
+                wf = float(box.get('wf', 0.45))
+                hf = float(box.get('hf', 0.50))
+                cx = max(0.0, min(100.0, float(box.get('x', 50.0)))) / 100.0
+                cy = max(0.0, min(100.0, float(box.get('y', 50.0)))) / 100.0
+                pan_out = f"[pan_{seg_idx}_{p_i}]"
+                filter_parts.append(
+                    f"[pin_{seg_idx}_{p_i}]crop=w='iw*{wf:.5f}':h='ih*{hf:.5f}':x='(iw-ow)*{cx:.5f}':y='(ih-oh)*{cy:.5f}',"
+                    f"scale=1080:{panel_h}:flags=lanczos,setsar=1{pan_out}"
+                )
+                p_out_lbls.append(pan_out)
+
+            filter_parts.append(f"{''.join(p_out_lbls)}vstack=inputs={n_panes}{out_lbl}")
+        else:
+            cx = max(0.0, min(100.0, float(kf.get('x', default_x)))) / 100.0
+            cy = max(0.0, min(100.0, float(kf.get('y', default_y)))) / 100.0
+            filter_parts.append(
+                f"{src_lbl}crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':"
+                f"x='(iw-ow)*{cx:.5f}':y='(ih-oh)*{cy:.5f}',scale=1080:1920:flags=lanczos,setsar=1{out_lbl}"
+            )
+        seg_outputs.append(out_lbl)
+
+    if num_segs == 1:
+        # Append subtitles onto the single stacked segment directly
+        last_expr = filter_parts[-1]
+        if last_expr.endswith(seg_outputs[0]):
+            filter_parts[-1] = last_expr[:-len(seg_outputs[0])] + f"{subtitles_filter}[outv]"
+        else:
+            filter_parts.append(f"{seg_outputs[0]}null{subtitles_filter}[outv]")
+    else:
+        filter_parts.append(f"{''.join(seg_outputs)}concat=n={num_segs}:v=1:a=0{subtitles_filter}[outv]")
+
+    return True, ";".join(filter_parts)
+
+
 def render_shorts_clip(
     source_video_path: str,
     clip_start: float,
@@ -506,9 +609,16 @@ def render_shorts_clip(
         if crop_keyframes and len(crop_keyframes) > 0:
             for kf in crop_keyframes:
                 kf['zoom'] = effective_zoom
-            expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.0, zoom=effective_zoom)
-            expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.0, zoom=effective_zoom)
-            vf = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"
+            is_split, split_vf = build_ffmpeg_split_filter(
+                crop_keyframes, crop_x, crop_y, effective_zoom, duration, subtitles_filter=subtitles_filter
+            )
+            if is_split:
+                use_filter_complex = True
+                vf = split_vf
+            else:
+                expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=0.0, zoom=effective_zoom)
+                expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=0.0, zoom=effective_zoom)
+                vf = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"
         else:
             cx = max(0.0, min(100.0, float(crop_x))) / 100.0
             cy = max(0.0, min(100.0, float(crop_y))) / 100.0

@@ -40,6 +40,87 @@ def to_916_crop_y(face_cy_pct: float, zoom: float = 1.15) -> float:
     clamped_y = round(max(25.0, min(45.0, float(face_cy_pct))), 1)
     return clamped_y
 
+def compute_panel_crop_box(face_cx_pct: float, face_cy_pct: float, mode: str = 'solo', zoom: float = 1.15) -> Dict[str, float]:
+    """
+    Computes normalized 16:9 crop dimensions (wf, hf) and scroll coordinates (x, y in 0-100%)
+    for either full 9:16 ('solo') or stacked vertical split panels ('split_2', 'split_3', 'split_4').
+    Preserves exact 16:9 -> panel aspect ratio so both CSS preview and FFmpeg match 1:1 with zero stretch.
+    """
+    SRC_AR = 16.0 / 9.0
+    eff_zoom = max(1.08, min(2.5, float(zoom)))
+    zoom_scale = eff_zoom / 1.15
+
+    if mode == 'split_2':
+        # 2 vertical stacked panels: 1080x960 each (AR = 1.125)
+        panel_ar = 9.0 / 8.0
+        hf = max(0.35, min(0.94, 0.80 / zoom_scale))
+        wf = max(0.24, min(0.95, hf * panel_ar / SRC_AR))
+    elif mode == 'split_3':
+        # 3 vertical stacked panels: 1080x640 each (AR = 1.6875)
+        panel_ar = 1080.0 / 640.0
+        wf = max(0.24, min(0.88, 0.45 / zoom_scale))
+        hf = max(0.22, min(0.95, wf * SRC_AR / panel_ar))
+        wf = hf * panel_ar / SRC_AR
+    elif mode == 'split_4':
+        # 4 vertical stacked panels: 1080x480 each (AR = 2.25)
+        panel_ar = 1080.0 / 480.0
+        wf = max(0.24, min(0.88, 0.42 / zoom_scale))
+        hf = max(0.18, min(0.95, wf * SRC_AR / panel_ar))
+        wf = hf * panel_ar / SRC_AR
+    else:
+        # Solo 9:16 portrait (AR = 0.5625)
+        hf = 1.0 / eff_zoom
+        wf = hf * (9.0 / 16.0) / SRC_AR
+
+    span_x = max(0.001, 1.0 - wf)
+    norm_x = max(0.0, min(1.0, float(face_cx_pct) / 100.0))
+    crop_x = max(0.0, min(100.0, ((norm_x - wf / 2.0) / span_x) * 100.0))
+
+    if mode == 'solo':
+        crop_y = to_916_crop_y(face_cy_pct, zoom=eff_zoom)
+    else:
+        span_y = max(0.001, 1.0 - hf)
+        # Keep head + upper shoulders comfortably inside wide split strips
+        target_y = min(0.92, (float(face_cy_pct) + min(6.0, hf * 10.0)) / 100.0)
+        crop_y = max(0.0, min(100.0, ((target_y - hf / 2.0) / span_y) * 100.0))
+
+    return {
+        "x": round(crop_x, 1),
+        "y": round(crop_y, 1),
+        "raw_x": round(float(face_cx_pct), 1),
+        "raw_y": round(float(face_cy_pct), 1),
+        "wf": round(wf, 5),
+        "hf": round(hf, 5),
+    }
+
+def dedupe_frame_people(faces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Filters duplicate/overlapping boxes on the same person and insignificant background
+    detections so split screens trigger strictly for distinct foreground people.
+    Returns up to 4 people sorted left-to-right by horizontal center (cx).
+    """
+    if not faces:
+        return []
+    max_area = max((f.get('area', 0) for f in faces), default=0)
+    ranked = sorted(faces, key=lambda f: f.get('confidence', 0.5) * max(1, f.get('area', 1)), reverse=True)
+    kept: List[Dict[str, Any]] = []
+    for f in ranked:
+        if f.get('area', 0) < max_area * 0.22:
+            continue
+        if f.get('confidence', 0.5) < 0.36:
+            continue
+        is_dup = False
+        for k in kept:
+            if abs(f['cx'] - k['cx']) < 14.0 and abs(f['cy'] - k['cy']) < 24.0:
+                is_dup = True
+                break
+        if not is_dup:
+            kept.append(f)
+        if len(kept) >= 4:
+            break
+    kept.sort(key=lambda p: p['cx'])
+    return kept
+
 def ensure_yunet_model() -> str:
     """
     Ensures the official OpenCV YuNet ONNX model is present (approx 230 KB).
@@ -182,9 +263,9 @@ class AutoCameraEngine:
                             'confidence': score,
                         })
 
-                    # If YuNet found a high-confidence, good-sized face, we can trust it
-                    has_prominent_face = any(r['area'] >= 900 and r['confidence'] >= 0.60 for r in results)
-                    if has_prominent_face:
+                    # Fast path: only skip cascades if YuNet already found 2+ distinct prominent faces
+                    distinct_yn = dedupe_frame_people(results)
+                    if len(distinct_yn) >= 2 and all(r['area'] >= 900 and r['confidence'] >= 0.60 for r in distinct_yn):
                         primary = max(results, key=lambda r: r['area'])
                         self.current_focal_x = primary['cx']
                         self.current_focal_y = primary['cy']
@@ -193,11 +274,12 @@ class AutoCameraEngine:
                 pass
 
         # 2. Multi-Cascade Robust Suite: Frontal, Left Profile, Right Profile (Turned/Reading Faces)
+        has_prominent_yunet = any(r['area'] >= 900 and r['confidence'] >= 0.60 for r in results)
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         detections = []
 
-        # Frontal Alt2
-        if self.face_cascade_alt2 and not self.face_cascade_alt2.empty():
+        # Frontal Alt2 (only needed if YuNet didn't find a strong frontal face)
+        if not has_prominent_yunet and self.face_cascade_alt2 and not self.face_cascade_alt2.empty():
             faces_alt2 = self.face_cascade_alt2.detectMultiScale(
                 gray,
                 scaleFactor=1.08,
@@ -211,12 +293,12 @@ class AutoCameraEngine:
                     if self._has_valid_face_skin(crop):
                         detections.append((x, y, w, h, 0.75))
 
-        # Left-Facing Profile Cascade (Sensitive scaleFactor 1.05, minNeighbors 2)
+        # Left & Right Profile Cascades: always run if fewer than 2 people found so far (catches side-facing second speakers)
         if self.profile_cascade and not self.profile_cascade.empty():
             prof_faces = self.profile_cascade.detectMultiScale(
                 gray,
                 scaleFactor=1.05,
-                minNeighbors=2,
+                minNeighbors=3 if has_prominent_yunet else 2,
                 minSize=(24, 24)
             )
             for (x, y, w, h) in prof_faces:
@@ -224,13 +306,11 @@ class AutoCameraEngine:
                 if self._has_valid_face_skin(crop):
                     detections.append((x, y, w, h, 0.78))
 
-        # Right-Facing Profile Cascade (Horizontally flipped image detection)
-        if self.profile_cascade and not self.profile_cascade.empty():
             flipped_gray = cv2.flip(gray, 1)
             prof_right = self.profile_cascade.detectMultiScale(
                 flipped_gray,
                 scaleFactor=1.05,
-                minNeighbors=2,
+                minNeighbors=3 if has_prominent_yunet else 2,
                 minSize=(24, 24)
             )
             for (fx, fy, fw, fh) in prof_right:
@@ -569,56 +649,82 @@ class AutoCameraEngine:
         speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=14.0)
 
         raw_track = []
+        last_valid_mode = "solo"
         last_valid_x = self.current_focal_x
         last_valid_y = self.current_focal_y
         last_valid_label = "Speaker Focus"
+        last_valid_panels = None
+        has_any_split = False
 
         for st in sampled_timeline:
             t = st["time"]
             faces = st["faces"]
 
             if not faces:
-                # Sticky memory: hold previous position
+                # Sticky memory: hold previous shot layout/position seamlessly
                 raw_track.append({
                     "time": t,
+                    "mode": last_valid_mode,
                     "x": last_valid_x,
                     "y": last_valid_y,
+                    "panels": last_valid_panels,
                     "speaker": last_valid_label,
                     "has_face": False
                 })
                 continue
 
-            if len(faces) == 1:
-                target_f = faces[0]
-                label = "Speaker Focus"
+            distinct_people = dedupe_frame_people(faces)
+            if not distinct_people:
+                distinct_people = [max(faces, key=lambda f: f.get('area', 0))]
+
+            xs = [p['cx'] for p in distinct_people]
+            ys = [p['cy'] for p in distinct_people]
+            horiz_span = (max(xs) - min(xs)) if len(distinct_people) > 1 else 0.0
+            vert_span = (max(ys) - min(ys)) if len(distinct_people) > 1 else 0.0
+            is_multi_split = len(distinct_people) >= 2 and (horiz_span >= 18.0 or vert_span >= 22.0)
+
+            if is_multi_split:
+                has_any_split = True
+                n_panes = min(4, len(distinct_people))
+                mode = f"split_{n_panes}"
+                panels = []
+                for p in distinct_people[:n_panes]:
+                    box = compute_panel_crop_box(p['cx'], p['cy'], mode=mode, zoom=1.15)
+                    panels.append(box)
+                px = panels[0]["x"]
+                py = panels[0]["y"]
+                label = f"{n_panes}-Person Split"
             else:
-                # 2+ faces: select active speaker via lip motion or primary subject
-                speaking = [f for f in faces if f.get("lip_motion", 0.0) >= 1.0]
-                if speaking:
-                    target_f = max(speaking, key=lambda f: f.get("lip_motion", 0.0))
+                mode = "solo"
+                panels = None
+                if len(distinct_people) == 1:
+                    target_f = distinct_people[0]
+                    label = "Speaker Focus"
                 else:
-                    # Edge case: reading letter or looking down with minimal mouth movement -
-                    # focus on the primary character (largest prominent face/head)
-                    target_f = max(faces, key=lambda f: f.get('area', 0))
+                    speaking = [f for f in distinct_people if f.get("lip_motion", 0.0) >= 1.0]
+                    target_f = max(speaking, key=lambda f: f.get("lip_motion", 0.0)) if speaking else max(distinct_people, key=lambda f: f.get('area', 0))
+                    if target_f["cx"] < 45.0:
+                        label = "Speaker 1 (Left)"
+                    elif target_f["cx"] > 55.0:
+                        label = "Speaker 2 (Right)"
+                    else:
+                        label = "Active Speaker"
 
-                if target_f["cx"] < 45.0:
-                    label = "Speaker 1 (Left)"
-                elif target_f["cx"] > 55.0:
-                    label = "Speaker 2 (Right)"
-                else:
-                    label = "Active Speaker"
+                px = to_916_crop_x(target_f["cx"], zoom=1.15)
+                py = to_916_crop_y(target_f["cy"], zoom=1.15)
 
-            px = to_916_crop_x(target_f["cx"], zoom=1.15)
-            py = to_916_crop_y(target_f["cy"], zoom=1.15)
-
+            last_valid_mode = mode
             last_valid_x = px
             last_valid_y = py
+            last_valid_panels = panels
             last_valid_label = label
 
             raw_track.append({
                 "time": t,
+                "mode": mode,
                 "x": px,
                 "y": py,
+                "panels": panels,
                 "speaker": label,
                 "has_face": True
             })
@@ -626,8 +732,8 @@ class AutoCameraEngine:
         if not raw_track:
             return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
-        # Solo speaker or single cluster: lock unconditionally
-        if len(speaker_seats) == 1:
+        # Solo speaker throughout entire clip: lock unconditionally
+        if len(speaker_seats) == 1 and not has_any_split:
             solo = speaker_seats[0]
             self.current_focal_x = solo["x"]
             self.current_focal_y = solo["y"]
@@ -640,82 +746,91 @@ class AutoCameraEngine:
                 "speaker": solo["label"]
             }]
 
-        # 2. Synthesize stable broadcast shots with deadband & minimum dwell
+        # 2. Synthesize stable broadcast shots (solo cuts + vertical multi-person split screens) with deadband hysteresis
         keyframes = []
+        current_mode = None
         current_shot_x = None
         current_shot_y = None
+        current_panels = None
         current_label = None
         last_cut_time = -999.0
-        min_dwell = 1.8   # Minimum hold time per speaker shot (broadcast-standard)
-        deadband = 8.5    # Deadband %: movements within 8.5% hold steady (zero shaking)
+        min_dwell = 1.5   # Minimum hold time per shot layout
+        deadband = 8.5    # Deadband %: movements within 8.5% hold steady
 
         pending_switch = None
         pending_count = 0
 
+        def _make_kf(t_val, m_val, x_val, y_val, lbl_val, panels_val):
+            kf = {
+                "time": round(t_val, 2),
+                "mode": m_val,
+                "x": x_val,
+                "y": y_val,
+                "zoom": 1.15,
+                "speaker": lbl_val,
+            }
+            if panels_val:
+                kf["panels"] = panels_val
+            return kf
+
         for pt in raw_track:
             t = pt["time"]
+            mode = pt["mode"]
             px = pt["x"]
             py = pt["y"]
+            panels = pt["panels"]
             label = pt["speaker"]
 
             if current_shot_x is None:
+                current_mode = mode
                 current_shot_x = px
                 current_shot_y = py
+                current_panels = panels
                 current_label = label
-                keyframes.append({
-                    "time": 0.0,
-                    "mode": "solo",
-                    "x": px,
-                    "y": py,
-                    "zoom": 1.15,
-                    "speaker": label
-                })
+                keyframes.append(_make_kf(0.0, mode, px, py, label, panels))
                 last_cut_time = 0.0
                 continue
 
-            dist = abs(px - current_shot_x)
+            mode_changed = (mode != current_mode)
+            if not mode_changed and panels and current_panels and len(panels) == len(current_panels):
+                dist = max(abs(panels[i]["x"] - current_panels[i]["x"]) for i in range(len(panels)))
+            else:
+                dist = abs(px - current_shot_x)
+
             time_since_cut = t - last_cut_time
 
-            # Small movements inside deadband: hold camera completely motionless
-            if dist <= deadband:
+            if not mode_changed and dist <= deadband:
                 pending_switch = None
                 pending_count = 0
                 continue
 
-            # Movement exceeds deadband -> potential new speaker or shot cut
             if time_since_cut >= min_dwell:
-                if pending_switch is not None and abs(px - pending_switch["x"]) <= deadband:
+                if (
+                    pending_switch is not None
+                    and pending_switch["mode"] == mode
+                    and abs(px - pending_switch["x"]) <= deadband
+                ):
                     pending_count += 1
                 else:
-                    pending_switch = {"x": px, "y": py, "label": label}
+                    pending_switch = {"mode": mode, "x": px, "y": py, "panels": panels, "label": label}
                     pending_count = 1
 
-                # Confirm cut after 2 consecutive frames (~0.6s) or immediate if dramatic scene cut (>22%)
-                if pending_count >= 2 or dist >= 22.0:
+                # Require 3 frames (~1.0s) before dropping from multi-split back to solo so brief turns don't flicker;
+                # otherwise confirm layout/speaker shift after 2 frames (~0.6s) or large immediate scene cut (>22%)
+                needed = 3 if (current_mode.startswith("split_") and mode == "solo") else 2
+                if pending_count >= needed or (not mode_changed and dist >= 22.0):
+                    current_mode = pending_switch["mode"]
                     current_shot_x = pending_switch["x"]
                     current_shot_y = pending_switch["y"]
+                    current_panels = pending_switch["panels"]
                     current_label = pending_switch["label"]
-                    keyframes.append({
-                        "time": round(t, 2),
-                        "mode": "solo",
-                        "x": current_shot_x,
-                        "y": current_shot_y,
-                        "zoom": 1.15,
-                        "speaker": current_label
-                    })
+                    keyframes.append(_make_kf(t, current_mode, current_shot_x, current_shot_y, current_label, current_panels))
                     last_cut_time = t
                     pending_switch = None
                     pending_count = 0
 
         if not keyframes:
-            keyframes.append({
-                "time": 0.0,
-                "mode": "solo",
-                "x": raw_track[0]["x"],
-                "y": raw_track[0]["y"],
-                "zoom": 1.15,
-                "speaker": raw_track[0]["speaker"]
-            })
+            keyframes.append(_make_kf(0.0, raw_track[0]["mode"], raw_track[0]["x"], raw_track[0]["y"], raw_track[0]["speaker"], raw_track[0]["panels"]))
 
         self.current_focal_x = keyframes[0]["x"]
         self.current_focal_y = keyframes[0]["y"]
