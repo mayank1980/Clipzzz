@@ -18,17 +18,13 @@ export default function Header({
   return (
     <div className="shrink-0 z-40 w-full bg-canvas-cream border-b border-border-cream px-4 sm:px-6 py-3">
       <header className="w-full max-w-7xl mx-auto bg-white/95 backdrop-blur-md border border-border-cream rounded-full px-5 py-2.5 flex items-center justify-between gap-3 shadow-nav-pill transition-all">
-        {/* Brand Logo (Direct wordmark image, no extra text label) */}
-        <div className="flex items-center gap-2.5 shrink-0 select-none" title="CLIPIT — Find the moment. Clip it.">
+        {/* Brand Logo (Direct wordmark image, no extra text or badge) */}
+        <div className="flex items-center shrink-0 select-none" title="CLIPIT — Find the moment. Clip it.">
           <img
             src={clipitLogo}
             alt="CLIPIT"
             className="h-5 sm:h-6 w-auto object-contain block"
           />
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-[9px] uppercase font-bold tracking-wider bg-canvas-cream text-charcoal px-2.5 py-0.5 rounded-full border border-border-cream">
-            <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
-            Studio
-          </span>
         </div>
 
         {/* Center Project Indicator (when editing) */}
