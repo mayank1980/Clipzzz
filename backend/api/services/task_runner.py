@@ -391,7 +391,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             if getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
                 try:
                     from .face_tracker import generate_camera_keyframes, detect_primary_speaker_center
-                    computed_kfs = generate_camera_keyframes(video_full_path, c_start, min(45.0, c_dur))
+                    computed_kfs = generate_camera_keyframes(video_full_path, c_start, c_dur)
                     if computed_kfs:
                         crop_keyframes = computed_kfs
                         crop_x = computed_kfs[0]['x']
