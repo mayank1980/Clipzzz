@@ -1355,7 +1355,12 @@ export default function VideoPlayer({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onChangeCrop?.({ mode: 'custom_crop' })}
+                  onClick={() => {
+                    onChangeCrop?.({ mode: 'custom_crop' });
+                    if (!keyframes || keyframes.length === 0 || (keyframes.length === 1 && keyframes[0].speaker === 'Manual Focus')) {
+                      handleRunAutoTrack();
+                    }
+                  }}
                   className={`py-1.5 rounded-full font-bold transition cursor-pointer ${
                     cropMode === 'custom_crop'
                       ? 'bg-white text-ink-black shadow-sm'

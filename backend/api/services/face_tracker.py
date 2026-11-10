@@ -95,8 +95,9 @@ def compute_panel_crop_box(face_cx_pct: float, face_cy_pct: float, mode: str = '
 
 def dedupe_frame_people(faces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Filters duplicate/overlapping boxes on the same person and insignificant background
-    detections so split screens trigger strictly for distinct foreground people.
+    Filters duplicate/overlapping boxes on the same person (same horizontal column)
+    and insignificant background detections so split screens trigger strictly for
+    distinct foreground people standing/sitting side-by-side.
     Returns up to 4 people sorted left-to-right by horizontal center (cx).
     """
     if not faces:
@@ -105,13 +106,14 @@ def dedupe_frame_people(faces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ranked = sorted(faces, key=lambda f: f.get('confidence', 0.5) * max(1, f.get('area', 1)), reverse=True)
     kept: List[Dict[str, Any]] = []
     for f in ranked:
-        if f.get('area', 0) < max_area * 0.22:
+        if f.get('area', 0) < max_area * 0.28:
             continue
-        if f.get('confidence', 0.5) < 0.36:
+        if f.get('confidence', 0.5) < 0.40:
             continue
         is_dup = False
         for k in kept:
-            if abs(f['cx'] - k['cx']) < 14.0 and abs(f['cy'] - k['cy']) < 24.0:
+            # Same person if horizontally within 16% (prevents shirt/hand detections below chin from splitting a solo speaker)
+            if abs(f['cx'] - k['cx']) < 16.0:
                 is_dup = True
                 break
         if not is_dup:
@@ -678,10 +680,8 @@ class AutoCameraEngine:
                 distinct_people = [max(faces, key=lambda f: f.get('area', 0))]
 
             xs = [p['cx'] for p in distinct_people]
-            ys = [p['cy'] for p in distinct_people]
             horiz_span = (max(xs) - min(xs)) if len(distinct_people) > 1 else 0.0
-            vert_span = (max(ys) - min(ys)) if len(distinct_people) > 1 else 0.0
-            is_multi_split = len(distinct_people) >= 2 and (horiz_span >= 18.0 or vert_span >= 22.0)
+            is_multi_split = len(distinct_people) >= 2 and horiz_span >= 18.0
 
             if is_multi_split:
                 has_any_split = True
