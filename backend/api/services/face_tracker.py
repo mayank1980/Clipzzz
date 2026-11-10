@@ -854,6 +854,21 @@ class AutoCameraEngine:
         if not raw_track:
             return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
+        # Smooth isolated 1-sample layout flickers (e.g. A -> B -> A) so cuts remain zero-lag yet butter-smooth
+        if len(raw_track) >= 3:
+            for idx_r in range(1, len(raw_track) - 1):
+                prev_m = raw_track[idx_r - 1]["mode"]
+                curr_m = raw_track[idx_r]["mode"]
+                next_m = raw_track[idx_r + 1]["mode"]
+                if prev_m == next_m and curr_m != prev_m:
+                    raw_track[idx_r]["mode"] = prev_m
+                    raw_track[idx_r]["x"] = raw_track[idx_r - 1]["x"]
+                    raw_track[idx_r]["y"] = raw_track[idx_r - 1]["y"]
+                    raw_track[idx_r]["panels"] = raw_track[idx_r - 1]["panels"]
+                    raw_track[idx_r]["speaker"] = raw_track[idx_r - 1]["speaker"]
+
+        has_any_split = any(pt["mode"].startswith("split_") for pt in raw_track)
+
         # Solo speaker throughout entire clip: lock unconditionally
         if len(speaker_seats) == 1 and not has_any_split:
             solo = speaker_seats[0]

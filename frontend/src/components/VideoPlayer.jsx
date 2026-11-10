@@ -57,7 +57,8 @@ export default function VideoPlayer({
   onChangePlaybackRate,
 }) {
   const videoRef = useRef(null);
-  const splitVideoRefs = useRef([]);
+  const splitCanvasRefs = useRef([null, null, null]);
+  const splitStateRef = useRef({ isSplitScreen: false, splitPanels: [] });
 
   const computePanelCropBox = (rawX, rawY, mode = 'solo', zoomVal = 1.15, panelIdx = 0) => {
     const SRC_AR = 16.0 / 9.0;
@@ -282,25 +283,36 @@ export default function VideoPlayer({
     }
   };
 
-  const syncSplitVideos = () => {
+  const drawSplitCanvases = () => {
     const main = videoRef.current;
-    if (!main) return;
-    splitVideoRefs.current.forEach((sv) => {
-      if (!sv) return;
-      if (Math.abs((sv.currentTime || 0) - main.currentTime) > 0.12) {
-        try {
-          sv.currentTime = main.currentTime;
-        } catch (e) {}
+    const { isSplitScreen: activeSplit, splitPanels: activePanels } = splitStateRef.current;
+    if (!main || main.readyState < 2 || !activeSplit || !activePanels || activePanels.length < 2) return;
+    const vw = main.videoWidth;
+    const vh = main.videoHeight;
+    if (!vw || !vh) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+
+    for (let i = 1; i < activePanels.length; i++) {
+      const canvas = splitCanvasRefs.current[i - 1];
+      const box = activePanels[i];
+      if (!canvas || !box) continue;
+      const cw = canvas.clientWidth;
+      const ch = canvas.clientHeight;
+      if (!cw || !ch) continue;
+      const tw = Math.max(2, Math.round(cw * dpr));
+      const th = Math.max(2, Math.round(ch * dpr));
+      if (canvas.width !== tw || canvas.height !== th) {
+        canvas.width = tw;
+        canvas.height = th;
       }
-      if (sv.playbackRate !== main.playbackRate) {
-        sv.playbackRate = main.playbackRate;
-      }
-      if (!main.paused && sv.paused) {
-        sv.play().catch(() => {});
-      } else if (main.paused && !sv.paused) {
-        sv.pause();
-      }
-    });
+      const ctx = canvas.getContext('2d');
+      if (!ctx) continue;
+      const sw = vw * box.wf;
+      const sh = vh * box.hf;
+      const sx = (vw - sw) * (box.x / 100.0);
+      const sy = (vh - sh) * (box.y / 100.0);
+      ctx.drawImage(main, sx, sy, sw, sh, 0, 0, tw, th);
+    }
   };
 
   const handleTimeUpdate = () => {
@@ -308,19 +320,19 @@ export default function VideoPlayer({
     const curr = videoRef.current.currentTime;
     setLocalFrameTime(curr);
     onTimeUpdate(curr);
-    syncSplitVideos();
+    drawSplitCanvases();
 
     // Loop within clip bounds if a clip is active
     if (selectedClip) {
       if (curr >= selectedClip.end_time) {
         videoRef.current.currentTime = selectedClip.start_time;
         videoRef.current.playbackRate = playbackRate;
-        syncSplitVideos();
+        drawSplitCanvases();
       }
     }
   };
 
-  // 60 FPS direct-frame sync loop: eliminates React render lag so captions match audio instantly
+  // 60 FPS direct-frame sync loop: eliminates React render lag so captions & split canvases match audio at 60 FPS
   useEffect(() => {
     let animId;
     let lastParentUpdate = 0;
@@ -338,8 +350,8 @@ export default function VideoPlayer({
           videoRef.current.playbackRate = playbackRate;
         }
 
-        // Keep split-screen video clones locked frame-for-frame
-        syncSplitVideos();
+        // Paint split-screen mirror canvases frame-for-frame at 60 FPS (zero buffer/black flash)
+        drawSplitCanvases();
 
         // 3. Throttle parent App.jsx re-renders to ~12 FPS (every 80ms) so CPU and UI thread stay 100% smooth
         const now = performance.now();
@@ -354,7 +366,7 @@ export default function VideoPlayer({
     if (isPlaying) {
       animId = requestAnimationFrame(syncLoop);
     } else {
-      syncSplitVideos();
+      drawSplitCanvases();
     }
     return () => cancelAnimationFrame(animId);
   }, [isPlaying, selectedClip?.id, selectedClip?.start_time, selectedClip?.end_time, playbackRate]);
@@ -682,11 +694,13 @@ export default function VideoPlayer({
       )
     : [];
 
+  splitStateRef.current = { isSplitScreen, splitPanels };
+
   useEffect(() => {
     if (isSplitScreen) {
-      syncSplitVideos();
+      drawSplitCanvases();
     }
-  }, [isSplitScreen, splitPanels.length]);
+  }, [isSplitScreen, activeKfMode, splitPanels.length, cropX, cropY, effectiveZoom]);
 
   // Format words with all 26 captions.js animations and seamless highlight transitions
   const renderSubtitleWords = () => {
@@ -1039,14 +1053,12 @@ export default function VideoPlayer({
               />
             )}
 
-            {/* Video Stage Container (Persistent Panel 0 prevents remounting videoRef on solo/split transitions) */}
+            {/* Video Stage Container (Persistent Panel 0 + 60fps Mirror Canvases for butter-smooth solo <-> split transitions) */}
             <div
               className={`relative z-10 w-full h-full ${
                 cropMode === 'blur_fill'
                   ? 'flex items-center justify-center'
-                  : isSplitScreen && (activeKfMode === 'split_3' || activeKfMode === 'split_4')
-                    ? 'grid grid-cols-2 grid-rows-2 bg-black'
-                    : 'flex flex-col bg-black'
+                  : 'bg-black overflow-hidden'
               }`}
             >
               {/* Primary Panel (Solo or Split Panel 0) */}
@@ -1054,13 +1066,21 @@ export default function VideoPlayer({
                 className={
                   cropMode === 'blur_fill'
                     ? 'w-full flex items-center justify-center'
-                    : `w-full h-full relative overflow-hidden ${
-                        isSplitScreen && (activeKfMode === 'split_3' || activeKfMode === 'split_4')
-                          ? 'border-b border-r border-ink-black'
-                          : isSplitScreen
-                            ? 'flex-1 border-b border-ink-black'
-                            : 'flex-1'
-                      }`
+                    : 'absolute overflow-hidden'
+                }
+                style={
+                  cropMode !== 'blur_fill'
+                    ? {
+                        top: '0%',
+                        left: '0%',
+                        width: isSplitScreen && (activeKfMode === 'split_3' || activeKfMode === 'split_4') ? '50%' : '100%',
+                        height: isSplitScreen ? '50%' : '100%',
+                        borderRight: isSplitScreen && (activeKfMode === 'split_3' || activeKfMode === 'split_4') ? '1px solid #141413' : 'none',
+                        borderBottom: isSplitScreen ? '1px solid #141413' : 'none',
+                        transition: 'width 260ms cubic-bezier(0.22, 1, 0.36, 1), height 260ms cubic-bezier(0.22, 1, 0.36, 1)',
+                        willChange: 'width, height',
+                      }
+                    : {}
                 }
               >
                 <video
@@ -1075,12 +1095,14 @@ export default function VideoPlayer({
                       videoRef.current.playbackRate = playbackRate;
                       videoRef.current.defaultPlaybackRate = playbackRate;
                     }
-                    syncSplitVideos();
+                    drawSplitCanvases();
                   }}
                   onPause={() => {
                     setIsPlaying(false);
-                    syncSplitVideos();
+                    drawSplitCanvases();
                   }}
+                  onSeeked={drawSplitCanvases}
+                  onLoadedData={drawSplitCanvases}
                   onTimeUpdate={handleTimeUpdate}
                   onLoadedMetadata={handleLoadedMetadata}
                   className={`cursor-pointer ${
@@ -1097,7 +1119,7 @@ export default function VideoPlayer({
                             left: `${(-((1 / splitPanels[0].wf - 1) * (splitPanels[0].x / 100)) * 100).toFixed(2)}%`,
                             top: `${(-((1 / splitPanels[0].hf - 1) * (splitPanels[0].y / 100)) * 100).toFixed(2)}%`,
                             objectFit: 'fill',
-                            transition: 'none',
+                            transition: 'left 260ms cubic-bezier(0.22, 1, 0.36, 1), top 260ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms cubic-bezier(0.22, 1, 0.36, 1), height 260ms cubic-bezier(0.22, 1, 0.36, 1)',
                           }
                         : {
                             width: `${(316.05 * effectiveZoom).toFixed(2)}%`,
@@ -1105,7 +1127,7 @@ export default function VideoPlayer({
                             left: `${(-((3.1605 * effectiveZoom - 1) * (cropX / 100)) * 100).toFixed(2)}%`,
                             top: `${(-((effectiveZoom - 1) * (cropY / 100)) * 100).toFixed(2)}%`,
                             objectFit: 'fill',
-                            transition: 'none',
+                            transition: 'left 260ms cubic-bezier(0.22, 1, 0.36, 1), top 260ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms cubic-bezier(0.22, 1, 0.36, 1), height 260ms cubic-bezier(0.22, 1, 0.36, 1)',
                           }
                       : {}
                   }
@@ -1113,49 +1135,59 @@ export default function VideoPlayer({
                 />
               </div>
 
-              {/* Additional Split Panels (Split-2 stacked, Split-3 2+1 Grid, or Split-4 2x2 Grid) */}
-              {isSplitScreen &&
-                splitPanels.slice(1).map((panelBox, idx) => {
-                  const cellIdx = idx + 1;
-                  const cellBorderClass =
-                    activeKfMode === 'split_3'
-                      ? cellIdx === 1
-                        ? 'border-b border-ink-black'
-                        : 'col-span-2'
-                      : activeKfMode === 'split_4'
-                        ? cellIdx === 1
-                          ? 'border-b border-ink-black'
-                          : cellIdx === 2
-                            ? 'border-r border-ink-black'
-                            : ''
-                        : 'flex-1 border-b border-ink-black last:border-b-0';
+              {/* Pre-mounted GPU Mirror Canvases for Split Panels 1, 2, 3 (Zero black flash, zero buffer delay) */}
+              {cropMode !== 'blur_fill' &&
+                [1, 2, 3].map((slotIdx) => {
+                  const isActiveSlot = isSplitScreen && Boolean(splitPanels[slotIdx]);
+                  let layoutStyle;
+                  if (slotIdx === 1) {
+                    const isGrid = activeKfMode === 'split_3' || activeKfMode === 'split_4';
+                    layoutStyle = {
+                      top: isGrid ? '0%' : '50%',
+                      left: isGrid ? '50%' : '0%',
+                      width: isGrid ? '50%' : '100%',
+                      height: '50%',
+                      borderBottom: isGrid ? '1px solid #141413' : 'none',
+                    };
+                  } else if (slotIdx === 2) {
+                    const isFour = activeKfMode === 'split_4';
+                    layoutStyle = {
+                      top: '50%',
+                      left: '0%',
+                      width: isFour ? '50%' : '100%',
+                      height: '50%',
+                      borderRight: isFour ? '1px solid #141413' : 'none',
+                    };
+                  } else {
+                    layoutStyle = {
+                      top: '50%',
+                      left: '50%',
+                      width: '50%',
+                      height: '50%',
+                    };
+                  }
+
                   return (
                     <div
-                      key={cellIdx}
-                      onClick={togglePlay}
-                      className={`w-full h-full relative overflow-hidden cursor-pointer ${cellBorderClass}`}
-                    >
-                    <video
-                      ref={(el) => {
-                        splitVideoRefs.current[idx] = el;
-                      }}
-                      src={videoSrc}
-                      preload="auto"
-                      muted
-                      playsInline
-                      tabIndex={-1}
-                      onLoadedMetadata={() => syncSplitVideos()}
-                      className="absolute z-10 max-w-none max-h-none pointer-events-none"
+                      key={slotIdx}
+                      onClick={isActiveSlot ? togglePlay : undefined}
+                      className={`absolute overflow-hidden ${isActiveSlot ? 'cursor-pointer' : 'pointer-events-none'}`}
                       style={{
-                        width: `${(100 / panelBox.wf).toFixed(2)}%`,
-                        height: `${(100 / panelBox.hf).toFixed(2)}%`,
-                        left: `${(-((1 / panelBox.wf - 1) * (panelBox.x / 100)) * 100).toFixed(2)}%`,
-                        top: `${(-((1 / panelBox.hf - 1) * (panelBox.y / 100)) * 100).toFixed(2)}%`,
-                        objectFit: 'fill',
-                        transition: 'none',
+                        ...layoutStyle,
+                        opacity: isActiveSlot ? 1 : 0,
+                        transform: isActiveSlot ? 'scale(1)' : 'scale(0.985)',
+                        transition: 'opacity 220ms cubic-bezier(0.22, 1, 0.36, 1), transform 260ms cubic-bezier(0.22, 1, 0.36, 1), top 260ms cubic-bezier(0.22, 1, 0.36, 1), left 260ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms cubic-bezier(0.22, 1, 0.36, 1)',
+                        willChange: 'opacity, transform',
+                        zIndex: isActiveSlot ? 10 : 0,
                       }}
-                    />
-                  </div>
+                    >
+                      <canvas
+                        ref={(el) => {
+                          splitCanvasRefs.current[slotIdx - 1] = el;
+                        }}
+                        className="w-full h-full block"
+                      />
+                    </div>
                   );
                 })}
             </div>
