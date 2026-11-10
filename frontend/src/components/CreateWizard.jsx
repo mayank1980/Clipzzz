@@ -282,13 +282,13 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         <div>
           <div className="flex items-center gap-2 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-1">
             <span className="w-2 h-2 rounded-full bg-signal-orange"></span>
-            <span>Intelligent Studio Engine</span>
+            <span>CLIPIT • Find the moment. Clip it.</span>
           </div>
           <h1 className="text-3xl font-extrabold text-ink-black tracking-tight">
-            Create 9:16 Shorts
+            Long videos in. Perfect clips out.
           </h1>
           <p className="text-xs text-slate-gray mt-1">
-            Select source media, AI clipping strategy, active speaker tracking, and timeline targets.
+            Transform long YouTube videos, podcasts, and interviews into engaging 9:16 vertical Shorts ready to share.
           </p>
         </div>
 

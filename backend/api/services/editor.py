@@ -217,7 +217,7 @@ def generate_ass_subtitle_file(
         shadow_w = 3
 
     header = f"""[Script Info]
-Title: Clipzzz Shorts Subtitles
+Title: CLIPIT Shorts Subtitles
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920

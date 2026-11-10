@@ -161,7 +161,7 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '').strip()
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '').replace(' ', '').strip()
-DEFAULT_FROM_EMAIL = f"Clipzzz Studio <{os.getenv('EMAIL_HOST_USER', 'noreply@clipzzz.ai')}>"
+DEFAULT_FROM_EMAIL = f"CLIPIT Studio <{os.getenv('EMAIL_HOST_USER', 'noreply@clipit.ai')}>"
 
 # Cache & Redis Rate Limiting Configuration
 REDIS_URL = os.getenv('REDIS_URL', '')
@@ -176,7 +176,7 @@ else:
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'clipzzz-cache',
+            'LOCATION': 'clipit-cache',
         }
     }
 

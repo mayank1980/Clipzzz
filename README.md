@@ -1,6 +1,7 @@
-# CLIPZZZ 🎬 – AI YouTube Shorts Clipper & Studio
+# CLIPIT — Find the moment. Clip it.
 
-> **Transform long-form YouTube videos and podcasts into high-retention 9:16 Shorts with Gemini AI, word-by-word animated karaoke subtitles, smart face tracking, and clean export workflows.**
+> **Long videos in. Perfect clips out.**
+> CLIPIT is an AI-powered video clipping platform that transforms long YouTube videos, podcasts, interviews, and recordings into engaging 9:16 short-form clips with smart active speaker tracking, multi-person vertical split-screen framing, and clean export workflows.
 
 ---
 
@@ -11,7 +12,7 @@
    ```cmd
    setup.bat
    ```
-2. **Launch CLIPZZZ Studio** (Run anytime):
+2. **Launch CLIPIT** (Run anytime):
    ```cmd
    run_clipzzz.bat
    ```
@@ -25,7 +26,7 @@
    chmod +x setup.sh run_clipzzz.sh
    ./setup.sh
    ```
-2. **Launch CLIPZZZ Studio**:
+2. **Launch CLIPIT**:
    ```bash
    ./run_clipzzz.sh
    ```
@@ -116,4 +117,4 @@ You can set your Gemini API key in two ways:
 1. **In the Web UI**: Click **Linked AI Key** on the dashboard, paste your key, and click **Save & Link Key**.
 2. **In `.env`**: Set `GEMINI_API_KEY=your_key_here` in `backend/.env`.
 
-*(Note: If no key is configured, Clipzzz automatically uses its intelligent heuristic highlight engine so you can test cutting, styling, and rendering without being blocked).*
+*(Note: If no key is configured, CLIPIT automatically uses its intelligent heuristic highlight engine so you can test cutting, styling, and rendering without being blocked).*

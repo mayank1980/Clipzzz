@@ -4,9 +4,9 @@ from django.conf import settings
 
 def send_otp_email(recipient_email: str, otp_code: str, user_name: str = "Creator") -> bool:
     """
-    Sends a beautifully styled HTML OTP verification email to the user's Gmail address.
+    Sends a styled HTML OTP verification email to the user's Gmail address.
     """
-    subject = f"{otp_code} is your Clipzzz verification code"
+    subject = f"{otp_code} is your CLIPIT verification code"
 
     html_content = f"""
     <!DOCTYPE html>
@@ -14,48 +14,49 @@ def send_otp_email(recipient_email: str, otp_code: str, user_name: str = "Creato
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Clipzzz Verification Code</title>
+      <title>CLIPIT Verification Code</title>
       <style>
         body {{
-          background-color: #07090e;
+          background-color: #F3F0EE;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-          color: #f1f5f9;
+          color: #141413;
           margin: 0;
           padding: 24px 12px;
         }}
         .container {{
           max-width: 520px;
           margin: 0 auto;
-          background: #0f172a;
-          border: 1px solid #1e293b;
-          border-radius: 20px;
+          background: #FFFFFF;
+          border: 1px solid #E5E0DB;
+          border-radius: 32px;
           padding: 36px 28px;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+          box-shadow: 0 18px 40px rgba(20, 20, 19, 0.08);
         }}
         .header {{
           text-align: center;
-          margin-bottom: 28px;
+          margin-bottom: 24px;
         }}
         .logo {{
           display: inline-block;
-          font-size: 26px;
+          font-size: 28px;
           font-weight: 900;
-          letter-spacing: 2px;
-          color: #ffffff;
+          letter-spacing: -0.5px;
+          color: #141413;
         }}
         .logo-accent {{
-          color: #bef264;
+          color: #CF4500;
         }}
         .badge {{
           display: inline-block;
-          margin-top: 6px;
-          background: rgba(190, 242, 100, 0.15);
-          color: #bef264;
-          border: 1px solid rgba(190, 242, 100, 0.3);
+          margin-top: 8px;
+          background: #F3F0EE;
+          color: #262627;
+          border: 1px solid #E5E0DB;
           font-size: 10px;
           font-weight: 700;
-          padding: 3px 10px;
+          padding: 4px 12px;
           border-radius: 9999px;
+          letter-spacing: 0.5px;
           text-transform: uppercase;
         }}
         .content {{
@@ -64,40 +65,39 @@ def send_otp_email(recipient_email: str, otp_code: str, user_name: str = "Creato
         h2 {{
           font-size: 20px;
           font-weight: 800;
-          color: #ffffff;
+          color: #141413;
           margin: 0 0 10px 0;
         }}
         p {{
           font-size: 13px;
-          color: #94a3b8;
+          color: #696969;
           line-height: 1.6;
           margin: 0 0 20px 0;
         }}
         .otp-box {{
-          background: #07090e;
-          border: 2px solid #bef264;
-          border-radius: 16px;
+          background: #FCFBFA;
+          border: 2px solid #CF4500;
+          border-radius: 20px;
           padding: 18px 24px;
           margin: 24px auto;
           max-width: 280px;
           text-align: center;
-          box-shadow: 0 0 20px rgba(190, 242, 100, 0.25);
         }}
         .otp-code {{
           font-family: 'Courier New', Courier, monospace;
           font-size: 36px;
           font-weight: 900;
           letter-spacing: 8px;
-          color: #bef264;
+          color: #141413;
           display: block;
         }}
         .footer {{
-          margin-top: 32px;
+          margin-top: 28px;
           padding-top: 20px;
-          border-top: 1px solid #1e293b;
+          border-top: 1px solid #E5E0DB;
           text-align: center;
           font-size: 11px;
-          color: #64748b;
+          color: #696969;
           line-height: 1.5;
         }}
       </style>
@@ -105,32 +105,32 @@ def send_otp_email(recipient_email: str, otp_code: str, user_name: str = "Creato
     <body>
       <div class="container">
         <div class="header">
-          <div class="logo">CLIP<span class="logo-accent">ZZZ</span></div>
+          <div class="logo">CLIP<span class="logo-accent">IT</span></div>
           <br>
-          <div class="badge">AI YouTube Shorts Studio</div>
+          <div class="badge">Find the moment. Clip it.</div>
         </div>
         <div class="content">
           <h2>Verification Code</h2>
-          <p>Hi {user_name},<br>Use the 6-digit one-time password below to complete your authentication.</p>
+          <p>Hi {user_name},<br>Use the 6-digit one-time password below to sign in to CLIPIT.</p>
           
           <div class="otp-box">
             <span class="otp-code">{otp_code}</span>
           </div>
 
-          <p style="font-size: 12px; color: #cbd5e1;">
-            ⏰ Valid for <strong>10 minutes</strong>. Never share this code with anyone.
+          <p style="font-size: 12px; color: #555555;">
+            Valid for <strong>10 minutes</strong>. Never share this code with anyone.
           </p>
         </div>
         <div class="footer">
           If you did not request this verification code, please ignore this email.<br>
-          Clipzzz Studio • Built for Creators across India & Globally
+          <strong>CLIPIT</strong> — Long videos in. Perfect clips out.
         </div>
       </div>
     </body>
     </html>
     """
 
-    plain_message = f"""Clipzzz Verification Code
+    plain_message = f"""CLIPIT Verification Code — Find the moment. Clip it.
 
 Hi {user_name},
 Your 6-digit verification code is: {otp_code}
@@ -138,7 +138,7 @@ Your 6-digit verification code is: {otp_code}
 This code is valid for 10 minutes. Please do not share it with anyone.
 """
 
-    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@clipzzz.ai')
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@clipit.ai')
 
     try:
         # Check if Gmail credentials are provided

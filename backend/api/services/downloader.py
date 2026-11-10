@@ -274,7 +274,7 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
                 raise ValueError(
                     "YouTube anti-bot verification required. To proceed instantly: "
                     "1) Switch to 'File Upload' to upload the video file directly (100% offline bypass), or "
-                    "2) Export cookies.txt from YouTube (using 'Get cookies.txt LOCALLY' extension) into your Downloads or CLIPZZZ folder."
+                    "2) Export cookies.txt from YouTube (using 'Get cookies.txt LOCALLY' extension) into your Downloads or CLIPIT folder."
                 )
             raise dl_err
 

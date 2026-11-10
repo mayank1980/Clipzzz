@@ -447,7 +447,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.status = 'failed'
         err_msg = str(e)
         if 'Sign in to confirm' in err_msg or 'bot' in err_msg.lower():
-            friendly_err = "YouTube anti-bot verification required. Automatic tv/visionos bypass active. For high-volume usage, place a cookies.txt in the CLIPZZZ folder."
+            friendly_err = "YouTube anti-bot verification required. Automatic tv/visionos bypass active. For high-volume usage, place a cookies.txt in the CLIPIT folder."
             project.error_message = friendly_err
             project.status_message = friendly_err
         else:

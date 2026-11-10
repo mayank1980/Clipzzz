@@ -79,7 +79,7 @@ def generate_shorts_upload_kit(clip) -> Dict[str, Any]:
     else:
         hashtags.append("#HindiStories")
 
-    hashtags.append("#Clipzzz")
+    hashtags.append("#CLIPIT")
     # Strictly 5 to 8 hashtags
     hashtags = list(dict.fromkeys(hashtags))[:8]
     hashtags_str = " ".join(hashtags)

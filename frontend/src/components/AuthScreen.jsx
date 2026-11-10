@@ -142,12 +142,15 @@ export default function AuthScreen({ onAuthSuccess }) {
             <div className="w-7 h-7 rounded-full bg-mc-yellow -ml-3.5 mix-blend-multiply opacity-95"></div>
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight text-ink-black">
-            CLIP<span className="text-signal-orange">ZZZ</span>
+            CLIP<span className="text-signal-orange">IT</span>
           </h1>
-          <div className="flex items-center justify-center gap-1.5 mt-1 text-xs uppercase font-extrabold tracking-wider text-slate-gray">
+          <div className="flex items-center justify-center gap-1.5 mt-1 text-[11px] uppercase font-extrabold tracking-wider text-slate-gray">
             <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
-            <span>AI Shorts Studio</span>
+            <span>Find the moment. Clip it.</span>
           </div>
+          <p className="text-[11px] text-slate-gray mt-1 font-medium">
+            Long videos in. Perfect clips out.
+          </p>
         </div>
 
         {/* Notice: Gmail Policy */}

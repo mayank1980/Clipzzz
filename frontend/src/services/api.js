@@ -9,7 +9,7 @@ const client = axios.create({
 
 // Attach JWT access token to every request
 client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('clipzzz_access_token');
+  const token = localStorage.getItem('clipit_access_token') || localStorage.getItem('clipzzz_access_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -23,14 +23,15 @@ client.interceptors.response.use(
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      const refreshToken = localStorage.getItem('clipzzz_refresh_token');
+      const refreshToken = localStorage.getItem('clipit_refresh_token') || localStorage.getItem('clipzzz_refresh_token');
       if (refreshToken) {
         try {
           const res = await axios.post(`${API_BASE_URL}/api/auth/token/refresh/`, {
             refresh: refreshToken,
           });
           const newAccess = res.data.access;
-          localStorage.setItem('clipzzz_access_token', newAccess);
+          localStorage.setItem('clipit_access_token', newAccess);
+          localStorage.removeItem('clipzzz_access_token');
           originalRequest.headers.Authorization = `Bearer ${newAccess}`;
           return client(originalRequest);
         } catch (refreshErr) {
@@ -53,8 +54,10 @@ export const api = {
   verifyOtp: async (payload) => {
     const res = await client.post('/auth/verify-otp/', payload);
     if (res.data.access) {
-      localStorage.setItem('clipzzz_access_token', res.data.access);
-      localStorage.setItem('clipzzz_refresh_token', res.data.refresh);
+      localStorage.setItem('clipit_access_token', res.data.access);
+      localStorage.setItem('clipit_refresh_token', res.data.refresh);
+      localStorage.removeItem('clipzzz_access_token');
+      localStorage.removeItem('clipzzz_refresh_token');
     }
     return res.data;
   },
@@ -70,6 +73,8 @@ export const api = {
   },
 
   logout: () => {
+    localStorage.removeItem('clipit_access_token');
+    localStorage.removeItem('clipit_refresh_token');
     localStorage.removeItem('clipzzz_access_token');
     localStorage.removeItem('clipzzz_refresh_token');
   },

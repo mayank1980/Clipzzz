@@ -60,7 +60,7 @@ export default function App() {
   }, [activeProject?.id, activeProject?.channel_name]);
 
   const checkAuthSession = async () => {
-    const token = localStorage.getItem('clipzzz_access_token');
+    const token = localStorage.getItem('clipit_access_token') || localStorage.getItem('clipzzz_access_token');
     if (!token) {
       setIsAuthLoading(false);
       return;
@@ -490,7 +490,7 @@ export default function App() {
 
       {/* Main View Router */}
       {viewMode === 'wizard' ? (
-        /* STEP 3: Clipzzz Creation Wizard */
+        /* STEP 3: CLIPIT Creation Wizard */
         <div className="flex-1 overflow-y-auto">
           <CreateWizard
             onProjectCreated={handleProjectCreated}

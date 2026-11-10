@@ -288,7 +288,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
             </div>
             <div>
               <h2 className="font-extrabold text-sm text-ink-black flex items-center gap-1.5 leading-tight tracking-tight">
-                CLIPZZZ <span className="text-[9px] bg-canvas-cream text-charcoal border border-border-cream font-bold px-2 py-0.2 rounded-full uppercase">Export</span>
+                CLIP<span className="text-signal-orange">IT</span> <span className="text-[9px] bg-canvas-cream text-charcoal border border-border-cream font-bold px-2 py-0.2 rounded-full uppercase">Export</span>
               </h2>
               <p className="text-[10px] text-slate-gray font-medium leading-tight">
                 9:16 Shorts Export Studio

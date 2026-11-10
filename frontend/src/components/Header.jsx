@@ -20,14 +20,14 @@ export default function Header({
         {/* Brand Gesture */}
         <div className="flex items-center gap-3 shrink-0">
           {/* Interlocking Editorial Circles */}
-          <div className="relative flex items-center w-8 h-5 select-none" title="Clipzzz AI">
+          <div className="relative flex items-center w-8 h-5 select-none" title="CLIPIT — Find the moment. Clip it.">
             <div className="w-5 h-5 rounded-full bg-mc-red shadow-sm"></div>
             <div className="w-5 h-5 rounded-full bg-mc-yellow -ml-2.5 mix-blend-multiply opacity-95"></div>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="font-extrabold text-base tracking-tight text-ink-black">
-              CLIP<span className="text-signal-orange">ZZZ</span>
+              CLIP<span className="text-signal-orange">IT</span>
             </span>
             <span className="hidden sm:inline-flex items-center gap-1.5 text-[9px] uppercase font-bold tracking-wider bg-canvas-cream text-charcoal px-2.5 py-0.5 rounded-full border border-border-cream">
               <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
