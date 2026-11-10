@@ -1,5 +1,4 @@
 @echo off
-title CLIPZZZ - Launcher
+title CLIPIT - Launcher
 cd /d "%~dp0"
-call run_clipzzz.bat
-
+call run_clipit.bat

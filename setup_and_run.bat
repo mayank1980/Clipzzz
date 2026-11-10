@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title CLIPZZZ - 1-Click Setup & Launch Studio
+title CLIPIT - 1-Click Setup & Unified Suite Launcher
 
 echo ==============================================================================
-echo        CLIPZZZ - 1-Click Setup & Auto-Launch Studio
+echo        CLIPIT + Orbit Pro - 1-Click Setup & Auto-Launch Studio
 echo ==============================================================================
 echo.
 
@@ -18,8 +18,8 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b %ERRORLEVEL%
 )
 
-:: Step 2: Launch the backend, frontend, and open browser
+:: Step 2: Launch CLIPIT + Connected Orbit Pro and open browser
 echo.
-echo [2/2] Launching CLIPZZZ services and opening web studio...
-call run_clipzzz.bat
+echo [2/2] Launching CLIPIT & Orbit Pro services and opening web studio...
+call run_clipit.bat
 
