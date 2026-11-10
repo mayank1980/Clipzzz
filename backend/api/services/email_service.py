@@ -1,12 +1,21 @@
 import os
-from django.core.mail import send_mail
+from email.mime.image import MIMEImage
+from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
 
 def send_otp_email(recipient_email: str, otp_code: str, user_name: str = "Creator") -> bool:
     """
-    Sends a styled HTML OTP verification email to the user's Gmail address.
+    Sends a styled HTML OTP verification email with embedded CLIPIT logo to the user's Gmail address.
     """
     subject = f"{otp_code} is your CLIPIT verification code"
+
+    logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'clipit_logo.png')
+    has_logo = os.path.exists(logo_path)
+    logo_html = (
+        '<img src="cid:clipit_logo" alt="CLIPIT" style="height: 30px; width: auto; display: inline-block; border: 0;" />'
+        if has_logo
+        else '<div class="logo">CLIP<span class="logo-accent">IT</span></div>'
+    )
 
     html_content = f"""
     <!DOCTYPE html>
@@ -48,7 +57,7 @@ def send_otp_email(recipient_email: str, otp_code: str, user_name: str = "Creato
         }}
         .badge {{
           display: inline-block;
-          margin-top: 8px;
+          margin-top: 10px;
           background: #F3F0EE;
           color: #262627;
           border: 1px solid #E5E0DB;
@@ -105,7 +114,7 @@ def send_otp_email(recipient_email: str, otp_code: str, user_name: str = "Creato
     <body>
       <div class="container">
         <div class="header">
-          <div class="logo">CLIP<span class="logo-accent">IT</span></div>
+          {logo_html}
           <br>
           <div class="badge">Find the moment. Clip it.</div>
         </div>
@@ -141,17 +150,22 @@ This code is valid for 10 minutes. Please do not share it with anyone.
     from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@clipit.ai')
 
     try:
-        # Check if Gmail credentials are provided
         if settings.EMAIL_HOST_USER and settings.EMAIL_HOST_PASSWORD:
-            send_mail(
+            msg = EmailMultiAlternatives(
                 subject=subject,
-                message=plain_message,
+                body=plain_message,
                 from_email=from_email,
-                recipient_list=[recipient_email],
-                html_message=html_content,
-                fail_silently=False,
+                to=[recipient_email],
             )
-            print(f"[email_service] Successfully sent OTP to {recipient_email}")
+            msg.attach_alternative(html_content, "text/html")
+            if has_logo:
+                with open(logo_path, 'rb') as img_f:
+                    mime_logo = MIMEImage(img_f.read(), _subtype='png')
+                    mime_logo.add_header('Content-ID', '<clipit_logo>')
+                    mime_logo.add_header('Content-Disposition', 'inline', filename='clipit_logo.png')
+                    msg.attach(mime_logo)
+            msg.send(fail_silently=False)
+            print(f"[email_service] Successfully sent CLIPIT OTP email to {recipient_email}")
             return True
         else:
             print(f"[email_service] Gmail SMTP credentials not set in .env. OTP for {recipient_email}: {otp_code}")

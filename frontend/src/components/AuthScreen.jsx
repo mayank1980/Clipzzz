@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Mail, Phone, KeyRound, ArrowRight, CheckCircle2, AlertCircle, Loader2, Info, Sparkles } from 'lucide-react';
 import SwipeCaptcha from './SwipeCaptcha';
 import { api } from '../services/api';
+import clipitLogo from '../assets/img/clipit_logo.png';
 
 export default function AuthScreen({ onAuthSuccess }) {
   const [mode, setMode] = useState('login'); // 'login' or 'signup'
@@ -135,15 +136,13 @@ export default function AuthScreen({ onAuthSuccess }) {
 
       {/* Main Stadium Auth Card */}
       <div className="w-full max-w-md bg-white border border-border-cream rounded-stadium p-8 sm:p-10 shadow-card-elevated relative z-10">
-        {/* Brand Gesture */}
+        {/* Brand Logo */}
         <div className="text-center mb-6">
-          <div className="relative flex items-center justify-center w-12 h-8 mx-auto mb-3 select-none">
-            <div className="w-7 h-7 rounded-full bg-mc-red shadow-sm"></div>
-            <div className="w-7 h-7 rounded-full bg-mc-yellow -ml-3.5 mix-blend-multiply opacity-95"></div>
-          </div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-ink-black">
-            CLIP<span className="text-signal-orange">IT</span>
-          </h1>
+          <img
+            src={clipitLogo}
+            alt="CLIPIT"
+            className="h-7 w-auto mx-auto mb-2.5 object-contain select-none"
+          />
           <div className="flex items-center justify-center gap-1.5 mt-1 text-[11px] uppercase font-extrabold tracking-wider text-slate-gray">
             <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
             <span>Find the moment. Clip it.</span>

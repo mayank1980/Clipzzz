@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Shield, ExternalLink, CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react';
 import { api } from '../services/api';
+import clipitIcon from '../assets/img/clipit_icon.png';
 
 export default function GeminiKeyModal({ isOpen, onClose, userProfile, onKeySaved }) {
   const [keyInput, setKeyInput] = useState('');
@@ -44,10 +45,7 @@ export default function GeminiKeyModal({ isOpen, onClose, userProfile, onKeySave
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
-            <div className="relative flex items-center w-8 h-5 select-none">
-              <div className="w-5 h-5 rounded-full bg-mc-red"></div>
-              <div className="w-5 h-5 rounded-full bg-mc-yellow -ml-2.5 mix-blend-multiply opacity-95"></div>
-            </div>
+            <img src={clipitIcon} alt="CLIPIT" className="w-7 h-7 object-contain shrink-0 select-none" />
             <div>
               <h2 className="text-base font-extrabold text-ink-black tracking-tight">AI Engine Setup</h2>
               <p className="text-xs text-slate-gray">Bind your Gemini API Key with AES-256 Encryption</p>

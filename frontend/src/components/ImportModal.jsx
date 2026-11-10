@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Youtube, UploadCloud, Sparkles, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
+import clipitIcon from '../assets/img/clipit_icon.png';
 
 export default function ImportModal({ isOpen, onClose, onProjectReady, apiKey, onSaveApiKey }) {
   const [activeTab, setActiveTab] = useState('youtube');
@@ -106,10 +107,7 @@ export default function ImportModal({ isOpen, onClose, onProjectReady, apiKey, o
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-border-cream flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="relative flex items-center w-8 h-5 select-none">
-              <div className="w-5 h-5 rounded-full bg-mc-red"></div>
-              <div className="w-5 h-5 rounded-full bg-mc-yellow -ml-2.5 mix-blend-multiply opacity-95"></div>
-            </div>
+            <img src={clipitIcon} alt="CLIPIT" className="w-6 h-6 object-contain shrink-0 select-none" />
             <h2 className="font-extrabold text-base text-ink-black tracking-tight">Import Video</h2>
           </div>
           {!isLoading && (

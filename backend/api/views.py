@@ -94,7 +94,14 @@ def request_otp(request):
 
     # Send OTP via Gmail SMTP
     display_name = user.first_name if user.first_name else 'Creator'
+    smtp_configured = bool(getattr(settings, 'EMAIL_HOST_USER', '') and getattr(settings, 'EMAIL_HOST_PASSWORD', ''))
     email_dispatched = send_otp_email(email, otp_code, user_name=display_name)
+
+    if smtp_configured and not email_dispatched:
+        return Response(
+            {'error': 'Failed to send verification email via Gmail SMTP. Please verify network/SMTP configuration and try again.'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     res_data = {
         'success': True,
@@ -102,8 +109,8 @@ def request_otp(request):
         'email_sent': email_dispatched,
     }
 
-    # If Gmail SMTP is not configured yet, provide dev_otp so local testing is never blocked
-    if not email_dispatched:
+    # Only fall back to dev_otp when SMTP credentials are intentionally blank
+    if not smtp_configured and not email_dispatched:
         res_data['dev_otp'] = otp_code
 
     return Response(res_data)
@@ -254,11 +261,13 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
         user = request.user if request.user.is_authenticated else None
 
         if youtube_url:
+            from .services.downloader import detect_video_platform
+            platform_label = detect_video_platform(youtube_url)
             project = VideoProject.objects.create(
                 user=user,
                 source_type='youtube',
                 youtube_url=youtube_url,
-                title='Importing YouTube Video...',
+                title=f'Importing {platform_label} Video...',
                 target_ratio=target_ratio,
                 download_quality=download_quality,
                 download_full_video=download_full_video,
@@ -269,7 +278,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
                 clipping_mode=clipping_mode,
                 status='downloading' if download_full_video else 'analyzing',
                 progress=5,
-                status_message='Connecting to YouTube (Download Fallback)...' if download_full_video else 'Connecting to YouTube (Live Cloud Streaming • 0 MB)...'
+                status_message=f'Connecting to {platform_label} stream...'
             )
         elif video_file:
             project = VideoProject.objects.create(
@@ -326,18 +335,18 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='inspect-url', permission_classes=[AllowAny])
     def inspect_url(self, request):
         """
-        Confirms YouTube URL, extracts metadata, starts background pre-downloading on the spot,
-        and uses AI to declare the video content type and recommend the optimal clipping mode.
+        Inspects video URL across YouTube, Facebook, Vimeo, Twitch, X, Instagram & direct links,
+        validates minimum long-form duration (> 3 min), and recommends optimal clipping mode.
         """
         url = request.data.get('youtube_url', '').strip()
         if not url:
-            return Response({'error': 'YouTube URL is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Video URL is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         from .services.downloader import inspect_and_classify_video
         gemini_api_key = request.data.get('gemini_api_key', '')
         result = inspect_and_classify_video(url, gemini_api_key=gemini_api_key)
         if not result.get('success'):
-            return Response({'error': result.get('error', 'Failed to inspect YouTube video.')}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': result.get('error', 'Failed to inspect video URL.')}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(result, status=status.HTTP_200_OK)
 

@@ -2,23 +2,69 @@ import os
 import re
 import json
 import time
+import hashlib
 import subprocess
 import yt_dlp
 from pathlib import Path
 from django.conf import settings
 
+MIN_VIDEO_DURATION_SECONDS = 180  # 3 minutes minimum for long-form clipping
+
+def detect_video_platform(url: str) -> str:
+    """Identifies the source video platform cleanly for UI badges & messaging."""
+    low = (url or "").lower()
+    if "youtube.com" in low or "youtu.be" in low:
+        return "YouTube"
+    if "facebook.com" in low or "fb.watch" in low or "fb.com" in low:
+        return "Facebook"
+    if "instagram.com" in low:
+        return "Instagram"
+    if "vimeo.com" in low:
+        return "Vimeo"
+    if "twitch.tv" in low:
+        return "Twitch"
+    if "twitter.com" in low or "x.com" in low:
+        return "X (Twitter)"
+    if "dailymotion.com" in low or "dai.ly" in low:
+        return "Dailymotion"
+    if "rumble.com" in low:
+        return "Rumble"
+    if "tiktok.com" in low:
+        return "TikTok"
+    if "drive.google.com" in low:
+        return "Google Drive"
+    return "Video Link"
+
 def get_youtube_video_id(url: str) -> str:
-    """Extract 11-char video ID from YouTube URL."""
+    """Extract 11-char video ID from YouTube URL strictly."""
+    low = (url or "").lower()
+    if "youtube.com" not in low and "youtu.be" not in low:
+        if re.match(r'^[0-9A-Za-z_-]{11}$', url.strip()):
+            return url.strip()
+        return ''
     patterns = [
-        r'(?:v=|\/)([0-9A-Za-z_-]{11}).*',
-        r'(?:embed\/|shorts\/)([0-9A-Za-z_-]{11})',
-        r'^([0-9A-Za-z_-]{11})$'
+        r'(?:youtube\.com\/(?:watch\?.*?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([0-9A-Za-z_-]{11})',
+        r'(?:v=)([0-9A-Za-z_-]{11})',
     ]
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
     return ''
+
+def get_video_identifier(url: str) -> tuple:
+    """
+    Returns (safe_id, is_youtube) for any supported platform URL (YouTube, Facebook, Vimeo, etc.).
+    """
+    clean_url = (url or "").strip()
+    yt_id = get_youtube_video_id(clean_url)
+    if yt_id:
+        return yt_id, True
+    if clean_url.startswith("http://") or clean_url.startswith("https://"):
+        url_hash = hashlib.md5(clean_url.encode("utf-8")).hexdigest()[:12]
+        prefix = detect_video_platform(clean_url).lower().split()[0].replace("(", "").replace(")", "")
+        return f"{prefix}_{url_hash}", False
+    return '', False
 
 def probe_video_metadata(video_path: str) -> dict:
     """
@@ -78,7 +124,8 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
     Provides granular speed (MB/s), ETA, and size metrics to frontend.
     """
     os.makedirs(output_dir, exist_ok=True)
-    video_id = get_youtube_video_id(url)
+    video_id, is_youtube = get_video_identifier(url)
+    platform_name = detect_video_platform(url)
 
     # 1. Check if video already exists locally (silent cache hit)
     if video_id and use_cache:
@@ -97,15 +144,16 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
                             'total_bytes': os.path.getsize(cand)
                         })
                     probe = probe_video_metadata(cand)
-                    video_title = f"YouTube Video ({video_id})"
+                    video_title = f"{platform_name} Video ({video_id})"
                     thumbnail = ""
                     try:
                         meta_opts = {
                             'quiet': True,
                             'no_warnings': True,
                             'remote_components': ['ejs:github'],
-                            'extractor_args': {'youtube': {'player_client': ['tv_embedded', 'visionos', 'android']}}
                         }
+                        if is_youtube:
+                            meta_opts['extractor_args'] = {'youtube': {'player_client': ['tv_embedded', 'visionos', 'android']}}
                         with yt_dlp.YoutubeDL(meta_opts) as ydl:
                             info = ydl.extract_info(url, download=False)
                             video_title = info.get('title', video_title)
@@ -124,7 +172,8 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
                         'file_path': cand,
                     }
 
-    out_template = os.path.join(output_dir, f'%(id)s_{quality}.%(ext)s')
+    # Deterministic template using our clean video_id across all platforms (YouTube, Facebook, Vimeo, etc.)
+    out_template = os.path.join(output_dir, f'{video_id}_{quality}.%(ext)s') if video_id else os.path.join(output_dir, f'%(id)s_{quality}.%(ext)s')
     last_update_time = [0.0]
     last_pct = [-1]
 
@@ -279,34 +328,31 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
             raise dl_err
 
     if not info:
-        raise ValueError("Failed to extract YouTube video information.")
+        raise ValueError(f"Failed to extract {platform_name} video information.")
 
-    video_id = info.get('id', 'video')
-    video_title = info.get('title', 'YouTube Video')
+    resolved_id = info.get('id') or video_id or 'video'
+    video_title = info.get('title') or f"{platform_name} Video"
     channel_name = info.get('uploader') or info.get('channel') or info.get('creator') or ''
     thumbnail = info.get('thumbnail', '')
-    duration = float(info.get('duration', 0.0))
+    duration = float(info.get('duration', 0.0) or 0.0)
     
-    # Determine actual file path
+    # Determine actual file path (checks both deterministic video_id and extractor id)
     output_path = None
-    for q_tag in [f"_{quality}", ""]:
-        for ext in ['mp4', 'mkv', 'webm']:
-            cand = os.path.join(output_dir, f"{video_id}{q_tag}.{ext}")
-            if os.path.exists(cand) and os.path.getsize(cand) > 1024 * 10:
-                output_path = cand
+    id_candidates = [c for c in [video_id, resolved_id] if c]
+    for cid in id_candidates:
+        for q_tag in [f"_{quality}", ""]:
+            for ext in ['mp4', 'mkv', 'webm']:
+                cand = os.path.join(output_dir, f"{cid}{q_tag}.{ext}")
+                if os.path.exists(cand) and os.path.getsize(cand) > 1024 * 10:
+                    output_path = cand
+                    break
+            if output_path:
                 break
         if output_path:
             break
 
     if not output_path or not os.path.exists(output_path):
-        for ext in ['mp4', 'mkv', 'webm']:
-            cand = os.path.join(output_dir, f"{video_id}.{ext}")
-            if os.path.exists(cand):
-                output_path = cand
-                break
-
-    if not output_path or not os.path.exists(output_path):
-        raise FileNotFoundError(f"Downloaded video file not found in {output_dir} for {video_id}")
+        raise FileNotFoundError(f"Downloaded video file not found in {output_dir} for {video_id or resolved_id}")
 
     probe = probe_video_metadata(output_path)
     if duration == 0.0:
@@ -439,30 +485,31 @@ def download_youtube_audio_fast(url: str, output_path: str, progress_callback=No
 
 def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
     """
-    On-the-spot video inspection, metadata extraction, AI content classification,
-    and automatic background pre-downloading.
+    On-the-spot multi-platform video inspection (YouTube, Facebook, Vimeo, Twitch, X, Instagram, Direct URLs),
+    metadata extraction, minimum long-form duration check (> 3 min), and AI mode recommendation.
     """
-    import threading
-    video_id = get_youtube_video_id(url)
+    video_id, is_youtube = get_video_identifier(url)
     if not video_id:
-        return {'success': False, 'error': 'Invalid YouTube URL provided.'}
+        return {'success': False, 'error': 'Please enter a valid video URL (YouTube, Facebook, Vimeo, Twitch, X, or direct link).'}
 
-    title = f"YouTube Video ({video_id})"
+    platform_name = detect_video_platform(url)
+    title = f"{platform_name} Video ({video_id})"
     author = ""
     duration = 0.0
-    thumbnail = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+    thumbnail = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg" if is_youtube else ""
     description = ""
 
-    # 1. Fast metadata extraction via yt-dlp flat extract
+    # 1. Fast metadata extraction via yt-dlp across 1,000+ platforms
     try:
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-            'extract_flat': True,
+            'extract_flat': 'in_playlist',
             'remote_components': ['ejs:github'],
-            'extractor_args': {'youtube': {'player_client': ['tv_embedded', 'android', 'web']}}
         }
+        if is_youtube:
+            ydl_opts['extractor_args'] = {'youtube': {'player_client': ['tv_embedded', 'android', 'web']}}
         cfile = find_cookie_file()
         if cfile:
             ydl_opts['cookiefile'] = cfile
@@ -471,29 +518,37 @@ def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
             info = ydl.extract_info(url, download=False)
             if info:
                 title = info.get('title') or title
-                author = info.get('uploader') or info.get('channel') or ''
+                author = info.get('uploader') or info.get('channel') or info.get('creator') or ''
                 duration = float(info.get('duration') or 0.0)
                 thumbnail = info.get('thumbnail') or thumbnail
                 description = (info.get('description') or '')[:500]
     except Exception as e:
-        print(f"[inspect_and_classify_video] yt-dlp flat extract note: {e}")
-        # Fast fallback: oEmbed
-        try:
-            import urllib.request
-            oe_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
-            req = urllib.request.Request(oe_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                oe = json.loads(resp.read().decode())
-                title = oe.get('title') or title
-                author = oe.get('author_name') or author
-                thumbnail = oe.get('thumbnail_url') or thumbnail
-        except Exception:
-            pass
+        print(f"[inspect_and_classify_video] yt-dlp extract note: {e}")
+        # Fast fallback: oEmbed (for YouTube)
+        if is_youtube:
+            try:
+                import urllib.request
+                oe_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+                req = urllib.request.Request(oe_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    oe = json.loads(resp.read().decode())
+                    title = oe.get('title') or title
+                    author = oe.get('author_name') or author
+                    thumbnail = oe.get('thumbnail_url') or thumbnail
+            except Exception:
+                pass
 
     # Format human-readable duration
     mins = int(duration // 60)
     secs = int(duration % 60)
     duration_str = f"{mins}:{secs:02d}" if duration > 0 else ""
+
+    # Minimum Long-Form Video Duration Enforcement (> 3 minutes / 180 seconds)
+    if duration > 0 and duration < MIN_VIDEO_DURATION_SECONDS:
+        return {
+            'success': False,
+            'error': f"Video is too short ({duration_str}). CLIPIT creates clips only from long-form videos longer than 3 minutes (3:00+).",
+        }
 
     # 2. Content classification & mode recommendation
     text_corpus = f"{title} {author} {description}".lower()
@@ -596,6 +651,7 @@ def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
     return {
         'success': True,
         'video_id': video_id,
+        'platform': platform_name,
         'title': title,
         'author_name': author,
         'thumbnail_url': thumbnail,

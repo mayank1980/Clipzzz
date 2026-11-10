@@ -1124,22 +1124,22 @@ export default function VideoPlayer({
 
                   {/* Playback Speed Dropdown */}
                   <div className="relative flex items-center bg-canvas-cream py-1 px-2.5 rounded-full border border-border-cream hover:border-signal-orange text-[11px] font-mono shrink-0 transition group">
-                    <span className="text-signal-orange mr-1.5 text-xs">⚡</span>
+                    <span className="text-signal-orange mr-1 text-xs">⚡</span>
                     <select
                       value={playbackRate}
                       onChange={(e) => handlePlaybackRateChange(parseFloat(e.target.value))}
                       className="bg-transparent text-ink-black font-bold text-xs cursor-pointer focus:outline-none appearance-none pr-4 z-10"
                       title="Adjust playback speed"
                     >
-                      <option value="0.1">0.1x (Slow-Mo)</option>
+                      <option value="0.1">0.1x</option>
                       <option value="0.25">0.25x</option>
                       <option value="0.5">0.5x</option>
                       <option value="0.75">0.75x</option>
-                      <option value="1.0">1.0x (Normal)</option>
+                      <option value="1.0">1.0x</option>
                       <option value="1.25">1.25x</option>
-                      <option value="1.5">1.5x (Fast)</option>
+                      <option value="1.5">1.5x</option>
                       <option value="1.75">1.75x</option>
-                      <option value="2.0">2.0x (Max)</option>
+                      <option value="2.0">2.0x</option>
                     </select>
                     <ChevronDown className="w-3 h-3 text-slate-gray absolute right-1.5 pointer-events-none group-hover:text-signal-orange transition-colors" />
                   </div>
@@ -1191,53 +1191,55 @@ export default function VideoPlayer({
                 </span>
               </div>
 
-              {/* Trimmer Track */}
-              <div
-                ref={trackRef}
-                onClick={handleTrackClick}
-                className="relative w-full h-8 bg-canvas-cream rounded-full border border-border-cream overflow-hidden cursor-pointer select-none group"
-                title="Click anywhere to seek playhead, drag handles to trim"
-              >
-                {/* Background Full Timeline Track Bar */}
-                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-dust-taupe rounded-full" />
-
-                {/* Highlighted Selected Clip Span */}
+              {/* Trimmer Track (inset padding prevents end handles & playhead dot from clipping at 0%/100%) */}
+              <div className="relative w-full h-8 bg-canvas-cream rounded-full border border-border-cream px-2.5 cursor-pointer select-none group">
                 <div
-                  className="absolute top-1 bottom-1 bg-light-orange/20 border-y-2 border-signal-orange rounded-full"
-                  style={{
-                    left: `${startPct}%`,
-                    width: `${widthPct}%`,
-                  }}
-                />
-
-                {/* Playhead Needle */}
-                <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-ink-black shadow-lg pointer-events-none z-20"
-                  style={{ left: `${Math.max(0, Math.min(100, playheadPct))}%` }}
+                  ref={trackRef}
+                  onClick={handleTrackClick}
+                  className="relative w-full h-full"
+                  title="Click anywhere to seek playhead, drag handles to trim"
                 >
-                  <div className="w-2.5 h-2.5 bg-ink-black rounded-full -ml-[4px] -mt-0.5 shadow-md" />
-                </div>
+                  {/* Background Full Timeline Track Bar */}
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-dust-taupe rounded-full" />
 
-                {/* Left Trim Handle (Start) */}
-                <div
-                  onMouseDown={handleStartTrim}
-                  onTouchStart={handleStartTrim}
-                  className="absolute top-0 bottom-0 w-4 -ml-2 bg-white hover:bg-canvas-cream active:bg-ink-black active:text-white text-ink-black border border-border-cream flex items-center justify-center cursor-ew-resize z-30 rounded-full shadow-satellite transition-colors group/handle"
-                  style={{ left: `${startPct}%` }}
-                  title={`Trim Start: ${formatPreciseSec(clipStart)}`}
-                >
-                  <div className="w-0.5 h-3.5 bg-signal-orange rounded-full" />
-                </div>
+                  {/* Highlighted Selected Clip Span */}
+                  <div
+                    className="absolute top-1.5 bottom-1.5 bg-light-orange/25 border-y-2 border-signal-orange rounded-full"
+                    style={{
+                      left: `${startPct}%`,
+                      width: `${widthPct}%`,
+                    }}
+                  />
 
-                {/* Right Trim Handle (End) */}
-                <div
-                  onMouseDown={handleEndTrim}
-                  onTouchStart={handleEndTrim}
-                  className="absolute top-0 bottom-0 w-4 -ml-2 bg-white hover:bg-canvas-cream active:bg-ink-black active:text-white text-ink-black border border-border-cream flex items-center justify-center cursor-ew-resize z-30 rounded-full shadow-satellite transition-colors group/handle"
-                  style={{ left: `${endPct}%` }}
-                  title={`Trim End: ${formatPreciseSec(clipEnd)}`}
-                >
-                  <div className="w-0.5 h-3.5 bg-signal-orange rounded-full" />
+                  {/* Playhead Needle */}
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-ink-black shadow-lg pointer-events-none z-20"
+                    style={{ left: `${Math.max(0, Math.min(100, playheadPct))}%` }}
+                  >
+                    <div className="w-2.5 h-2.5 bg-ink-black rounded-full -ml-[4px] -mt-0.5 shadow-md" />
+                  </div>
+
+                  {/* Left Trim Handle (Start) */}
+                  <div
+                    onMouseDown={handleStartTrim}
+                    onTouchStart={handleStartTrim}
+                    className="absolute top-0.5 bottom-0.5 w-4 -ml-2 bg-white hover:bg-canvas-cream active:bg-ink-black active:text-white text-ink-black border border-border-cream flex items-center justify-center cursor-ew-resize z-30 rounded-full shadow-satellite transition-colors group/handle"
+                    style={{ left: `${startPct}%` }}
+                    title={`Trim Start: ${formatPreciseSec(clipStart)}`}
+                  >
+                    <div className="w-0.5 h-3 bg-signal-orange rounded-full" />
+                  </div>
+
+                  {/* Right Trim Handle (End) */}
+                  <div
+                    onMouseDown={handleEndTrim}
+                    onTouchStart={handleEndTrim}
+                    className="absolute top-0.5 bottom-0.5 w-4 -ml-2 bg-white hover:bg-canvas-cream active:bg-ink-black active:text-white text-ink-black border border-border-cream flex items-center justify-center cursor-ew-resize z-30 rounded-full shadow-satellite transition-colors group/handle"
+                    style={{ left: `${endPct}%` }}
+                    title={`Trim End: ${formatPreciseSec(clipEnd)}`}
+                  >
+                    <div className="w-0.5 h-3 bg-signal-orange rounded-full" />
+                  </div>
                 </div>
               </div>
 

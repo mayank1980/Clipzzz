@@ -69,6 +69,36 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
     }
   };
 
+  const handleFileChange = (file) => {
+    setErrorMessage('');
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+    const probeUrl = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => {
+      const dur = v.duration || 0;
+      URL.revokeObjectURL(probeUrl);
+      if (dur > 0 && dur < 180) {
+        const mins = Math.floor(dur / 60);
+        const secs = Math.floor(dur % 60);
+        setSelectedFile(null);
+        setErrorMessage(
+          `Video is too short (${mins}:${secs < 10 ? '0' : ''}${secs}). CLIPIT creates clips only from long-form videos longer than 3 minutes (3:00+).`
+        );
+      } else {
+        setSelectedFile(file);
+      }
+    };
+    v.onerror = () => {
+      URL.revokeObjectURL(probeUrl);
+      setSelectedFile(file);
+    };
+    v.src = probeUrl;
+  };
+
   const handleConfirmLink = async () => {
     if (!youtubeUrl.trim()) return;
     setIsInspecting(true);
@@ -93,18 +123,25 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           setUseExistingCache(false);
         }
       } else {
-        setInspectError(res?.error || 'Failed to inspect YouTube video.');
+        setInspectError(res?.error || 'Failed to inspect video URL.');
       }
     } catch (err) {
       console.warn('Inspect error', err);
-      setIsLinkConfirmed(true);
-      setVideoInfo({
-        title: 'YouTube Stream',
-        duration_str: 'Ready',
-        content_type: 'Dialogue / Narrative',
-        recommended_mode: 'story_series',
-        qualities: [{ id: '720p', label: '720p Fast (Recommended)', size_mb: 45 }],
-      });
+      const serverErr = err?.response?.data?.error;
+      if (serverErr) {
+        setInspectError(serverErr);
+        setIsLinkConfirmed(false);
+      } else {
+        setIsLinkConfirmed(true);
+        setVideoInfo({
+          platform: 'Video Stream',
+          title: 'Video Stream Ready',
+          duration_str: 'Ready',
+          content_type: 'Dialogue / Narrative',
+          recommended_mode: 'story_series',
+          qualities: [{ id: '720p', label: '720p Fast (Recommended)', size_mb: 45 }],
+        });
+      }
     } finally {
       setIsInspecting(false);
     }
@@ -168,7 +205,11 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
     setErrorMessage('');
 
     if (sourceType === 'youtube' && !youtubeUrl) {
-      setErrorMessage('Please enter a valid YouTube URL');
+      setErrorMessage('Please enter a valid video URL (YouTube, Facebook, Vimeo, Twitch, X, etc.)');
+      return;
+    }
+    if (sourceType === 'youtube' && inspectError) {
+      setErrorMessage(inspectError);
       return;
     }
     if (sourceType === 'upload' && !selectedFile) {
@@ -444,7 +485,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                       : 'text-slate-gray hover:text-ink-black'
                   }`}
                 >
-                  YouTube Link
+                  Video Link
                 </button>
                 <button
                   type="button"
@@ -467,7 +508,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                     type="url"
                     value={youtubeUrl}
                     onChange={(e) => handleUrlChange(e.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=..."
+                    placeholder="https://www.youtube.com/watch?v=... or Facebook, Vimeo, Twitch, X link"
                     className="w-full bg-lifted-cream border border-dust-taupe rounded-full px-5 py-3.5 text-xs sm:text-sm text-ink-black placeholder-slate-gray focus:outline-none focus:border-signal-orange focus:ring-2 focus:ring-signal-orange/15 shadow-inner"
                   />
                   {youtubeUrl && (
@@ -481,7 +522,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                   )}
                 </div>
                 <p className="text-[11px] text-slate-gray mt-2 ml-2">
-                  Supports long-form video podcasts, interviews, commentary, comedy, and horror stories.
+                  Supports long-form videos (3+ minutes) from YouTube, Facebook, Vimeo, Twitch, X, Instagram, Dailymotion & direct links.
                 </p>
 
                 {/* Confirmation Prompt when URL is entered */}
@@ -572,7 +613,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <span className="text-[10px] font-bold text-signal-orange bg-white px-2.5 py-0.5 rounded-full border border-border-cream flex items-center gap-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
-                            Verified Media Stream
+                            Verified {videoInfo.platform || 'Media'} Stream
                           </span>
                           <button
                             type="button"
@@ -619,15 +660,15 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                   type="file"
                   id="wizard-file-input"
                   accept="video/*"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
                   className="hidden"
                 />
                 <label htmlFor="wizard-file-input" className="cursor-pointer">
                   <UploadCloud className="w-10 h-10 text-signal-orange mx-auto mb-2" />
                   <p className="text-xs sm:text-sm font-semibold text-ink-black">
-                    {selectedFile ? selectedFile.name : 'Choose video file (MP4, MKV, MOV)'}
+                    {selectedFile ? selectedFile.name : 'Choose long-form video file (MP4, MKV, MOV)'}
                   </p>
-                  <p className="text-[11px] text-slate-gray mt-1">Direct upload supported up to 2GB</p>
+                  <p className="text-[11px] text-slate-gray mt-1">Minimum 3 minutes • Direct upload up to 2GB</p>
                 </label>
               </div>
             )}

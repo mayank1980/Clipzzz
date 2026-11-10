@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import clipitIcon from '../assets/img/clipit_icon.png';
 import {
   X,
   Copy,
@@ -54,10 +55,7 @@ export default function ShortsKitModal({ isOpen, onClose, clip, project }) {
         {/* Header */}
         <div className="px-6 py-4 border-b border-border-cream flex items-center justify-between bg-white shrink-0">
           <div className="flex items-center gap-3">
-            <div className="relative flex items-center w-8 h-5 select-none">
-              <div className="w-5 h-5 rounded-full bg-mc-red"></div>
-              <div className="w-5 h-5 rounded-full bg-mc-yellow -ml-2.5 mix-blend-multiply opacity-95"></div>
-            </div>
+            <img src={clipitIcon} alt="CLIPIT" className="w-7 h-7 object-contain shrink-0 select-none" />
             <div>
               <h2 className="font-extrabold text-sm text-ink-black flex items-center gap-2 tracking-tight">
                 Shorts Upload Kit

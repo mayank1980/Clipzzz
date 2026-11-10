@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import clipitLogo from '../assets/img/clipit_logo.png';
 import {
   X,
   Download,
@@ -16,7 +17,6 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { api, API_BASE_URL } from '../services/api';
-import logoImg from '../assets/logo.png';
 
 export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clean', forceRender = false, onRenderComplete }) {
   const [renderMode, setRenderMode] = useState(initialMode); // 'clean' default while captions are paused
@@ -281,18 +281,12 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
       <div className="bg-white border border-border-cream w-full max-w-lg rounded-stadium shadow-card-elevated overflow-hidden max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-border-cream flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="relative flex items-center w-8 h-5 select-none">
-              <div className="w-5 h-5 rounded-full bg-mc-red"></div>
-              <div className="w-5 h-5 rounded-full bg-mc-yellow -ml-2.5 mix-blend-multiply opacity-95"></div>
-            </div>
+          <div className="flex items-center gap-3">
+            <img src={clipitLogo} alt="CLIPIT" className="h-5 w-auto object-contain select-none" />
             <div>
-              <h2 className="font-extrabold text-sm text-ink-black flex items-center gap-1.5 leading-tight tracking-tight">
-                CLIP<span className="text-signal-orange">IT</span> <span className="text-[9px] bg-canvas-cream text-charcoal border border-border-cream font-bold px-2 py-0.2 rounded-full uppercase">Export</span>
-              </h2>
-              <p className="text-[10px] text-slate-gray font-medium leading-tight">
-                9:16 Shorts Export Studio
-              </p>
+              <span className="text-[9px] bg-canvas-cream text-charcoal border border-border-cream font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                9:16 Export
+              </span>
             </div>
           </div>
           <button onClick={onClose} className="text-slate-gray hover:text-ink-black p-1.5 rounded-full hover:bg-canvas-cream transition cursor-pointer">

@@ -7,7 +7,8 @@ from .downloader import (
     download_youtube_video,
     probe_video_metadata,
     fetch_youtube_metadata_fast,
-    download_youtube_audio_fast
+    download_youtube_audio_fast,
+    MIN_VIDEO_DURATION_SECONDS,
 )
 from .transcription import (
     extract_audio_from_video,
@@ -151,7 +152,19 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             project.fps = probe['fps']
             project.save()
 
-        # Step 2: Instant Dialogue & Timeline Ingestion (0.2s - No Slow Whisper Delay)
+        # Guard: CLIPIT only clips long-form videos (> 3 minutes)
+        if project.duration and 0 < float(project.duration) < MIN_VIDEO_DURATION_SECONDS:
+            mins_d = int(float(project.duration) // 60)
+            secs_d = int(float(project.duration) % 60)
+            project.status = 'failed'
+            project.status_message = 'Video too short for long-form clipping.'
+            project.error_message = (
+                f"Video is too short ({mins_d}:{secs_d:02d}). CLIPIT creates clips only from videos longer than 3 minutes (3:00+)."
+            )
+            project.save(update_fields=['status', 'status_message', 'error_message'])
+            return
+
+        # Step 2: Instant Dialogue & Timeline Ingestion
         transcript = []
         if project.transcript_raw and isinstance(project.transcript_raw, list) and len(project.transcript_raw) > 0:
             transcript = project.transcript_raw
@@ -166,8 +179,18 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             if project.source_type == 'youtube' and project.youtube_url:
                 transcript = get_native_youtube_transcript(project.youtube_url)
 
+        if not transcript and video_full_path and os.path.exists(video_full_path) and api_key:
+            try:
+                audio_out = os.path.join(media_audio_dir, f"{project.id}.mp3")
+                project.status_message = 'Extracting audio & transcribing dialogue with Gemini...'
+                project.save(update_fields=['status_message'])
+                extract_audio_from_video(video_full_path, audio_out)
+                transcript = transcribe_with_gemini(audio_out, api_key)
+            except Exception as tr_err:
+                print(f"[_run_video_pipeline] Gemini audio transcription fallback note: {tr_err}")
+
         if not transcript:
-            # Fast semantic timeline anchors (0.1s - skips 5 minute CPU Whisper processing)
+            # Fast semantic timeline anchors
             transcript = generate_fallback_transcript(project.duration, project.title)
 
         project.transcript_raw = transcript
