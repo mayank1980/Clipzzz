@@ -18,6 +18,7 @@ import {
   Key,
 } from 'lucide-react';
 import { api } from '../services/api';
+import faceIllustration from '../assets/img/Face_illustration.webp';
 
 export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyModal }) {
   const [sourceType, setSourceType] = useState('youtube'); // 'youtube' or 'upload'
@@ -492,17 +493,26 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
               </div>
             </div>
 
-            {/* Toggle Switch */}
+            {/* Speaker Face Illustration Toggle */}
             <button
               type="button"
               onClick={() => setAutoSpeakerTracking(!autoSpeakerTracking)}
-              className={`w-13 h-7 rounded-full transition-colors relative cursor-pointer p-0.5 ${
-                autoSpeakerTracking ? 'bg-ink-black' : 'bg-dust-taupe'
+              title={autoSpeakerTracking ? 'AI Active Speaker Tracking: On (click to disable)' : 'AI Active Speaker Tracking: Off (click to enable)'}
+              aria-pressed={autoSpeakerTracking}
+              className={`relative w-12 h-12 rounded-full transition-all flex items-center justify-center shrink-0 cursor-pointer border-2 ${
+                autoSpeakerTracking
+                  ? 'bg-canvas-cream border-signal-orange shadow-sm scale-100'
+                  : 'bg-canvas-cream border-dust-taupe opacity-55 grayscale hover:opacity-80'
               }`}
             >
-              <div
-                className={`w-6 h-6 rounded-full bg-white transition-transform ${
-                  autoSpeakerTracking ? 'translate-x-6' : 'translate-x-0'
+              <img
+                src={faceIllustration}
+                alt="AI Active Speaker Tracking"
+                className="w-8 h-8 object-contain mix-blend-multiply select-none pointer-events-none"
+              />
+              <span
+                className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white ${
+                  autoSpeakerTracking ? 'bg-signal-orange' : 'bg-dust-taupe'
                 }`}
               />
             </button>
