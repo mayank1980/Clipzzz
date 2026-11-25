@@ -156,6 +156,7 @@ export default function VideoPlayer({
   const setPlaybackRate = onChangePlaybackRate || setInternalPlaybackRate;
   const [isAutoTracking, setIsAutoTracking] = useState(false);
   const [isVideoError, setIsVideoError] = useState(false);
+  const [srcAspect, setSrcAspect] = useState(16 / 9);
 
   useEffect(() => {
     setIsVideoError(false);
@@ -332,6 +333,11 @@ export default function VideoPlayer({
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
+    const vw = videoRef.current.videoWidth;
+    const vh = videoRef.current.videoHeight;
+    if (vw > 0 && vh > 0) {
+      setSrcAspect(vw / vh);
+    }
     videoRef.current.playbackRate = playbackRate;
     videoRef.current.defaultPlaybackRate = playbackRate;
     setDuration(videoRef.current.duration || project?.duration || 0);
@@ -631,12 +637,18 @@ export default function VideoPlayer({
     activeSpeakerLabel = 'Speaker Focus';
   }
 
-  // User manual zoom slider overrides keyframe base zoom proportionally when adjusted
-  const zoom = Math.max(1.0, Math.min(2.5, (cropSettings?.zoom ?? activeCropZoom) || 1.0));
+  const cropMode = cropSettings?.mode || 'custom_crop';
+  // Allow automated letterbox-removal zoom from keyframes to override default 1.15 unless manually customized
+  const settingZoom = Number(cropSettings?.zoom ?? activeCropZoom) || 1.15;
+  const kfZoom = Number(activeCropZoom || 1.15);
+  const zoom = Math.max(
+    1.0,
+    Math.min(2.5, cropMode === 'manual_crop' ? settingZoom : Math.max(settingZoom, kfZoom))
+  );
   const effectiveZoom = Math.max(1.08, zoom);
   const cropX = Math.max(0.0, Math.min(100.0, activeCropX));
   const cropY = Math.max(0.0, Math.min(100.0, activeCropY));
-  const cropMode = cropSettings?.mode || 'custom_crop';
+  const widthRatio = Math.max(1.0, (srcAspect || (16 / 9)) / (9 / 16));
   if (activeSpeakerLabel && /split|grid/i.test(activeSpeakerLabel)) {
     activeSpeakerLabel = 'Active Speaker';
   }
@@ -1033,9 +1045,9 @@ export default function VideoPlayer({
                   style={
                     cropMode !== 'blur_fill'
                       ? {
-                          width: `${(316.05 * effectiveZoom).toFixed(2)}%`,
+                          width: `${(widthRatio * 100 * effectiveZoom).toFixed(2)}%`,
                           height: `${(100 * effectiveZoom).toFixed(2)}%`,
-                          left: `${(-((3.1605 * effectiveZoom - 1) * (cropX / 100)) * 100).toFixed(2)}%`,
+                          left: `${(-((widthRatio * effectiveZoom - 1) * (cropX / 100)) * 100).toFixed(2)}%`,
                           top: `${(-((effectiveZoom - 1) * (cropY / 100)) * 100).toFixed(2)}%`,
                           objectFit: 'fill',
                           transition: 'left 300ms cubic-bezier(0.22, 1, 0.36, 1), top 300ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms cubic-bezier(0.22, 1, 0.36, 1), height 260ms cubic-bezier(0.22, 1, 0.36, 1)',

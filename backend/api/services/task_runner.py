@@ -763,6 +763,7 @@ def _run_clip_render(clip_id: str, clean: bool = False):
                 computed_kfs = generate_camera_keyframes(source_video_path, clip.start_time, clip.duration)
                 if computed_kfs:
                     crop_kfs = computed_kfs
+                    user_zoom = max(user_zoom, float(computed_kfs[0].get('zoom', 1.15)))
                     clip.crop_keyframes = computed_kfs
                     clip.crop_x = computed_kfs[0]['x']
                     clip.crop_y = computed_kfs[0]['y']

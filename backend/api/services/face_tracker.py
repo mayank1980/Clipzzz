@@ -41,6 +41,70 @@ def to_916_crop_y(face_cy_pct: float, zoom: float = 1.15) -> float:
     clamped_y = round(max(25.0, min(45.0, float(face_cy_pct))), 1)
     return clamped_y
 
+
+def detect_active_content_bounds(gray_frames: List[np.ndarray]) -> Tuple[float, float]:
+    """
+    Detects baked-in top/bottom black cinema letterbox bars inside landscape videos (e.g. 21:9 in 16:9).
+    Checks for near-black AND near-uniform flat rows (mean < 18, std < 8) so dark night scenes
+    are never mistaken for letterbox bars.
+    Returns (top_frac, bot_frac) in [0.0, 1.0].
+    """
+    if not gray_frames:
+        return 0.0, 1.0
+    sample_frames = gray_frames[:min(5, len(gray_frames))]
+    h = sample_frames[0].shape[0]
+    if h < 20:
+        return 0.0, 1.0
+
+    row_means = np.median(np.stack([g.mean(axis=1) for g in sample_frames], axis=0), axis=0)
+    row_stds = np.median(np.stack([g.std(axis=1) for g in sample_frames], axis=0), axis=0)
+
+    max_bar_rows = int(h * 0.28)
+    top_idx = 0
+    while top_idx < max_bar_rows and row_means[top_idx] < 18.0 and row_stds[top_idx] < 8.5:
+        top_idx += 1
+
+    bot_idx = h - 1
+    min_bot_row = h - max_bar_rows
+    while bot_idx > min_bot_row and row_means[bot_idx] < 18.0 and row_stds[bot_idx] < 8.5:
+        bot_idx -= 1
+
+    top_frac = (top_idx / float(h)) if top_idx >= 3 else 0.0
+    bot_frac = ((bot_idx + 1) / float(h)) if (h - 1 - bot_idx) >= 3 else 1.0
+    if (bot_frac - top_frac) < 0.45:
+        return 0.0, 1.0
+    return round(top_frac, 4), round(bot_frac, 4)
+
+
+def clamp_crop_to_active_content(
+    crop_y: float,
+    zoom: float,
+    top_frac: float,
+    bot_frac: float,
+) -> Tuple[float, float]:
+    """
+    Eliminates top/bottom letterbox bars cleanly: raises minimum zoom above 1 / active_height
+    so vertical 9:16 video fills 100% edge-to-edge without any black gap at top or bottom,
+    and clamps crop_y inside active bright video pixels.
+    """
+    eff_zoom = max(1.08, float(zoom or 1.15))
+    cy = float(crop_y)
+
+    if top_frac > 0.008 or bot_frac < 0.992:
+        active_h = max(0.50, bot_frac - top_frac)
+        min_zoom = round((1.0 / active_h) + 0.03, 2)
+        eff_zoom = max(eff_zoom, min_zoom)
+        hf = 1.0 / eff_zoom
+        span_y = max(0.001, 1.0 - hf)
+        min_cy = ((top_frac + 0.004) / span_y) * 100.0
+        max_cy = ((bot_frac - 0.004 - hf) / span_y) * 100.0
+        if min_cy <= max_cy:
+            cy = max(min_cy, min(max_cy, cy))
+        else:
+            cy = (min_cy + max_cy) / 2.0
+
+    return round(max(0.0, min(100.0, cy)), 1), round(eff_zoom, 2)
+
 def compute_panel_crop_box(
     face_cx_pct: float,
     face_cy_pct: float,
@@ -717,6 +781,7 @@ class AutoCameraEngine:
         fps = 1.0 / max(0.25, sample_interval)
 
         sampled_timeline: List[Dict[str, Any]] = []
+        letterbox_grays: List[np.ndarray] = []
 
         cmd = [
             'ffmpeg', '-y',
@@ -743,6 +808,8 @@ class AutoCameraEngine:
                 buf = raw_bytes[i * frame_sz : (i + 1) * frame_sz]
                 frame = np.frombuffer(buf, dtype=np.uint8).reshape((frame_h, frame_w, 3))
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                if len(letterbox_grays) < 5 and (i % max(1, total_frames // 5) == 0):
+                    letterbox_grays.append(gray)
 
                 faces = self.detect_faces_in_frame(frame, target_w=frame_w, check_profile=(i % 4 == 0))
 
@@ -779,12 +846,15 @@ class AutoCameraEngine:
             cap.release()
 
         # Sticky Memory fallback: Never snap to empty wall if video unreadable
+        top_frac, bot_frac = detect_active_content_bounds(letterbox_grays)
+        safe_fb_y, safe_fb_zoom = clamp_crop_to_active_content(self.current_focal_y, 1.15, top_frac, bot_frac)
+
         if not sampled_timeline:
-            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
+            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": safe_fb_y, "zoom": safe_fb_zoom, "speaker": "Speaker Focus"}]
 
         all_faces = [f for st in sampled_timeline for f in st["faces"]]
         if not all_faces:
-            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
+            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": safe_fb_y, "zoom": safe_fb_zoom, "speaker": "Speaker Focus"}]
 
         # 1. Shot-Aware Dynamic Framing:
         # Every frame is evaluated for the active speaker (solo shot or multi-speaker debate).
@@ -843,14 +913,15 @@ class AutoCameraEngine:
         # Solo speaker throughout entire clip: lock unconditionally
         if len(speaker_seats) == 1:
             solo = speaker_seats[0]
+            clamped_y, eff_zoom = clamp_crop_to_active_content(solo["y"], 1.15, top_frac, bot_frac)
             self.current_focal_x = solo["x"]
-            self.current_focal_y = solo["y"]
+            self.current_focal_y = clamped_y
             return [{
                 "time": 0.0,
                 "mode": "solo",
                 "x": solo["x"],
-                "y": solo["y"],
-                "zoom": 1.15,
+                "y": clamped_y,
+                "zoom": eff_zoom,
                 "speaker": solo["label"]
             }]
 
@@ -867,12 +938,13 @@ class AutoCameraEngine:
         pending_count = 0
 
         def _make_kf(t_val, x_val, y_val, lbl_val):
+            clamped_y, eff_zoom = clamp_crop_to_active_content(y_val, 1.15, top_frac, bot_frac)
             return {
                 "time": round(t_val, 2),
                 "mode": "solo",
                 "x": x_val,
-                "y": y_val,
-                "zoom": 1.15,
+                "y": clamped_y,
+                "zoom": eff_zoom,
                 "speaker": lbl_val,
             }
 
@@ -973,12 +1045,14 @@ def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: fl
 
     cap = _get_thread_video_capture(video_path)
     sampled_kfs = []
+    letterbox_grays = []
     prev_cx = 50.0
     for idx_off, off in enumerate(offsets):
         cap.set(cv2.CAP_PROP_POS_MSEC, (float(start_sec) + off) * 1000.0)
         ret, frame = cap.read()
         if not ret or frame is None:
             continue
+        letterbox_grays.append(cv2.cvtColor(cv2.resize(frame, (320, 180)), cv2.COLOR_BGR2GRAY))
         faces = engine.detect_faces_in_frame(frame, target_w=480, check_profile=True)
         if not faces:
             continue
@@ -1003,11 +1077,18 @@ def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: fl
             continue
         sampled_kfs.append(kf)
 
+    top_frac, bot_frac = detect_active_content_bounds(letterbox_grays)
+
     if sampled_kfs:
         sampled_kfs[0]["time"] = 0.0
+        for kf in sampled_kfs:
+            cy, ez = clamp_crop_to_active_content(kf["y"], kf["zoom"], top_frac, bot_frac)
+            kf["y"] = cy
+            kf["zoom"] = ez
         return sampled_kfs
 
-    return [{"time": 0.0, "mode": "solo", "x": 50.0, "y": 35.0, "zoom": 1.15, "speaker": "Speaker Focus", "initial": True}]
+    cy_fb, ez_fb = clamp_crop_to_active_content(35.0, 1.15, top_frac, bot_frac)
+    return [{"time": 0.0, "mode": "solo", "x": 50.0, "y": cy_fb, "zoom": ez_fb, "speaker": "Speaker Focus", "initial": True}]
 
 
 def detect_primary_speaker_center(video_path: str, start_sec: float = 0.0, sample_duration: float = 2.0) -> dict:
