@@ -142,56 +142,93 @@ def dedupe_frame_people(faces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return kept
 
 
-def classify_frame_shot(distinct_people: List[Dict[str, Any]], zoom: float = 1.15) -> Dict[str, Any]:
+def select_smart_focus_face(
+    distinct_people: List[Dict[str, Any]],
+    prev_raw_cx: float = 50.0,
+    zoom: float = 1.15,
+) -> Dict[str, Any]:
     """
-    Shared shot layout classifier:
-      - 1 person -> 'solo' centered portrait
-      - 2 distinct foreground people -> 'split_2' stacked
-      - 3 distinct foreground people -> 'split_3' (2+1 Grid)
-      - 4+ distinct foreground people -> 'split_4' (2x2 Grid)
-    Guarantees two split panes never duplicate overlapping regions of the same person.
+    Smart single-frame 9:16 subject selector:
+    - Single face -> dead-center portrait framing.
+    - Close two-shot (<= 19% apart horizontally) -> frames both speakers via area/speech weighted midpoint.
+    - Crowd / wide two-shot -> locks smoothly onto the active foreground speaker using
+      lip-motion + face prominence + continuity hysteresis (ignores far background extras).
     """
     if not distinct_people:
-        return {"mode": "solo", "panels": None, "target_people": []}
-
-    split_eligible = [
-        p for p in distinct_people
-        if float(p.get('confidence', 0.0)) >= 0.54 and float(p.get('area_pct', 1.0)) >= 0.60
-    ]
-    split_eligible.sort(key=lambda p: p['cx'])
-
-    # Enforce strict adjacent separation so 2 panels never frame the same person twice
-    spaced: List[Dict[str, Any]] = []
-    for p in split_eligible:
-        if not spaced or (p['cx'] - spaced[-1]['cx']) >= 18.0:
-            spaced.append(p)
-
-    xs = [p['cx'] for p in spaced]
-    horiz_span = (max(xs) - min(xs)) if len(spaced) > 1 else 0.0
-
-    if len(spaced) >= 2 and horiz_span >= 24.0:
-        n_panes = min(4, len(spaced))
-        mode = f"split_{n_panes}"
-        panels = [
-            compute_panel_crop_box(p['cx'], p['cy'], mode=mode, zoom=zoom, panel_idx=p_idx)
-            for p_idx, p in enumerate(spaced[:n_panes])
-        ]
-        label = (
-            "2-Person Split" if n_panes == 2
-            else ("3-Person Grid" if n_panes == 3 else "4-Person Grid")
-        )
         return {
-            "mode": mode,
-            "panels": panels,
-            "x": panels[0]["x"],
-            "y": panels[0]["y"],
-            "speaker": label,
-            "target_people": spaced[:n_panes],
+            "mode": "solo",
+            "x": to_916_crop_x(prev_raw_cx, zoom=zoom),
+            "y": 35.0,
+            "raw_cx": prev_raw_cx,
+            "speaker": "Speaker Focus",
         }
+
+    max_area = max((f.get('area', 0) for f in distinct_people), default=1)
+    # Ignore distant background extras (<40% of main speaker face size) when choosing primary focus
+    fg_people = [
+        p for p in distinct_people
+        if p.get('area', 0) >= max_area * 0.40 and float(p.get('confidence', 0.0)) >= 0.45
+    ] or distinct_people
+
+    if len(fg_people) == 1:
+        p = fg_people[0]
+        return {
+            "mode": "solo",
+            "x": to_916_crop_x(p['cx'], zoom=zoom),
+            "y": to_916_crop_y(p['cy'], zoom=zoom),
+            "raw_cx": float(p['cx']),
+            "speaker": "Speaker Focus",
+        }
+
+    # If 2 foreground subjects are close enough horizontally to fit in a single 9:16 crop
+    fg_sorted = sorted(fg_people, key=lambda p: p['cx'])
+    if len(fg_sorted) == 2 and abs(fg_sorted[1]['cx'] - fg_sorted[0]['cx']) <= 19.0:
+        w1 = max(1.0, float(fg_sorted[0].get('area', 1))) + float(fg_sorted[0].get('lip_motion', 0.0)) * 400.0
+        w2 = max(1.0, float(fg_sorted[1].get('area', 1))) + float(fg_sorted[1].get('lip_motion', 0.0)) * 400.0
+        mid_cx = (fg_sorted[0]['cx'] * w1 + fg_sorted[1]['cx'] * w2) / (w1 + w2)
+        mid_cy = min(fg_sorted[0]['cy'], fg_sorted[1]['cy'])
+        return {
+            "mode": "solo",
+            "x": to_916_crop_x(mid_cx, zoom=zoom),
+            "y": to_916_crop_y(mid_cy, zoom=zoom),
+            "raw_cx": float(mid_cx),
+            "speaker": "Speakers Together",
+        }
+
+    # Score foreground subjects: lip activity + prominence + continuity hysteresis
+    def _focus_score(p: Dict[str, Any]) -> float:
+        lip = float(p.get('lip_motion', 0.0))
+        area_pct = float(p.get('area_pct', 1.0))
+        conf = float(p.get('confidence', 0.6))
+        continuity = 6.0 if abs(float(p['cx']) - prev_raw_cx) <= 14.0 else 0.0
+        return (lip * 3.0) + (area_pct * 3.5) + (conf * 12.0) + continuity
+
+    target_f = max(fg_people, key=_focus_score)
+    if target_f['cx'] < 45.0:
+        label = "Speaker 1 (Left)"
+    elif target_f['cx'] > 55.0:
+        label = "Speaker 2 (Right)"
+    else:
+        label = "Active Speaker"
 
     return {
         "mode": "solo",
+        "x": to_916_crop_x(target_f['cx'], zoom=zoom),
+        "y": to_916_crop_y(target_f['cy'], zoom=zoom),
+        "raw_cx": float(target_f['cx']),
+        "speaker": label,
+    }
+
+
+def classify_frame_shot(distinct_people: List[Dict[str, Any]], zoom: float = 1.15) -> Dict[str, Any]:
+    """Single-frame smart speaker shot classifier (split-screen disabled)."""
+    focus = select_smart_focus_face(distinct_people, zoom=zoom)
+    return {
+        "mode": "solo",
         "panels": None,
+        "x": focus["x"],
+        "y": focus["y"],
+        "speaker": focus["speaker"],
         "target_people": distinct_people,
     }
 
@@ -756,97 +793,46 @@ class AutoCameraEngine:
         speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=14.0)
 
         raw_track = []
-        last_valid_mode = "solo"
-        last_valid_x = self.current_focal_x
-        last_valid_y = self.current_focal_y
         last_solo_x = self.current_focal_x
         last_solo_y = self.current_focal_y
-        last_valid_label = "Speaker Focus"
-        last_valid_panels = None
-        has_any_split = False
-        empty_streak = 0
+        last_raw_cx = 50.0
+        last_label = "Speaker Focus"
 
         for st in sampled_timeline:
             t = st["time"]
             faces = st["faces"]
 
             if not faces:
-                empty_streak += 1
-                # Hold multi-split for at most 1 missed sample during a blink;
-                # if B-roll/scenery (0 faces) continues, revert cleanly to solo centered focus.
-                if last_valid_mode.startswith("split_") and empty_streak <= 1:
-                    raw_track.append({
-                        "time": t,
-                        "mode": last_valid_mode,
-                        "x": last_valid_x,
-                        "y": last_valid_y,
-                        "panels": last_valid_panels,
-                        "speaker": last_valid_label,
-                        "has_face": False
-                    })
-                else:
-                    last_valid_mode = "solo"
-                    last_valid_panels = None
-                    last_valid_x = last_solo_x
-                    last_valid_y = last_solo_y
-                    last_valid_label = "Speaker Focus"
-                    raw_track.append({
-                        "time": t,
-                        "mode": "solo",
-                        "x": last_solo_x,
-                        "y": last_solo_y,
-                        "panels": None,
-                        "speaker": "Speaker Focus",
-                        "has_face": False
-                    })
+                raw_track.append({
+                    "time": t,
+                    "mode": "solo",
+                    "x": last_solo_x,
+                    "y": last_solo_y,
+                    "panels": None,
+                    "speaker": last_label,
+                    "has_face": False
+                })
                 continue
 
-            empty_streak = 0
             distinct_people = dedupe_frame_people(faces)
             if not distinct_people:
                 distinct_people = [max(faces, key=lambda f: f.get('area', 0))]
 
-            shot = classify_frame_shot(distinct_people, zoom=1.15)
-            if shot["mode"].startswith("split_"):
-                has_any_split = True
-                mode = shot["mode"]
-                panels = shot["panels"]
-                px = shot["x"]
-                py = shot["y"]
-                label = shot["speaker"]
-            else:
-                mode = "solo"
-                panels = None
-                if len(distinct_people) == 1:
-                    target_f = distinct_people[0]
-                    label = "Speaker Focus"
-                else:
-                    speaking = [f for f in distinct_people if f.get("lip_motion", 0.0) >= 1.0]
-                    target_f = max(speaking, key=lambda f: f.get("lip_motion", 0.0)) if speaking else max(distinct_people, key=lambda f: f.get('area', 0))
-                    if target_f["cx"] < 45.0:
-                        label = "Speaker 1 (Left)"
-                    elif target_f["cx"] > 55.0:
-                        label = "Speaker 2 (Right)"
-                    else:
-                        label = "Active Speaker"
-
-                px = to_916_crop_x(target_f["cx"], zoom=1.15)
-                py = to_916_crop_y(target_f["cy"], zoom=1.15)
-                last_solo_x = px
-                last_solo_y = py
-
-            last_valid_mode = mode
-            last_valid_x = px
-            last_valid_y = py
-            last_valid_panels = panels
-            last_valid_label = label
+            focus = select_smart_focus_face(distinct_people, prev_raw_cx=last_raw_cx, zoom=1.15)
+            px = focus["x"]
+            py = focus["y"]
+            label = focus["speaker"]
+            last_raw_cx = focus["raw_cx"]
+            last_solo_x = px
+            last_solo_y = py
+            last_label = label
 
             raw_track.append({
                 "time": t,
-                "mode": mode,
+                "mode": "solo",
                 "x": px,
                 "y": py,
-                "panels": panels,
+                "panels": None,
                 "speaker": label,
                 "has_face": True
             })
@@ -854,23 +840,8 @@ class AutoCameraEngine:
         if not raw_track:
             return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
-        # Smooth isolated 1-sample layout flickers (e.g. A -> B -> A) so cuts remain zero-lag yet butter-smooth
-        if len(raw_track) >= 3:
-            for idx_r in range(1, len(raw_track) - 1):
-                prev_m = raw_track[idx_r - 1]["mode"]
-                curr_m = raw_track[idx_r]["mode"]
-                next_m = raw_track[idx_r + 1]["mode"]
-                if prev_m == next_m and curr_m != prev_m:
-                    raw_track[idx_r]["mode"] = prev_m
-                    raw_track[idx_r]["x"] = raw_track[idx_r - 1]["x"]
-                    raw_track[idx_r]["y"] = raw_track[idx_r - 1]["y"]
-                    raw_track[idx_r]["panels"] = raw_track[idx_r - 1]["panels"]
-                    raw_track[idx_r]["speaker"] = raw_track[idx_r - 1]["speaker"]
-
-        has_any_split = any(pt["mode"].startswith("split_") for pt in raw_track)
-
         # Solo speaker throughout entire clip: lock unconditionally
-        if len(speaker_seats) == 1 and not has_any_split:
+        if len(speaker_seats) == 1:
             solo = speaker_seats[0]
             self.current_focal_x = solo["x"]
             self.current_focal_y = solo["y"]
@@ -883,104 +854,71 @@ class AutoCameraEngine:
                 "speaker": solo["label"]
             }]
 
-        # 2. Synthesize instant layout transitions (1 <-> 2 <-> 3 Grid <-> 4 Grid) + smooth solo stabilization
+        # 2. Synthesize single-frame speaker cuts with smooth deadband hysteresis
         keyframes = []
-        current_mode = None
         current_shot_x = None
         current_shot_y = None
-        current_panels = None
         current_label = None
         last_cut_time = -999.0
-        solo_min_dwell = 1.2   # Smooth hold against micro head nods within solo shots
-        mode_min_dwell = 0.40  # Instant cut across person-count transitions (solo <-> split_2/3/4)
+        solo_min_dwell = 1.1
         deadband = 8.5
 
         pending_switch = None
         pending_count = 0
 
-        def _make_kf(t_val, m_val, x_val, y_val, lbl_val, panels_val):
-            kf = {
+        def _make_kf(t_val, x_val, y_val, lbl_val):
+            return {
                 "time": round(t_val, 2),
-                "mode": m_val,
+                "mode": "solo",
                 "x": x_val,
                 "y": y_val,
                 "zoom": 1.15,
                 "speaker": lbl_val,
             }
-            if panels_val:
-                kf["panels"] = panels_val
-            return kf
 
         for pt in raw_track:
             t = pt["time"]
-            mode = pt["mode"]
             px = pt["x"]
             py = pt["y"]
-            panels = pt["panels"]
             label = pt["speaker"]
-            has_face = pt.get("has_face", False)
 
             if current_shot_x is None:
-                current_mode = mode
                 current_shot_x = px
                 current_shot_y = py
-                current_panels = panels
                 current_label = label
-                keyframes.append(_make_kf(0.0, mode, px, py, label, panels))
+                keyframes.append(_make_kf(0.0, px, py, label))
                 last_cut_time = 0.0
                 continue
 
-            mode_changed = (mode != current_mode)
-            if not mode_changed and panels and current_panels and len(panels) == len(current_panels):
-                dist = max(abs(panels[i]["x"] - current_panels[i]["x"]) for i in range(len(panels)))
-            else:
-                dist = abs(px - current_shot_x)
-
+            dist = abs(px - current_shot_x)
             time_since_cut = t - last_cut_time
 
-            if not mode_changed and dist <= deadband:
+            if dist <= deadband:
                 pending_switch = None
                 pending_count = 0
-                continue
-
-            if mode_changed:
-                # Instant switch when genuine faces enter or leave the shot (`1 <-> 2 <-> 3 <-> 4`)
-                if time_since_cut >= mode_min_dwell and (has_face or time_since_cut >= 0.90):
-                    current_mode = mode
-                    current_shot_x = px
-                    current_shot_y = py
-                    current_panels = panels
-                    current_label = label
-                    keyframes.append(_make_kf(t, current_mode, current_shot_x, current_shot_y, current_label, current_panels))
-                    last_cut_time = t
-                    pending_switch = None
-                    pending_count = 0
                 continue
 
             if time_since_cut >= solo_min_dwell:
                 if (
                     pending_switch is not None
-                    and pending_switch["mode"] == mode
                     and abs(px - pending_switch["x"]) <= deadband
                 ):
                     pending_count += 1
                 else:
-                    pending_switch = {"mode": mode, "x": px, "y": py, "panels": panels, "label": label}
+                    pending_switch = {"x": px, "y": py, "label": label}
                     pending_count = 1
 
                 if pending_count >= 2 or dist >= 22.0:
-                    current_mode = pending_switch["mode"]
                     current_shot_x = pending_switch["x"]
                     current_shot_y = pending_switch["y"]
-                    current_panels = pending_switch["panels"]
                     current_label = pending_switch["label"]
-                    keyframes.append(_make_kf(t, current_mode, current_shot_x, current_shot_y, current_label, current_panels))
+                    keyframes.append(_make_kf(t, current_shot_x, current_shot_y, current_label))
                     last_cut_time = t
                     pending_switch = None
                     pending_count = 0
 
         if not keyframes:
-            keyframes.append(_make_kf(0.0, raw_track[0]["mode"], raw_track[0]["x"], raw_track[0]["y"], raw_track[0]["speaker"], raw_track[0]["panels"]))
+            keyframes.append(_make_kf(0.0, raw_track[0]["x"], raw_track[0]["y"], raw_track[0]["speaker"]))
 
         self.current_focal_x = keyframes[0]["x"]
         self.current_focal_y = keyframes[0]["y"]
@@ -1019,10 +957,9 @@ def _get_thread_video_capture(video_path: str):
 
 def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: float) -> list:
     """
-    Fast thread-safe framing sampler for rapid multi-clip assembly.
-    Samples 2 key moments per clip using a persistent thread-local VideoCapture and produces
-    exact timestamped solo / split_2 / split_3 Grid / split_4 Grid keyframes (NEVER locking a solo
-    opening scene into split screen just because another segment later has 2 people).
+    Fast thread-safe single-frame framing sampler for rapid multi-clip assembly.
+    Samples 2 key moments per clip using a persistent thread-local VideoCapture and selects
+    the active foreground speaker cleanly in one 9:16 portrait frame.
     """
     engine = _get_thread_camera_engine()
     if not video_path or not os.path.exists(video_path):
@@ -1036,6 +973,7 @@ def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: fl
 
     cap = _get_thread_video_capture(video_path)
     sampled_kfs = []
+    prev_cx = 50.0
     for idx_off, off in enumerate(offsets):
         cap.set(cv2.CAP_PROP_POS_MSEC, (float(start_sec) + off) * 1000.0)
         ret, frame = cap.read()
@@ -1049,35 +987,20 @@ def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: fl
             distinct_people = [max(faces, key=lambda f: f.get('area', 0))]
 
         t_stamp = 0.0 if idx_off == 0 else off
-        shot = classify_frame_shot(distinct_people, zoom=1.15)
-        if shot["mode"].startswith("split_"):
-            kf = {
-                "time": round(t_stamp, 2),
-                "mode": shot["mode"],
-                "x": shot["x"],
-                "y": shot["y"],
-                "zoom": 1.15,
-                "speaker": shot["speaker"],
-                "panels": shot["panels"],
-                "initial": True,
-            }
-        else:
-            primary = max(distinct_people, key=lambda f: f.get('area', 0))
-            kf = {
-                "time": round(t_stamp, 2),
-                "mode": "solo",
-                "x": to_916_crop_x(primary['cx'], zoom=1.15),
-                "y": to_916_crop_y(primary['cy'], zoom=1.15),
-                "zoom": 1.15,
-                "speaker": "Speaker Focus",
-                "initial": True,
-            }
+        focus = select_smart_focus_face(distinct_people, prev_raw_cx=prev_cx, zoom=1.15)
+        prev_cx = focus["raw_cx"]
+        kf = {
+            "time": round(t_stamp, 2),
+            "mode": "solo",
+            "x": focus["x"],
+            "y": focus["y"],
+            "zoom": 1.15,
+            "speaker": focus["speaker"],
+            "initial": True,
+        }
 
-        if sampled_kfs:
-            prev = sampled_kfs[-1]
-            same_mode = prev["mode"] == kf["mode"]
-            if same_mode and abs(prev["x"] - kf["x"]) < 8.5:
-                continue
+        if sampled_kfs and abs(sampled_kfs[-1]["x"] - kf["x"]) < 8.5:
+            continue
         sampled_kfs.append(kf)
 
     if sampled_kfs:
