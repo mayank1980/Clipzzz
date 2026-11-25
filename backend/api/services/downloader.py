@@ -2,11 +2,212 @@ import os
 import re
 import json
 import time
+import shutil
+import socket
 import hashlib
+import threading
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests
+from requests.adapters import HTTPAdapter
+import urllib3.util.connection as urllib3_cn
 import yt_dlp
 from pathlib import Path
 from django.conf import settings
+
+
+# Prefer IPv4 DNS resolution without explicit bind() calls so Windows Wi-Fi/VPN adapters bypass sluggish IPv6 routes cleanly
+try:
+    urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
+except Exception:
+    pass
+
+
+def _make_pooled_adapter(maxsize: int = 16) -> HTTPAdapter:
+    return HTTPAdapter(pool_connections=maxsize, pool_maxsize=maxsize)
+
+
+def _format_speed_eta(speed_bps: float, downloaded: int, total: int):
+    speed_str = ""
+    if speed_bps > 0:
+        if speed_bps >= 1024 * 1024:
+            speed_str = f"{speed_bps / (1024 * 1024):.1f} MB/s"
+        else:
+            speed_str = f"{speed_bps / 1024:.0f} KB/s"
+    eta_str = ""
+    if speed_bps > 0 and total > downloaded:
+        eta = (total - downloaded) / speed_bps
+        if eta < 60:
+            eta_str = f"ETA {int(eta)}s"
+        else:
+            eta_str = f"ETA {int(eta // 60)}m {int(eta % 60):02d}s"
+    size_str = f"{downloaded / (1024 * 1024):.0f}/{total / (1024 * 1024):.0f} MB" if total > 0 else ""
+    pct = min(99, int((downloaded / total) * 100)) if total > 0 else 0
+    return pct, speed_str, eta_str, size_str
+
+
+def _parallel_range_download_streams(
+    streams: list,
+    temp_paths: list,
+    base_headers: dict,
+    cookie_jar=None,
+    num_workers: int = 12,
+    progress_callback=None,
+    quality: str = '720p',
+) -> bool:
+    """
+    Saturates high-speed Wi-Fi links (e.g. 100+ Mbps) by splitting single-stream HTTPS media URLs
+    into parallel HTTP 206 Range connections (bypassing YouTube single-TCP-stream ~800 KB/s throttling).
+    Returns True if all streams downloaded intact, else False for transparent fallback.
+    """
+    probe_sess = requests.Session()
+    probe_sess.mount('https://', _make_pooled_adapter(4))
+    probe_sess.mount('http://', _make_pooled_adapter(4))
+    if cookie_jar is not None:
+        probe_sess.cookies.update(cookie_jar)
+
+    resolved_sizes = []
+    stream_headers = []
+    for fmt in streams:
+        f_url = fmt.get('url')
+        if not f_url:
+            return False
+        hdrs = dict(base_headers or {})
+        hdrs.update(fmt.get('http_headers') or {})
+        hdrs['Range'] = 'bytes=0-0'
+        try:
+            r = probe_sess.get(f_url, headers=hdrs, timeout=10, stream=True)
+            r.close()
+            if r.status_code != 206:
+                return False
+            cr = r.headers.get('Content-Range', '')
+            if '/' not in cr:
+                return False
+            tot_sz = int(cr.split('/')[-1])
+            if tot_sz < 512 * 1024:
+                return False
+            hdrs.pop('Range', None)
+            resolved_sizes.append(tot_sz)
+            stream_headers.append(hdrs)
+        except Exception:
+            return False
+
+    grand_total = sum(resolved_sizes)
+    start_time = time.time()
+    bytes_lock = threading.Lock()
+    state = {'downloaded': 0, 'last_emit': 0.0, 'last_pct': -1}
+    window_samples = []  # [(timestamp, bytes)] for smooth rolling speed
+
+    def _add_progress(delta: int, force: bool = False):
+        if not progress_callback:
+            return
+        with bytes_lock:
+            state['downloaded'] += delta
+            now = time.time()
+            if delta > 0:
+                window_samples.append((now, state['downloaded']))
+                cutoff = now - 2.0
+                while len(window_samples) > 2 and window_samples[0][0] < cutoff:
+                    window_samples.pop(0)
+
+            pct = min(99, int((state['downloaded'] / max(1, grand_total)) * 100))
+            if not force and (now - state['last_emit'] < 0.25) and pct == state['last_pct']:
+                return
+            state['last_emit'] = now
+            state['last_pct'] = pct
+
+            if len(window_samples) >= 2 and (window_samples[-1][0] - window_samples[0][0]) >= 0.2:
+                dt = window_samples[-1][0] - window_samples[0][0]
+                db = window_samples[-1][1] - window_samples[0][1]
+                speed_bps = max(0.0, db / dt)
+            else:
+                dt_all = max(0.1, now - start_time)
+                speed_bps = state['downloaded'] / dt_all
+
+            pct_v, speed_str, eta_str, size_str = _format_speed_eta(speed_bps, state['downloaded'], grand_total)
+            details = [s for s in [size_str, speed_str, eta_str] if s]
+            details_txt = f" ({' · '.join(details)})" if details else ""
+            msg = f"Optimizing {quality} video stream: {pct_v}%{details_txt}"
+            progress_callback(pct_v, msg, {
+                'download_pct': pct_v,
+                'speed': speed_str,
+                'eta': eta_str,
+                'size': size_str,
+                'downloaded_bytes': state['downloaded'],
+                'total_bytes': grand_total,
+            })
+
+    tls = threading.local()
+
+    def _get_worker_session():
+        sess = getattr(tls, 'sess', None)
+        if sess is None:
+            sess = requests.Session()
+            sess.mount('https://', _make_pooled_adapter(16))
+            sess.mount('http://', _make_pooled_adapter(16))
+            if cookie_jar is not None:
+                sess.cookies.update(cookie_jar)
+            tls.sess = sess
+        return sess
+
+    # Download each stream (video + audio) using parallel Range workers into preallocated file
+    for s_idx, (fmt, out_tmp, tot_sz, hdrs) in enumerate(zip(streams, temp_paths, resolved_sizes, stream_headers)):
+        f_url = fmt['url']
+        workers = num_workers if tot_sz >= 6 * 1024 * 1024 else max(4, num_workers // 2)
+        chunk_sz = max(1024 * 1024, min(3 * 1024 * 1024, tot_sz // max(1, workers * 2)))
+        ranges = []
+        pos = 0
+        while pos < tot_sz:
+            end_b = min(tot_sz - 1, pos + chunk_sz - 1)
+            ranges.append((pos, end_b))
+            pos = end_b + 1
+
+        with open(out_tmp, 'wb') as f_init:
+            f_init.truncate(tot_sz)
+
+        file_lock = threading.Lock()
+        fh = open(out_tmp, 'r+b')
+        try:
+            def _fetch_range(r_pair):
+                r_start, r_end = r_pair
+                expected_len = (r_end - r_start) + 1
+                req_hdrs = dict(hdrs)
+                req_hdrs['Range'] = f'bytes={r_start}-{r_end}'
+
+                for attempt in range(4):
+                    try:
+                        sess = _get_worker_session()
+                        resp = sess.get(f_url, headers=req_hdrs, stream=True, timeout=15)
+                        if resp.status_code not in (200, 206):
+                            resp.close()
+                            continue
+                        buf = bytearray()
+                        for blk in resp.iter_content(chunk_size=131072):
+                            if blk:
+                                buf.extend(blk)
+                                _add_progress(len(blk))
+                        resp.close()
+                        if len(buf) == expected_len:
+                            with file_lock:
+                                fh.seek(r_start)
+                                fh.write(buf)
+                            return True
+                        # Undo partial count on retry
+                        _add_progress(-len(buf))
+                    except Exception:
+                        time.sleep(0.25 * (attempt + 1))
+                return False
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futs = [pool.submit(_fetch_range, rp) for rp in ranges]
+                for fut in as_completed(futs):
+                    if not fut.result():
+                        return False
+        finally:
+            fh.close()
+
+    _add_progress(0, force=True)
+    return True
 
 MIN_VIDEO_DURATION_SECONDS = 180  # 3 minutes minimum for long-form clipping
 
@@ -238,14 +439,15 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
         format_spec = 'bestvideo[height<=720][fps<=30][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best'
         fallback_fmt = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
 
-    # Resilient yt-dlp configuration with Node.js challenge solving & multi-tiered format selection
+    # Resilient high-throughput yt-dlp configuration (IPv4 + 16 concurrent fragments + 10MB Range chunks)
     ydl_opts = {
         'format': format_spec,
         'outtmpl': out_template,
         'merge_output_format': 'mp4',
         'progress_hooks': [hook],
-        'concurrent_fragment_downloads': 8,   # 8 parallel fragment streams for max speed
-        'buffersize': 1024 * 1024 * 8,        # 8 MB socket buffer
+        'concurrent_fragment_downloads': 16,  # 16 parallel fragment streams for HLS/DASH manifests
+        'http_chunk_size': 10 * 1024 * 1024,  # 10 MB HTTP Range chunks prevent single-stream CDN throttling
+        'buffersize': 1024 * 1024 * 16,       # 16 MB socket buffer
         'socket_timeout': 30,
         'retries': 10,
         'fragment_retries': 10,
@@ -256,6 +458,9 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
         'remote_components': ['ejs:github'],
         'js_runtimes': {'node': {}},
     }
+    if shutil.which('aria2c'):
+        ydl_opts['external_downloader'] = 'aria2c'
+        ydl_opts['external_downloader_args'] = {'default': ['-x', '16', '-s', '16', '-k', '2M', '--file-allocation=none']}
 
     # Automatically scan for cookies.txt across project roots, Downloads, and Desktop folders
     cookie_candidates = [
@@ -272,60 +477,121 @@ def download_youtube_video(url: str, output_dir: str, progress_callback=None, qu
             print(f"[download_youtube_video] Loaded authentication cookies from {c_path}")
             break
 
-    # Download with automatic fallback for formats and anti-bot verification
+    # Fast Parallel HTTP Range Download Attempt (12 concurrent connections saturating 100+ Mbps Wi-Fi)
     info = None
+    parallel_succeeded = False
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-    except Exception as dl_err:
-        err_msg = str(dl_err)
-        print(f"[download_youtube_video] Initial attempt encountered: {err_msg}")
-
-        # Format availability fallback
-        if 'Requested format is not available' in err_msg or 'format' in err_msg.lower():
-            print("[download_youtube_video] Format restriction detected. Retrying with format selector...")
-            try:
-                fmt_opts = dict(ydl_opts)
-                fmt_opts['format'] = fallback_fmt
-                with yt_dlp.YoutubeDL(fmt_opts) as ydl_fmt:
-                    info = ydl_fmt.extract_info(url, download=True)
-            except Exception as fmt_err:
-                print(f"[download_youtube_video] Format retry encountered: {fmt_err}")
-                err_msg = str(fmt_err)
-
-        # Anti-bot / sign-in challenge fallback
-        if not info and ('Sign in to confirm' in err_msg or 'bot' in err_msg.lower() or '429' in err_msg or '403' in err_msg):
-            print("[download_youtube_video] Bot challenge detected. Retrying with alternative clients...")
-            fallback_clients = [
-                ['tv_samsung', 'web'],
-                ['mweb', 'android'],
-                ['ios'],
-            ]
-            for cl in fallback_clients:
-                try:
-                    fallback_opts = dict(ydl_opts)
-                    fallback_opts['format'] = fallback_fmt
-                    fallback_opts['extractor_args'] = {'youtube': {'player_client': cl}}
-                    with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
-                        info = ydl_fb.extract_info(url, download=True)
-                    if info:
-                        print(f"[download_youtube_video] Succeeded with client profile: {cl}")
-                        break
-                except Exception as fb_err:
-                    print(f"[download_youtube_video] Client profile {cl} failed: {fb_err}")
-                    continue
-                except Exception as fb_err:
-                    print(f"[download_youtube_video] Client profile {cl} failed: {fb_err}")
-                    continue
-
-        if not info:
-            if 'Sign in to confirm' in err_msg or 'bot' in err_msg.lower():
-                raise ValueError(
-                    "YouTube anti-bot verification required. To proceed instantly: "
-                    "1) Switch to 'File Upload' to upload the video file directly (100% offline bypass), or "
-                    "2) Export cookies.txt from YouTube (using 'Get cookies.txt LOCALLY' extension) into your Downloads or CLIPIT folder."
+        probe_opts = dict(ydl_opts)
+        probe_opts.pop('progress_hooks', None)
+        with yt_dlp.YoutubeDL(probe_opts) as ydl_meta:
+            pre_info = ydl_meta.extract_info(url, download=False)
+            if pre_info:
+                req_fmts = pre_info.get('requested_formats') or ([pre_info] if pre_info.get('url') else [])
+                can_parallel = (
+                    len(req_fmts) in (1, 2)
+                    and all(
+                        str(f.get('protocol', '')).startswith('http')
+                        and 'm3u8' not in str(f.get('protocol', ''))
+                        and not f.get('fragments')
+                        and f.get('ext') in ('mp4', 'm4a')
+                        for f in req_fmts
+                    )
                 )
-            raise dl_err
+                if can_parallel:
+                    base_hdrs = pre_info.get('http_headers') or ydl_meta.params.get('http_headers') or {}
+                    c_jar = getattr(ydl_meta, 'cookiejar', None)
+                    temp_parts = [
+                        os.path.join(output_dir, f"{video_id or pre_info.get('id', 'vid')}_{quality}_part{idx}.{fmt.get('ext', 'mp4')}.tmp")
+                        for idx, fmt in enumerate(req_fmts)
+                    ]
+                    if _parallel_range_download_streams(
+                        req_fmts,
+                        temp_parts,
+                        base_hdrs,
+                        cookie_jar=c_jar,
+                        num_workers=12,
+                        progress_callback=progress_callback,
+                        quality=quality,
+                    ):
+                        final_id = video_id or pre_info.get('id') or 'video'
+                        final_out = os.path.join(output_dir, f"{final_id}_{quality}.mp4")
+                        if len(temp_parts) == 1:
+                            if temp_parts[0].endswith('.mp4.tmp'):
+                                os.replace(temp_parts[0], final_out)
+                            else:
+                                subprocess.run(['ffmpeg', '-y', '-i', temp_parts[0], '-c', 'copy', '-movflags', '+faststart', final_out], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                                os.remove(temp_parts[0])
+                        else:
+                            subprocess.run(
+                                ['ffmpeg', '-y', '-i', temp_parts[0], '-i', temp_parts[1], '-c', 'copy', '-movflags', '+faststart', final_out],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
+                            )
+                            for tp in temp_parts:
+                                if os.path.exists(tp):
+                                    os.remove(tp)
+                        info = pre_info
+                        parallel_succeeded = True
+                    else:
+                        for tp in temp_parts:
+                            if os.path.exists(tp):
+                                try:
+                                    os.remove(tp)
+                                except Exception:
+                                    pass
+    except Exception as par_err:
+        print(f"[download_youtube_video] Parallel stream probe fallback: {par_err}")
+
+    # Standard / Segmented yt-dlp Download Fallback
+    if not parallel_succeeded:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+        except Exception as dl_err:
+            err_msg = str(dl_err)
+            print(f"[download_youtube_video] Initial attempt encountered: {err_msg}")
+
+            # Format availability fallback
+            if 'Requested format is not available' in err_msg or 'format' in err_msg.lower():
+                print("[download_youtube_video] Format restriction detected. Retrying with format selector...")
+                try:
+                    fmt_opts = dict(ydl_opts)
+                    fmt_opts['format'] = fallback_fmt
+                    with yt_dlp.YoutubeDL(fmt_opts) as ydl_fmt:
+                        info = ydl_fmt.extract_info(url, download=True)
+                except Exception as fmt_err:
+                    print(f"[download_youtube_video] Format retry encountered: {fmt_err}")
+                    err_msg = str(fmt_err)
+
+            # Anti-bot / sign-in challenge fallback
+            if not info and ('Sign in to confirm' in err_msg or 'bot' in err_msg.lower() or '429' in err_msg or '403' in err_msg):
+                print("[download_youtube_video] Bot challenge detected. Retrying with alternative clients...")
+                fallback_clients = [
+                    ['tv_samsung', 'web'],
+                    ['mweb', 'android'],
+                    ['ios'],
+                ]
+                for cl in fallback_clients:
+                    try:
+                        fallback_opts = dict(ydl_opts)
+                        fallback_opts['format'] = fallback_fmt
+                        fallback_opts['extractor_args'] = {'youtube': {'player_client': cl}}
+                        with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
+                            info = ydl_fb.extract_info(url, download=True)
+                        if info:
+                            print(f"[download_youtube_video] Succeeded with client profile: {cl}")
+                            break
+                    except Exception as fb_err:
+                        print(f"[download_youtube_video] Client profile {cl} failed: {fb_err}")
+                        continue
+
+            if not info:
+                if 'Sign in to confirm' in err_msg or 'bot' in err_msg.lower():
+                    raise ValueError(
+                        "YouTube anti-bot verification required. To proceed instantly: "
+                        "1) Switch to 'File Upload' to upload the video file directly (100% offline bypass), or "
+                        "2) Export cookies.txt from YouTube (using 'Get cookies.txt LOCALLY' extension) into your Downloads or CLIPIT folder."
+                    )
+                raise dl_err
 
     if not info:
         raise ValueError(f"Failed to extract {platform_name} video information.")
