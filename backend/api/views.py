@@ -254,7 +254,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
         download_full_video = serializer.validated_data.get('download_full_video', False)
         use_cached_video = serializer.validated_data.get('use_cached_video', True)
         auto_speaker_tracking = serializer.validated_data.get('auto_speaker_tracking', True)
-        requested_clip_count = serializer.validated_data.get('requested_clip_count', 7)
+        requested_clip_count = 0
         duration_preference = serializer.validated_data.get('duration_preference', '30-60')
         clipping_mode = 'viral_highlights'
 

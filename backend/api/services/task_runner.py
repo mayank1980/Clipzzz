@@ -197,13 +197,11 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.progress = 40
         project.save(update_fields=['transcript_raw', 'progress'])
 
-        # Step 3: AI Highlight Detection & Viral Scoring
+        # Step 3: AI Highlight Detection & Viral Scoring (Engagement-Driven Count)
         project.status = 'analyzing'
         project.progress = 55
-        is_auto = (project.requested_clip_count == 0)
-        count_label = "full video" if is_auto else f"top {project.requested_clip_count}"
         mode_label = "AI Viral Highlights Engine"
-        project.status_message = f"Scanning video timeline with Gemini AI ({mode_label} • {count_label})..."
+        project.status_message = f"Scanning video timeline with Gemini AI ({mode_label} • Engagement Auto-Count)..."
         project.save(update_fields=['status', 'progress', 'status_message'])
 
         def update_ai_status(pct, msg):
@@ -219,7 +217,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             video_title=project.title,
             total_duration=project.duration,
             api_key=api_key,
-            target_count=project.requested_clip_count,
+            target_count=0,
             duration_preference=project.duration_preference,
             clipping_mode='viral_highlights',
             progress_callback=update_ai_status

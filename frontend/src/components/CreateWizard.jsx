@@ -6,7 +6,6 @@ import {
   Smartphone,
   UserCheck,
   Clock,
-  Layers,
   ArrowRight,
   AlertCircle,
   Loader2,
@@ -33,7 +32,6 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   const [showDownloadConfirmModal, setShowDownloadConfirmModal] = useState(false);
   const [useExistingCache, setUseExistingCache] = useState(true);
   const [autoSpeakerTracking, setAutoSpeakerTracking] = useState(true);
-  const [clipCount, setClipCount] = useState(0); // 0 (Auto), 5, 7, 9, 11, 15
   const [durationPref, setDurationPref] = useState('30-60');
   const [isCookieUploading, setIsCookieUploading] = useState(false);
   const [cookieSuccess, setCookieSuccess] = useState(false);
@@ -211,7 +209,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           download_full_video: downloadFullVideo,
           use_cached_video: useExistingCache,
           auto_speaker_tracking: autoSpeakerTracking,
-          requested_clip_count: clipCount,
+          requested_clip_count: 0,
           duration_preference: durationPref,
           clipping_mode: 'viral_highlights',
         };
@@ -223,7 +221,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         formData.append('download_full_video', downloadFullVideo);
         formData.append('use_cached_video', useExistingCache);
         formData.append('auto_speaker_tracking', autoSpeakerTracking);
-        formData.append('requested_clip_count', clipCount);
+        formData.append('requested_clip_count', 0);
         formData.append('duration_preference', durationPref);
         formData.append('clipping_mode', 'viral_highlights');
         payload = formData;
@@ -409,9 +407,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           <div className="space-y-2.5 text-left bg-lifted-cream p-4 rounded-2xl border border-border-cream text-xs">
             {[
               { step: 1, label: `Fast Stream Ingest & Resolution Optimization (${downloadQuality})` },
-              { step: 2, label: clipCount === 0
-                  ? 'AI Viral Engine: Multi-Act Full-Timeline Scan for Peak Hooks'
-                  : `AI Viral Engine: Selecting Top ${clipCount} High-Retention Hooks` },
+              { step: 2, label: 'AI Viral Engine: Extracting High-Engagement Clips Across Timeline' },
               { step: 3, label: 'Assemble 9:16 Portrait Shorts & Smart Speaker Framing' },
               { step: 4, label: 'Ready for Live Studio Preview & HD Export' },
             ].map((s) => {
@@ -699,122 +695,51 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             </button>
           </div>
 
-          {/* Section 3 & 4: Viral Highlights Count & Target Duration */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {/* Number of Viral Highlights */}
-            <div className="bg-white border border-border-cream rounded-stadium p-6 shadow-card-soft">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
-                    <span>Step 3</span>
-                  </div>
-                  <label className="text-sm font-bold text-ink-black flex items-center gap-1.5">
-                    <Flame className="w-4 h-4 text-signal-orange" />
-                    Viral Highlights AI
-                  </label>
+          {/* Section 3: Autonomous Target Duration */}
+          <div className="bg-white border border-border-cream rounded-stadium p-6 shadow-card-soft">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
+                  <span>Step 3</span>
                 </div>
-                <span className="text-[10px] font-bold bg-canvas-cream text-charcoal px-2.5 py-0.5 rounded-full border border-border-cream">
-                  {clipCount === 0 ? 'Auto Scan' : `${clipCount} Clips`}
-                </span>
+                <label className="text-sm font-bold text-ink-black flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-signal-orange" />
+                  Target Clip Duration
+                </label>
+                <p className="text-xs text-slate-gray mt-0.5">
+                  AI independently picks the exact number of genuinely engaging viral clips from this video.
+                </p>
               </div>
-
-              <div className="space-y-3">
-                {/* Auto AI Full Video Scan Button */}
-                <div
-                  onClick={() => setClipCount(0)}
-                  className={`p-3.5 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
-                    clipCount === 0
-                      ? 'bg-lifted-cream border-signal-orange shadow-sm text-ink-black'
-                      : 'bg-white border-border-cream text-slate-gray hover:text-ink-black'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-8 h-8 rounded-full font-extrabold text-xs flex items-center justify-center ${
-                        clipCount === 0 ? 'bg-ink-black text-white' : 'bg-canvas-cream text-slate-gray'
-                      }`}
-                    >
-                      Auto
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-ink-black">Auto AI Full Video Scan</div>
-                      <div className="text-[10px] text-slate-gray">Multi-act scan extracts peak standalone viral hooks start to finish</div>
-                    </div>
-                  </div>
-                  {clipCount === 0 && <span className="w-2.5 h-2.5 rounded-full bg-signal-orange" />}
-                </div>
-
-                {/* Specific Clip Counts */}
-                <div className="grid grid-cols-5 gap-1.5 pt-1">
-                  {[
-                    { count: 5, label: '5' },
-                    { count: 7, label: '7', tag: 'BEST' },
-                    { count: 9, label: '9' },
-                    { count: 11, label: '11', tag: 'MAX' },
-                    { count: 15, label: '15' },
-                  ].map((opt) => {
-                    const isSelected = clipCount === opt.count;
-                    return (
-                      <button
-                        key={opt.count}
-                        type="button"
-                        onClick={() => setClipCount(opt.count)}
-                        className={`py-2 rounded-2xl text-center border font-bold transition cursor-pointer flex flex-col items-center justify-center ${
-                          isSelected
-                            ? 'bg-ink-black text-white border-ink-black shadow-sm'
-                            : 'bg-white border-border-cream text-charcoal hover:bg-canvas-cream'
-                        }`}
-                      >
-                        <span className="text-xs font-black">{opt.label}</span>
-                        <span className={`text-[8px] font-semibold uppercase mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-gray'}`}>
-                          {opt.tag || 'Clips'}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              <span className="text-[10px] font-bold bg-canvas-cream text-charcoal px-3 py-1 rounded-full border border-border-cream flex items-center gap-1.5">
+                <Flame className="w-3.5 h-3.5 text-signal-orange" />
+                Engagement-Driven Auto Count
+              </span>
             </div>
 
-            {/* Target Duration Preference */}
-            <div className="bg-white border border-border-cream rounded-stadium p-6 shadow-card-soft">
-              <div className="flex items-center gap-1.5 text-xs uppercase font-extrabold tracking-wider text-slate-gray mb-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
-                <span>Step 4</span>
-              </div>
-              <label className="text-sm font-bold text-ink-black mb-1 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-signal-orange" />
-                Target Clip Duration
-              </label>
-              <p className="text-xs text-slate-gray mb-4">
-                Select your preferred vertical Shorts duration window:
-              </p>
-
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: '0-30', label: '0 – 30s', tag: 'Fast Hooks' },
-                  { id: '30-60', label: '30 – 60s', tag: 'Shorts Sweet' },
-                  { id: '60-80', label: '60 – 80s', tag: 'Full Story' },
-                ].map((dur) => {
-                  const isSelected = durationPref === dur.id;
-                  return (
-                    <button
-                      key={dur.id}
-                      type="button"
-                      onClick={() => setDurationPref(dur.id)}
-                      className={`py-3 rounded-2xl text-xs font-bold transition border text-center cursor-pointer ${
-                        isSelected
-                          ? 'bg-ink-black text-white border-ink-black shadow-sm'
-                          : 'bg-white border-border-cream text-charcoal hover:bg-canvas-cream'
-                      }`}
-                    >
-                      <div className="font-extrabold">{dur.label}</div>
-                      <div className={`text-[9px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-gray'}`}>{dur.tag}</div>
-                    </button>
-                  );
-                })}
-              </div>
+            <div className="grid grid-cols-3 gap-2.5">
+              {[
+                { id: '0-30', label: '0 – 30s', tag: 'Fast Hooks' },
+                { id: '30-60', label: '30 – 60s', tag: 'Shorts Sweet' },
+                { id: '60-80', label: '60 – 80s', tag: 'Deep Takes' },
+              ].map((dur) => {
+                const isSelected = durationPref === dur.id;
+                return (
+                  <button
+                    key={dur.id}
+                    type="button"
+                    onClick={() => setDurationPref(dur.id)}
+                    className={`py-3 rounded-2xl text-xs font-bold transition border text-center cursor-pointer ${
+                      isSelected
+                        ? 'bg-ink-black text-white border-ink-black shadow-sm'
+                        : 'bg-white border-border-cream text-charcoal hover:bg-canvas-cream'
+                    }`}
+                  >
+                    <div className="font-extrabold">{dur.label}</div>
+                    <div className={`text-[9px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-gray'}`}>{dur.tag}</div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -844,9 +769,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           >
             <Sparkles className="w-4 h-4 text-signal-orange" />
             <span>
-              {clipCount === 0
-                ? `Generate Viral 9:16 Highlights (${durationPref}s)`
-                : `Generate ${clipCount} Viral 9:16 Shorts (${durationPref}s)`}
+              Generate Engaging 9:16 Clips ({durationPref}s)
             </span>
             <ArrowRight className="w-4 h-4 stroke-[2.5]" />
           </button>

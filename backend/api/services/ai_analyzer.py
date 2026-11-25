@@ -218,7 +218,7 @@ def _build_viral_gemini_prompt(
     total_duration: float,
     act_index: int,
     total_acts: int,
-    act_count: int,
+    act_cap: int,
     min_dur: float,
     max_dur: float,
     intro_cutoff: float,
@@ -231,7 +231,13 @@ def _build_viral_gemini_prompt(
     )
     return f"""
 You are an elite viral YouTube Shorts, Instagram Reels & TikTok director.
-Your job is to discover the TOP {act_count} highest-retention STANDALONE VIRAL HIGHLIGHTS from this transcript.
+Your job is to extract EVERY genuinely engaging, high-retention STANDALONE VIRAL CLIP from this transcript.
+
+CRITICAL ENGAGEMENT-BASED COUNT RULE:
+- There is NO fixed or mandatory number of clips to return.
+- Clip count MUST be decided purely by how many genuinely engaging moments exist in this video (up to {act_cap} in this section).
+- Return ONLY clips where a cold viewer would genuinely stop scrolling, engage emotionally/intellectually, and watch through to the payoff (virality score >= 80).
+- NEVER pad weak filler, mundane transitions, or repetitive points just to reach a higher count.
 
 Video Title: "{video_title}"
 Full Video Duration: {total_duration:.1f}s ({total_duration/60:.1f} min)
@@ -246,7 +252,7 @@ TIMESTAMPED SENTENCE TRANSCRIPT (Format: [sentence_id] (start_s-end_s) text):
 NON-NEGOTIABLE VIRAL SELECTION RULES:
 1. ATOMIC SENTENCE BOUNDARIES (NO MID-SENTENCE CUTS):
    - You MUST provide exact `start_sentence_id` AND `end_sentence_id` integers from `[id]` above, plus `start` and `end` floats.
-   - NEVER start mid-thought with vague words ("So he did...", "And that's why..."). Every clip must make 100% sense to a cold viewer who has not seen the rest of the video.
+   - NEVER start mid-thought with vague words ("So he did...", "And that's why..."). Every clip must make 100% sense to a cold viewer.
 2. FIRST-3-SECOND SCROLL-STOPPING HOOK:
    - Choose clips that open with a bold contrarian claim, shocking reveal, gripping dilemma, funny setup, specific stat, or sharp question.
 3. STRONG CLOSING PAYOFF:
@@ -286,31 +292,28 @@ def analyze_highlights_with_gemini(
     video_title: str,
     total_duration: float,
     api_key: str,
-    target_count: int = 7,
+    target_count: int = 0,
     duration_preference: str = '30-60',
     clipping_mode: str = 'viral_highlights',
     progress_callback = None
 ) -> List[Dict[str, Any]]:
     """
-    Multi-act Gemini Viral Highlights Director with automatic NLP fallback:
+    Engagement-driven Gemini Viral Highlights Director with automatic NLP fallback:
+    - Automatically determines clip count strictly from genuinely high-engagement viral moments,
     - Scans the ENTIRE timeline across parallel chunks for long videos (1-3+ hours),
-    - Snaps boundaries atomically to indexed sentence IDs (-0.08s / +0.25s acoustic cushions),
-    - Ranks candidates by multi-metric virality + topic diversity.
+    - Snaps boundaries atomically to indexed sentence IDs (-0.08s / +0.25s acoustic cushions).
     """
     min_dur, max_dur = get_duration_range(duration_preference)
-    is_auto = (target_count <= 0)
-    if is_auto:
-        count = max(8, min(35, int(total_duration / 85.0))) if total_duration > 0 else 12
-        intro_cutoff = 15.0 if total_duration > 180.0 else 0.0
-    else:
-        count = max(3, min(30, target_count))
-        intro_cutoff = 25.0 if total_duration > 180.0 else 0.0
+    # Upper sanity ceiling proportional to video length (~1 max per 65s, up to 35);
+    # actual returned count depends strictly on how many high-engagement moments exist.
+    max_cap = max(4, min(35, int(total_duration / 65.0))) if total_duration > 0 else 15
+    intro_cutoff = 15.0 if total_duration > 180.0 else 0.0
 
     if not api_key or not transcript_segments:
         if progress_callback:
             progress_callback(80, "AI analyzing viral hooks with contextual NLP engine...")
         return extract_smart_nlp_highlights(
-            transcript_segments, total_duration, video_title, count, min_dur, max_dur, intro_cutoff
+            transcript_segments, total_duration, video_title, max_cap, min_dur, max_dur, intro_cutoff
         )
 
     if progress_callback:
@@ -330,7 +333,7 @@ def analyze_highlights_with_gemini(
 
     if not formatted_lines:
         return extract_smart_nlp_highlights(
-            transcript_segments, total_duration, video_title, count, min_dur, max_dur, intro_cutoff
+            transcript_segments, total_duration, video_title, max_cap, min_dur, max_dur, intro_cutoff
         )
 
     # Split long transcripts into up to 4 parallel timeline acts so 1-3 hour videos are scanned end-to-end
@@ -342,8 +345,8 @@ def analyze_highlights_with_gemini(
     for a_i in range(num_acts):
         chunk = formatted_lines[a_i * act_size : (a_i + 1) * act_size]
         if chunk:
-            per_act_target = max(4, math.ceil((count * 1.4) / num_acts))
-            acts.append((a_i, per_act_target, "\n".join(chunk)))
+            per_act_cap = max(6, math.ceil(max_cap / num_acts) + 2)
+            acts.append((a_i, per_act_cap, "\n".join(chunk)))
 
     if progress_callback:
         scan_desc = f"{num_acts} timeline acts in parallel" if num_acts > 1 else "full timeline"
@@ -365,13 +368,13 @@ def analyze_highlights_with_gemini(
         client = genai.Client(api_key=api_key)
 
         def _scan_act(act_tuple):
-            act_idx, act_target, chunk_text = act_tuple
+            act_idx, act_cap, chunk_text = act_tuple
             prompt = _build_viral_gemini_prompt(
                 video_title=video_title,
                 total_duration=total_duration,
                 act_index=act_idx,
                 total_acts=len(acts),
-                act_count=act_target,
+                act_cap=act_cap,
                 min_dur=min_dur,
                 max_dur=max_dur,
                 intro_cutoff=intro_cutoff if act_idx == 0 else 0.0,
@@ -456,7 +459,13 @@ def analyze_highlights_with_gemini(
                 title = str(c.get('title', 'Viral Highlight')).strip()[:60]
                 hook = str(c.get('hook', '')).strip()
                 topic_basis = clip_transcript_slice or f"{title} {hook}"
-                if any(compute_text_similarity(topic_basis, ut) > 0.42 for ut in used_texts) and len(valid_clips) < (count - 2):
+                raw_score = min(99, max(70, int(c.get('score', 86))))
+
+                # Only keep genuinely engaging moments (strict quality bar >= 80 once we have at least 2)
+                if raw_score < 80 and len(valid_clips) >= 2:
+                    continue
+
+                if any(compute_text_similarity(topic_basis, ut) > 0.40 for ut in used_texts):
                     continue
 
                 retention_info = predict_retention_heuristics(topic_basis, clip_len)
@@ -471,7 +480,7 @@ def analyze_highlights_with_gemini(
                     "start": round(s_time, 2),
                     "end": round(e_time, 2),
                     "duration": round(clip_len, 2),
-                    "score": min(99, max(76, int(c.get('score', 88)))),
+                    "score": raw_score,
                     "category": str(c.get('category', 'Highlight')).strip() or 'Highlight',
                     "hook": hook or (topic_basis[:110] + ("..." if len(topic_basis) > 110 else "")),
                     "ending_type": ending_type,
@@ -482,15 +491,15 @@ def analyze_highlights_with_gemini(
                 used_ranges.append((s_time, e_time))
                 used_texts.append(topic_basis)
 
-            if len(valid_clips) >= 2:
+            if len(valid_clips) >= 1:
                 valid_clips.sort(key=lambda x: x['score'], reverse=True)
-                return valid_clips[:count if not is_auto else len(valid_clips)]
+                return valid_clips[:max_cap]
 
     except Exception as e:
         print(f"[analyze_highlights_with_gemini] API Note: {e}")
 
     return extract_smart_nlp_highlights(
-        transcript_segments, total_duration, video_title, count, min_dur, max_dur, intro_cutoff
+        transcript_segments, total_duration, video_title, max_cap, min_dur, max_dur, intro_cutoff
     )
 
 
@@ -662,12 +671,14 @@ def extract_smart_nlp_highlights(
                 ptrs[e] += 1
 
     candidate_queue = interleaved if interleaved else scored_windows
-    selected_clips: List[Dict[str, Any]] = []
+    MIN_ENGAGING_SCORE = 78
+    engaging_clips: List[Dict[str, Any]] = []
+    backup_clips: List[Dict[str, Any]] = []
     used_ranges: List[tuple] = []
     selected_texts: List[str] = []
 
     for cand in candidate_queue:
-        if len(selected_clips) >= count:
+        if len(engaging_clips) >= count:
             break
 
         c_start = max(0.0, cand['start'] - 0.08)
@@ -676,20 +687,20 @@ def extract_smart_nlp_highlights(
             continue
 
         full_text = cand['text']
-        if any(compute_text_similarity(full_text, st) > 0.35 for st in selected_texts) and len(selected_clips) < (count - 2):
+        if any(compute_text_similarity(full_text, st) > 0.35 for st in selected_texts):
             continue
 
         opening_hook = " ".join(full_text.split()[:14]) + ("..." if len(full_text.split()) > 14 else "")
         title_words = [re.sub(r'^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$', '', w) for w in full_text.split() if len(w) > 3][:6]
         title_words = [w for w in title_words if w]
-        title = (" ".join(title_words).title() if title_words else f"Viral Highlight #{len(selected_clips) + 1}")[:48]
+        title = (" ".join(title_words).title() if title_words else f"Viral Highlight #{len(engaging_clips) + len(backup_clips) + 1}")[:48]
         hook_title = " ".join(title.split()[:4]).upper()
 
         retention_info = predict_retention_heuristics(full_text, cand['duration'])
         category = _classify_nlp_category(full_text)
         ending_type = "takeaway" if any(p in full_text.lower()[-80:] for p in PAYOFF_MARKERS) else "punchline"
 
-        selected_clips.append({
+        item = {
             "title": title,
             "start": round(c_start, 2),
             "end": round(c_end, 2),
@@ -702,15 +713,27 @@ def extract_smart_nlp_highlights(
             "reason": retention_info['reason'],
             "retention_score": retention_info['retention_score'],
             "breakdown": cand['breakdown'],
-        })
-        used_ranges.append((c_start, c_end))
-        selected_texts.append(full_text)
+        }
 
-    if len(selected_clips) >= 2:
-        selected_clips.sort(key=lambda x: x['score'], reverse=True)
-        return selected_clips[:count]
+        if cand['score'] >= MIN_ENGAGING_SCORE and retention_info['retention_score'] >= 80:
+            engaging_clips.append(item)
+            used_ranges.append((c_start, c_end))
+            selected_texts.append(full_text)
+        elif len(backup_clips) < 3:
+            backup_clips.append(item)
+            used_ranges.append((c_start, c_end))
+            selected_texts.append(full_text)
 
-    return generate_heuristic_highlights(transcript_segments, total_duration, video_title, count, min_dur, max_dur, intro_cutoff)
+    if engaging_clips:
+        # Return strictly the genuinely engaging viral clips found (never padded with filler!)
+        engaging_clips.sort(key=lambda x: x['score'], reverse=True)
+        return engaging_clips
+
+    if backup_clips:
+        backup_clips.sort(key=lambda x: x['score'], reverse=True)
+        return backup_clips
+
+    return generate_heuristic_highlights(transcript_segments, total_duration, video_title, min(4, count), min_dur, max_dur, intro_cutoff)
 
 
 def generate_heuristic_highlights(
