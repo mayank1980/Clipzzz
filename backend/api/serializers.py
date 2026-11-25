@@ -125,12 +125,7 @@ class VideoProjectDetailSerializer(serializers.ModelSerializer):
     clips = serializers.SerializerMethodField()
 
     def get_clips(self, obj):
-        clips_qs = obj.clips.all()
-        # In story mode or when episodic multi-parts exist, order chronologically by start_time so parts are sequential
-        if obj.clipping_mode == 'story_series' or clips_qs.filter(models.Q(part_number__gt=1) | ~models.Q(story_id='')).exists():
-            clips_qs = clips_qs.order_by('start_time')
-        else:
-            clips_qs = clips_qs.order_by('-score', 'start_time')
+        clips_qs = obj.clips.all().order_by('-score', 'start_time')
         return VideoClipSerializer(clips_qs, many=True, context=self.context).data
 
     class Meta:
@@ -178,7 +173,7 @@ class VideoImportSerializer(serializers.Serializer):
     auto_speaker_tracking = serializers.BooleanField(default=True)
     requested_clip_count = serializers.IntegerField(default=0, min_value=0, max_value=25)
     duration_preference = serializers.ChoiceField(choices=['0-30', '30-60', '60-80'], default='30-60')
-    clipping_mode = serializers.ChoiceField(choices=['viral_highlights', 'story_series'], default='story_series')
+    clipping_mode = serializers.ChoiceField(choices=['viral_highlights'], default='viral_highlights', required=False)
 
     def validate(self, data):
         if not data.get('youtube_url') and not data.get('video_file'):

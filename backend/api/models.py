@@ -69,7 +69,7 @@ class VideoProject(models.Model):
     auto_speaker_tracking = models.BooleanField(default=True)
     requested_clip_count = models.IntegerField(default=0) # 5, 7, 9, 11
     duration_preference = models.CharField(max_length=20, default='30-60') # '0-30', '30-60', '60-80'
-    clipping_mode = models.CharField(max_length=50, default='story_series') # 'viral_highlights' or 'story_series'
+    clipping_mode = models.CharField(max_length=50, default='viral_highlights') # Viral Highlights AI mode
 
     # Video metadata
     duration = models.FloatField(default=0.0)

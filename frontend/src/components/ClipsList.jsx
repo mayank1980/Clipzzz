@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Flame, Clock, Sparkles, Check, Trash2, Plus, BookOpen, Layers, ChevronDown, ChevronRight, Film, ArrowDownAZ, ArrowUpDown, ArrowRight } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Flame, Clock, Sparkles, Check, Trash2, Plus, ArrowUpDown, ArrowRight } from 'lucide-react';
 
 export default function ClipsList({
   clips,
@@ -10,27 +10,7 @@ export default function ClipsList({
   onDeleteProject,
   onCreateNew,
 }) {
-  const hasStories = useMemo(() => {
-    return clips ? clips.some((c) => Boolean(c.story_id || c.parent_story_title || (c.part_number && c.total_parts > 1))) : false;
-  }, [clips]);
-
-  const [viewMode, setViewMode] = useState(hasStories ? 'stories' : 'all');
-  const [sortBy, setSortBy] = useState('timeline');
-  const [collapsedStories, setCollapsedStories] = useState({});
-
-  useEffect(() => {
-    if (hasStories) {
-      setViewMode('stories');
-      setSortBy('timeline');
-    }
-  }, [hasStories]);
-
-  const toggleStoryCollapse = (storyKey) => {
-    setCollapsedStories((prev) => ({
-      ...prev,
-      [storyKey]: !prev[storyKey],
-    }));
-  };
+  const [sortBy, setSortBy] = useState('score');
 
   const formatTime = (sec) => {
     const m = Math.floor(sec / 60);
@@ -38,65 +18,13 @@ export default function ClipsList({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // Group clips into stories and standalone (reacts to both clips and sortBy!)
-  const { storyGroups, standaloneClips } = useMemo(() => {
-    if (!clips) return { storyGroups: [], standaloneClips: [] };
-
-    const groupsMap = new Map();
-    const standalone = [];
-
-    clips.forEach((clip) => {
-      const key = clip.story_id || clip.parent_story_title;
-      if (key) {
-        if (!groupsMap.has(key)) {
-          groupsMap.set(key, {
-            key,
-            title: clip.parent_story_title || `Story: ${clip.title}`,
-            clips: [],
-            totalDuration: 0,
-            avgScore: 0,
-            maxScore: 0,
-          });
-        }
-        const group = groupsMap.get(key);
-        group.clips.push(clip);
-        group.totalDuration += clip.duration || 0;
-      } else {
-        standalone.push(clip);
-      }
-    });
-
-    const groups = Array.from(groupsMap.values()).map((g) => {
-      if (sortBy === 'score') {
-        g.clips.sort((a, b) => (b.score || 0) - (a.score || 0) || a.start_time - b.start_time);
-      } else {
-        g.clips.sort((a, b) => (a.part_number || 1) - (b.part_number || 1) || a.start_time - b.start_time);
-      }
-      const totalScore = g.clips.reduce((acc, c) => acc + (c.score || 85), 0);
-      g.avgScore = Math.round(totalScore / Math.max(1, g.clips.length));
-      g.maxScore = Math.max(...g.clips.map((c) => c.score || 0));
-      return g;
-    });
-
-    if (sortBy === 'score') {
-      groups.sort((a, b) => b.maxScore - a.maxScore || b.avgScore - a.avgScore || (a.clips[0]?.start_time || 0) - (b.clips[0]?.start_time || 0));
-      standalone.sort((a, b) => (b.score || 0) - (a.score || 0) || a.start_time - b.start_time);
-    } else {
-      groups.sort((a, b) => (a.clips[0]?.start_time || 0) - (b.clips[0]?.start_time || 0));
-      standalone.sort((a, b) => a.start_time - b.start_time);
-    }
-
-    return { storyGroups: groups, standaloneClips: standalone };
-  }, [clips, sortBy]);
-
   const sortedClips = useMemo(() => {
     if (!clips) return [];
     const list = [...clips];
     if (sortBy === 'timeline') {
-      return list.sort((a, b) => a.start_time - b.start_time || (a.part_number || 1) - (b.part_number || 1));
-    } else {
-      return list.sort((a, b) => (b.score || 0) - (a.score || 0) || a.start_time - b.start_time);
+      return list.sort((a, b) => a.start_time - b.start_time);
     }
+    return list.sort((a, b) => (b.score || 0) - (a.score || 0) || a.start_time - b.start_time);
   }, [clips, sortBy]);
 
   if (!clips || clips.length === 0) {
@@ -116,7 +44,7 @@ export default function ClipsList({
     );
   }
 
-  const renderClipCard = (clip, isChild = false) => {
+  const renderClipCard = (clip) => {
     const isSelected = selectedClip?.id === clip.id;
     const isRendered = clip.render_status === 'completed';
 
@@ -127,12 +55,10 @@ export default function ClipsList({
         className={`w-full rounded-[20px] p-3.5 cursor-pointer transition border relative shadow-sm ${
           isSelected
             ? 'bg-white border-signal-orange ring-1 ring-signal-orange'
-            : isChild
-            ? 'bg-white/80 hover:bg-white border-border-cream'
             : 'bg-white hover:bg-canvas-cream border-border-cream'
         }`}
       >
-        {/* Top Row: Score + Part + Ending Tag on Left, Duration + Delete on Right */}
+        {/* Top Row: Score + Category + Ending Tag on Left, Duration + Delete on Right */}
         <div className="flex items-start justify-between gap-2 mb-2">
           <div className="flex items-center flex-wrap gap-1.5 min-w-0">
             <span className="text-[10px] font-extrabold bg-canvas-cream text-ink-black border border-border-cream px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm shrink-0">
@@ -140,16 +66,10 @@ export default function ClipsList({
               {clip.score}/100
             </span>
 
-            {clip.part_number && clip.total_parts ? (
-              <span className="text-[10px] bg-canvas-cream text-ink-black px-2 py-0.5 rounded-full border border-border-cream font-mono font-bold shrink-0">
-                Part {clip.part_number}/{clip.total_parts}
+            {clip.category && (
+              <span className="text-[10px] bg-canvas-cream text-charcoal px-2 py-0.5 rounded-full border border-border-cream font-bold shrink-0">
+                {clip.category}
               </span>
-            ) : (
-              clip.category && (
-                <span className="text-[10px] bg-canvas-cream text-charcoal px-2 py-0.5 rounded-full border border-border-cream font-bold shrink-0">
-                  {clip.category}
-                </span>
-              )
             )}
 
             {clip.ending_type && (
@@ -236,49 +156,13 @@ export default function ClipsList({
             </div>
             <div className="min-w-0">
               <h3 className="text-xs font-bold text-ink-black uppercase tracking-wider truncate">
-                AI Shorts ({clips.length})
+                Viral Shorts ({clips.length})
               </h3>
               <p className="text-[10px] text-slate-gray truncate">
-                {viewMode === 'stories' && storyGroups.length > 0
-                  ? `${storyGroups.length} Stories • ${clips.length} Parts`
-                  : sortBy === 'timeline'
-                  ? 'Sequential Timeline'
-                  : 'Ranked by Virality'}
+                {sortBy === 'score' ? 'Ranked by Virality' : 'Sequential Timeline'}
               </p>
             </div>
           </div>
-
-          {/* View Toggle */}
-          {(hasStories || storyGroups.length > 0) && (
-            <div className="flex p-0.5 bg-canvas-cream rounded-full border border-border-cream text-[10px] shrink-0">
-              <button
-                type="button"
-                onClick={() => setViewMode('stories')}
-                className={`px-2.5 py-1 rounded-full font-bold transition flex items-center gap-1 cursor-pointer ${
-                  viewMode === 'stories'
-                    ? 'bg-white text-ink-black shadow-sm'
-                    : 'text-slate-gray hover:text-ink-black'
-                }`}
-                title="Story Series View"
-              >
-                <BookOpen className="w-3 h-3 text-signal-orange" />
-                Series
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('all')}
-                className={`px-2.5 py-1 rounded-full font-bold transition flex items-center gap-1 cursor-pointer ${
-                  viewMode === 'all'
-                    ? 'bg-white text-ink-black shadow-sm'
-                    : 'text-slate-gray hover:text-ink-black'
-                }`}
-                title="All individual clips"
-              >
-                <Layers className="w-3 h-3 text-signal-orange" />
-                All
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Sort Switcher */}
@@ -288,18 +172,6 @@ export default function ClipsList({
             Sort:
           </span>
           <div className="flex p-0.5 bg-canvas-cream rounded-full border border-border-cream">
-            <button
-              type="button"
-              onClick={() => setSortBy('timeline')}
-              className={`px-2.5 py-0.5 rounded-full font-bold transition flex items-center gap-1 cursor-pointer ${
-                sortBy === 'timeline'
-                  ? 'bg-white text-ink-black shadow-sm'
-                  : 'text-slate-gray hover:text-ink-black'
-              }`}
-            >
-              <Clock className="w-2.5 h-2.5 text-signal-orange" />
-              Timeline
-            </button>
             <button
               type="button"
               onClick={() => setSortBy('score')}
@@ -312,87 +184,25 @@ export default function ClipsList({
               <Flame className="w-2.5 h-2.5 text-signal-orange" />
               Score
             </button>
+            <button
+              type="button"
+              onClick={() => setSortBy('timeline')}
+              className={`px-2.5 py-0.5 rounded-full font-bold transition flex items-center gap-1 cursor-pointer ${
+                sortBy === 'timeline'
+                  ? 'bg-white text-ink-black shadow-sm'
+                  : 'text-slate-gray hover:text-ink-black'
+              }`}
+            >
+              <Clock className="w-2.5 h-2.5 text-signal-orange" />
+              Timeline
+            </button>
           </div>
         </div>
       </div>
 
       {/* Vertical Clips Scrollable List */}
       <div className="flex-1 overflow-y-auto pl-3 pr-1.5 py-3 space-y-3">
-        {viewMode === 'stories' && storyGroups.length > 0 ? (
-          <>
-            {storyGroups.map((group) => {
-              const isCollapsed = Boolean(collapsedStories[group.key]);
-              const containsSelected = group.clips.some((c) => c.id === selectedClip?.id);
-
-              return (
-                <div
-                  key={group.key}
-                  className={`rounded-[24px] border transition overflow-hidden shadow-sm ${
-                    containsSelected
-                      ? 'border-signal-orange bg-white'
-                      : 'border-border-cream bg-white'
-                  }`}
-                >
-                  {/* Parent Story Header Card */}
-                  <div
-                    onClick={() => toggleStoryCollapse(group.key)}
-                    className="p-3.5 bg-white flex items-center justify-between cursor-pointer hover:bg-canvas-cream/50 transition"
-                  >
-                    <div className="flex items-start gap-2.5 flex-1 min-w-0 pr-2">
-                      <div className="w-7 h-7 rounded-full bg-canvas-cream border border-border-cream flex items-center justify-center shrink-0 mt-0.5">
-                        <BookOpen className="w-3.5 h-3.5 text-signal-orange" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-charcoal bg-canvas-cream px-2 py-0.2 rounded-full border border-border-cream">
-                            Story Arc
-                          </span>
-                          <span className="text-[10px] font-mono text-slate-gray">
-                            {group.clips.length} Parts • {formatTime(group.totalDuration)}
-                          </span>
-                        </div>
-                        <h4 className="text-xs font-bold text-ink-black truncate tracking-tight" title={group.title}>
-                          {group.title}
-                        </h4>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="p-1 rounded-full text-slate-gray hover:text-ink-black"
-                    >
-                      {isCollapsed ? (
-                        <ChevronRight className="w-4 h-4" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-signal-orange" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Child Parts List */}
-                  {!isCollapsed && (
-                    <div className="p-3 pt-2 space-y-2 bg-lifted-cream border-t border-border-cream">
-                      {group.clips.map((clip) => renderClipCard(clip, true))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Standalone Highlights */}
-            {standaloneClips.length > 0 && (
-              <div className="pt-2 space-y-2">
-                <div className="flex items-center gap-1.5 px-1 text-[11px] font-bold text-slate-gray uppercase tracking-wider">
-                  <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
-                  <span>Standalone Highlights ({standaloneClips.length})</span>
-                </div>
-                {standaloneClips.map((clip) => renderClipCard(clip, false))}
-              </div>
-            )}
-          </>
-        ) : (
-          sortedClips.map((clip) => renderClipCard(clip, false))
-        )}
+        {sortedClips.map((clip) => renderClipCard(clip))}
       </div>
 
       {/* Footer Actions */}

@@ -11,7 +11,6 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
-  BookOpen,
   Flame,
   HardDrive,
   RefreshCw,
@@ -36,7 +35,6 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   const [autoSpeakerTracking, setAutoSpeakerTracking] = useState(true);
   const [clipCount, setClipCount] = useState(0); // 0 (Auto), 5, 7, 9, 11, 15
   const [durationPref, setDurationPref] = useState('30-60');
-  const [clippingMode, setClippingMode] = useState('story_series');
   const [isCookieUploading, setIsCookieUploading] = useState(false);
   const [cookieSuccess, setCookieSuccess] = useState(false);
 
@@ -51,22 +49,6 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
     setIsLinkConfirmed(false);
     setVideoInfo(null);
     setInspectError('');
-    const low = val.toLowerCase();
-    if (
-      low.includes('horror') ||
-      low.includes('bhoot') ||
-      low.includes('chudail') ||
-      low.includes('incident') ||
-      low.includes('ghost') ||
-      low.includes('kahaani') ||
-      low.includes('darr') ||
-      low.includes('story') ||
-      low.includes('kahani')
-    ) {
-      setClippingMode('story_series');
-    } else if (low.includes('comedy') || low.includes('standup') || low.includes('roast') || low.includes('funny')) {
-      setClippingMode('viral_highlights');
-    }
   };
 
   const handleFileChange = (file) => {
@@ -111,9 +93,6 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
       if (res && res.success) {
         setVideoInfo(res);
         setIsLinkConfirmed(true);
-        if (res.recommended_mode) {
-          setClippingMode(res.recommended_mode);
-        }
         if (res.default_quality) {
           setDownloadQuality(res.default_quality);
         }
@@ -137,8 +116,8 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           platform: 'Video Stream',
           title: 'Video Stream Ready',
           duration_str: 'Ready',
-          content_type: 'Dialogue / Narrative',
-          recommended_mode: 'story_series',
+          content_type: 'Long-Form Creator Video',
+          recommended_mode: 'viral_highlights',
           qualities: [{ id: '720p', label: '720p Fast (Recommended)', size_mb: 45 }],
         });
       }
@@ -234,7 +213,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           auto_speaker_tracking: autoSpeakerTracking,
           requested_clip_count: clipCount,
           duration_preference: durationPref,
-          clipping_mode: clippingMode,
+          clipping_mode: 'viral_highlights',
         };
       } else {
         const formData = new FormData();
@@ -246,7 +225,7 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
         formData.append('auto_speaker_tracking', autoSpeakerTracking);
         formData.append('requested_clip_count', clipCount);
         formData.append('duration_preference', durationPref);
-        formData.append('clipping_mode', clippingMode);
+        formData.append('clipping_mode', 'viral_highlights');
         payload = formData;
       }
 
@@ -430,11 +409,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           <div className="space-y-2.5 text-left bg-lifted-cream p-4 rounded-2xl border border-border-cream text-xs">
             {[
               { step: 1, label: `Fast Stream Ingest & Resolution Optimization (${downloadQuality})` },
-              { step: 2, label: clippingMode === 'story_series'
-                  ? 'AI Viral Engine: Full-Timeline Story Arc & Suspense Slicing'
-                  : (clipCount === 0
-                      ? 'AI Viral Engine: Full-Video Scan for Top Audience Moments'
-                      : `AI Viral Engine: Selecting Top ${clipCount} High-Retention Hooks`) },
+              { step: 2, label: clipCount === 0
+                  ? 'AI Viral Engine: Multi-Act Full-Timeline Scan for Peak Hooks'
+                  : `AI Viral Engine: Selecting Top ${clipCount} High-Retention Hooks` },
               { step: 3, label: 'Assemble 9:16 Portrait Shorts & Smart Speaker Framing' },
               { step: 4, label: 'Ready for Live Studio Preview & HD Export' },
             ].map((s) => {
@@ -652,9 +629,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                           </div>
 
                           <div className="text-ink-black font-semibold flex items-center gap-1">
-                            <span>➔ Recommendation:</span>
+                            <span>➔ Engine:</span>
                             <span className="font-extrabold uppercase bg-ink-black text-white px-2.5 py-0.5 rounded-full text-[10px]">
-                              {videoInfo.recommended_mode === 'story_series' ? 'Story Series' : 'Viral Highlights'}
+                              Viral Highlights AI
                             </span>
                           </div>
                         </div>
@@ -722,9 +699,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
             </button>
           </div>
 
-          {/* Section 3 & 4: Mode, Clip Count & Target Duration */}
+          {/* Section 3 & 4: Viral Highlights Count & Target Duration */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {/* Number of Clips & Mode Selection */}
+            {/* Number of Viral Highlights */}
             <div className="bg-white border border-border-cream rounded-stadium p-6 shadow-card-soft">
               <div className="flex items-center justify-between mb-3">
                 <div>
@@ -733,123 +710,71 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                     <span>Step 3</span>
                   </div>
                   <label className="text-sm font-bold text-ink-black flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-signal-orange" />
-                    Clipping Mode
+                    <Flame className="w-4 h-4 text-signal-orange" />
+                    Viral Highlights AI
                   </label>
                 </div>
                 <span className="text-[10px] font-bold bg-canvas-cream text-charcoal px-2.5 py-0.5 rounded-full border border-border-cream">
-                  {clippingMode === 'story_series' ? 'Story Series' : 'Solo Clips'}
+                  {clipCount === 0 ? 'Auto Scan' : `${clipCount} Clips`}
                 </span>
               </div>
 
-              {/* Mode Selector Pill */}
-              <div className="flex p-1 bg-canvas-cream rounded-full border border-border-cream mb-4 gap-1 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setClippingMode('story_series')}
-                  className={`flex-1 py-2 px-3 rounded-full font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                    clippingMode === 'story_series'
-                      ? 'bg-white text-ink-black shadow-sm'
-                      : 'text-slate-gray hover:text-ink-black'
+              <div className="space-y-3">
+                {/* Auto AI Full Video Scan Button */}
+                <div
+                  onClick={() => setClipCount(0)}
+                  className={`p-3.5 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
+                    clipCount === 0
+                      ? 'bg-lifted-cream border-signal-orange shadow-sm text-ink-black'
+                      : 'bg-white border-border-cream text-slate-gray hover:text-ink-black'
                   }`}
                 >
-                  <BookOpen className="w-3.5 h-3.5 text-signal-orange" />
-                  <span>Story Series</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setClippingMode('viral_highlights')}
-                  className={`flex-1 py-2 px-3 rounded-full font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                    clippingMode === 'viral_highlights'
-                      ? 'bg-white text-ink-black shadow-sm'
-                      : 'text-slate-gray hover:text-ink-black'
-                  }`}
-                >
-                  <Flame className="w-3.5 h-3.5 text-signal-orange" />
-                  <span>Highlights</span>
-                </button>
-              </div>
-
-              {clippingMode === 'story_series' ? (
-                <div className="space-y-3">
-                  <div
-                    onClick={() => setClipCount(0)}
-                    className="p-4 rounded-2xl border border-border-cream cursor-pointer transition flex items-center justify-between bg-lifted-cream hover:border-signal-orange"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-ink-black text-white font-extrabold flex items-center justify-center text-xs shrink-0 shadow-sm">
-                        Auto
-                      </div>
-                      <div>
-                        <h5 className="text-xs font-bold text-ink-black flex items-center gap-1.5">
-                          Complete Story Narrative (Part 1 to N)
-                        </h5>
-                        <p className="text-[11px] text-slate-gray mt-0.5">
-                          Uncapped full-timeline story arc detection.
-                        </p>
-                      </div>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-8 h-8 rounded-full font-extrabold text-xs flex items-center justify-center ${
+                        clipCount === 0 ? 'bg-ink-black text-white' : 'bg-canvas-cream text-slate-gray'
+                      }`}
+                    >
+                      Auto
                     </div>
-                    <span className="w-2.5 h-2.5 rounded-full bg-signal-orange shrink-0"></span>
+                    <div>
+                      <div className="text-xs font-bold text-ink-black">Auto AI Full Video Scan</div>
+                      <div className="text-[10px] text-slate-gray">Multi-act scan extracts peak standalone viral hooks start to finish</div>
+                    </div>
                   </div>
+                  {clipCount === 0 && <span className="w-2.5 h-2.5 rounded-full bg-signal-orange" />}
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Auto AI Full Video Scan Button */}
-                  <div
-                    onClick={() => setClipCount(0)}
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
-                      clipCount === 0
-                        ? 'bg-lifted-cream border-signal-orange shadow-sm text-ink-black'
-                        : 'bg-white border-border-cream text-slate-gray hover:text-ink-black'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full font-extrabold text-xs flex items-center justify-center ${
-                          clipCount === 0 ? 'bg-ink-black text-white' : 'bg-canvas-cream text-slate-gray'
+
+                {/* Specific Clip Counts */}
+                <div className="grid grid-cols-5 gap-1.5 pt-1">
+                  {[
+                    { count: 5, label: '5' },
+                    { count: 7, label: '7', tag: 'BEST' },
+                    { count: 9, label: '9' },
+                    { count: 11, label: '11', tag: 'MAX' },
+                    { count: 15, label: '15' },
+                  ].map((opt) => {
+                    const isSelected = clipCount === opt.count;
+                    return (
+                      <button
+                        key={opt.count}
+                        type="button"
+                        onClick={() => setClipCount(opt.count)}
+                        className={`py-2 rounded-2xl text-center border font-bold transition cursor-pointer flex flex-col items-center justify-center ${
+                          isSelected
+                            ? 'bg-ink-black text-white border-ink-black shadow-sm'
+                            : 'bg-white border-border-cream text-charcoal hover:bg-canvas-cream'
                         }`}
                       >
-                        Auto
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-ink-black">Auto AI Full Video Scan</div>
-                        <div className="text-[10px] text-slate-gray">Selects optimal viral moments start to finish</div>
-                      </div>
-                    </div>
-                    {clipCount === 0 && <span className="w-2.5 h-2.5 rounded-full bg-signal-orange" />}
-                  </div>
-
-                  {/* Specific Clip Counts */}
-                  <div className="grid grid-cols-5 gap-1.5 pt-1">
-                    {[
-                      { count: 5, label: '5' },
-                      { count: 7, label: '7', tag: 'BEST' },
-                      { count: 9, label: '9' },
-                      { count: 11, label: '11', tag: 'MAX' },
-                      { count: 15, label: '15' },
-                    ].map((opt) => {
-                      const isSelected = clipCount === opt.count;
-                      return (
-                        <button
-                          key={opt.count}
-                          type="button"
-                          onClick={() => setClipCount(opt.count)}
-                          className={`py-2 rounded-2xl text-center border font-bold transition cursor-pointer flex flex-col items-center justify-center ${
-                            isSelected
-                              ? 'bg-ink-black text-white border-ink-black shadow-sm'
-                              : 'bg-white border-border-cream text-charcoal hover:bg-canvas-cream'
-                          }`}
-                        >
-                          <span className="text-xs font-black">{opt.label}</span>
-                          <span className={`text-[8px] font-semibold uppercase mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-gray'}`}>
-                            {opt.tag || 'Clips'}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                        <span className="text-xs font-black">{opt.label}</span>
+                        <span className={`text-[8px] font-semibold uppercase mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-gray'}`}>
+                          {opt.tag || 'Clips'}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Target Duration Preference */}
@@ -919,11 +844,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
           >
             <Sparkles className="w-4 h-4 text-signal-orange" />
             <span>
-              {clippingMode === 'story_series'
-                ? `Generate Complete 9:16 Story Series (${durationPref}s)`
-                : clipCount === 0
-                ? `Generate Full-Timeline 9:16 Shorts (${durationPref}s)`
-                : `Generate ${clipCount} 9:16 Shorts (${durationPref}s)`}
+              {clipCount === 0
+                ? `Generate Viral 9:16 Highlights (${durationPref}s)`
+                : `Generate ${clipCount} Viral 9:16 Shorts (${durationPref}s)`}
             </span>
             <ArrowRight className="w-4 h-4 stroke-[2.5]" />
           </button>

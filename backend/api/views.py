@@ -256,7 +256,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
         auto_speaker_tracking = serializer.validated_data.get('auto_speaker_tracking', True)
         requested_clip_count = serializer.validated_data.get('requested_clip_count', 7)
         duration_preference = serializer.validated_data.get('duration_preference', '30-60')
-        clipping_mode = serializer.validated_data.get('clipping_mode', 'viral_highlights')
+        clipping_mode = 'viral_highlights'
 
         user = request.user if request.user.is_authenticated else None
 
@@ -323,12 +323,7 @@ class VideoProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def clips(self, request, pk=None):
         project = self.get_object()
-        clips_qs = project.clips.all()
-        # In story mode or when episodic multi-parts exist, order chronologically by start_time so parts are sequential
-        if project.clipping_mode == 'story_series' or clips_qs.filter(models.Q(part_number__gt=1) | ~models.Q(story_id='')).exists():
-            clips_qs = clips_qs.order_by('start_time')
-        else:
-            clips_qs = clips_qs.order_by('-score', 'start_time')
+        clips_qs = project.clips.all().order_by('-score', 'start_time')
         serializer = VideoClipSerializer(clips_qs, many=True)
         return Response(serializer.data)
 

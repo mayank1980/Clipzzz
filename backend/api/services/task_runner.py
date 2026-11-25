@@ -202,7 +202,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.progress = 55
         is_auto = (project.requested_clip_count == 0)
         count_label = "full video" if is_auto else f"top {project.requested_clip_count}"
-        mode_label = "Story Arc Series" if getattr(project, 'clipping_mode', 'viral_highlights') == 'story_series' else "Viral Highlights"
+        mode_label = "AI Viral Highlights Engine"
         project.status_message = f"Scanning video timeline with Gemini AI ({mode_label} • {count_label})..."
         project.save(update_fields=['status', 'progress', 'status_message'])
 
@@ -221,14 +221,14 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             api_key=api_key,
             target_count=project.requested_clip_count,
             duration_preference=project.duration_preference,
-            clipping_mode=getattr(project, 'clipping_mode', 'viral_highlights'),
+            clipping_mode='viral_highlights',
             progress_callback=update_ai_status
         )
 
         # Step 5: Save generated clips with Smart Resume & Deduplication
         total_clips = len(highlights)
-        update_ai_status(85, f"Validating {total_clips} story clips and checking system folder cache...")
-        existing_clips = list(project.clips.all().order_by('part_number', 'start_time'))
+        update_ai_status(85, f"Validating {total_clips} viral highlight clips and checking system folder cache...")
+        existing_clips = list(project.clips.all().order_by('-score', 'start_time'))
 
         # Check existing rendered files in system folder for all existing clips
         rendered_dir = os.path.join(settings.MEDIA_ROOT, 'rendered_clips')
@@ -273,21 +273,15 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         matched_clip_ids = set()
         highlight_to_clip = {}
 
-        # Pass 1: Match existing clips by part_number and story_id, or by timestamp proximity
+        # Pass 1: Match existing clips by timestamp proximity
         for h_idx, h in enumerate(highlights):
             h_start = float(h['start'])
             h_end = float(h['end'])
-            h_part = h.get('part_number', h_idx + 1)
-            h_story = h.get('story_id', '')
 
             matched = None
             for ec in existing_clips:
                 if ec.id in matched_clip_ids:
                     continue
-                # Match by story_id and part_number
-                if h_story and ec.story_id == h_story and ec.part_number == h_part:
-                    matched = ec
-                    break
                 # Match by start and end timestamps (within 1.5s tolerance)
                 if abs(ec.start_time - h_start) <= 1.5 and abs(ec.end_time - h_end) <= 1.5:
                     matched = ec
@@ -473,10 +467,10 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             new_clip = VideoClip.objects.create(
                 project=project,
                 title=h['title'],
-                parent_story_title=h.get('parent_story_title', ''),
-                story_id=h.get('story_id', ''),
-                part_number=h.get('part_number', idx + 1),
-                total_parts=h.get('total_parts', total_clips),
+                parent_story_title='',
+                story_id='',
+                part_number=idx + 1,
+                total_parts=1,
                 ending_type=h.get('ending_type', 'punchline'),
                 hook_title=h.get('hook_title') or h.get('part_hook') or h.get('title', ''),
                 start_time=c_start,

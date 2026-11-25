@@ -550,29 +550,25 @@ def inspect_and_classify_video(url: str, gemini_api_key: str = None) -> dict:
             'error': f"Video is too short ({duration_str}). CLIPIT creates clips only from long-form videos longer than 3 minutes (3:00+).",
         }
 
-    # 2. Content classification & mode recommendation
+    # 2. Content classification & Viral Highlights targeting
     text_corpus = f"{title} {author} {description}".lower()
+    recommended_mode = "viral_highlights"
 
     if any(k in text_corpus for k in ['horror', 'bhoot', 'chudail', 'ghost', 'paranormal', 'incident', 'darr', 'haunted', 'scary', 'mystery', 'crime', 'true crime', 'case', 'murder', 'qissa']):
-        content_type = "Horror & Paranormal Story Arc"
-        recommended_mode = "story_series"
-        reason = "Continuous narrative incident detected. Slices complete consecutive episodes (Part 1 to Part N) until the story concludes."
-    elif any(k in text_corpus for k in ['podcast', 'interview', 'story', 'kahani', 'biopic', 'journey', 'life of', 'real experience', 'narration', 'conversation', 'talk']):
-        content_type = "Story Narration & Deep Podcast"
-        recommended_mode = "story_series"
-        reason = "Narrative storytelling detected. Story Series preserves the chronological arc without mid-sentence cutoffs."
+        content_type = "Suspense & Storytelling"
+        reason = "High-tension narrative detected. Viral Highlights isolates the most gripping hooks, twists, and climax moments."
+    elif any(k in text_corpus for k in ['podcast', 'interview', 'story', 'kahani', 'biopic', 'journey', 'life of', 'real experience', 'narration', 'conversation', 'talk', 'debate']):
+        content_type = "Podcast & Deep Conversation"
+        reason = "Long-form dialogue detected. Viral Highlights extracts sharp takeaways, debates, and scroll-stopping hooks."
     elif any(k in text_corpus for k in ['comedy', 'standup', 'roast', 'funny', 'joke', 'laughter', 'sketch', 'mimicry', 'crowd work', 'meme']):
         content_type = "Standup Comedy & Humor"
-        recommended_mode = "viral_highlights"
         reason = "High-energy punchlines detected. Viral Highlights extracts the top standalone comedic hooks across the timeline."
     elif any(k in text_corpus for k in ['motivation', 'speech', 'ted', 'advice', 'success', 'mindset', 'habits', 'rules', 'growth']):
         content_type = "Motivational Keynote & Speech"
-        recommended_mode = "viral_highlights"
         reason = "Strong actionable takeaway hooks detected. Viral Highlights maximizes standalone opening retention."
     else:
-        content_type = "General Video Content"
-        recommended_mode = "viral_highlights"
-        reason = "Viral Highlights will detect and extract high-retention moments across the full timeline."
+        content_type = "Long-Form Creator Video"
+        reason = "Viral Highlights scans the full timeline for peak hooks, emotional spikes, and clean standalone takeaways."
 
     # 3. Check for existing cached download on disk
     cached_info = None
