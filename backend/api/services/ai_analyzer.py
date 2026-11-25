@@ -295,12 +295,14 @@ def analyze_highlights_with_gemini(
     target_count: int = 0,
     duration_preference: str = '30-60',
     clipping_mode: str = 'viral_highlights',
-    progress_callback = None
+    progress_callback = None,
+    exclude_intervals: Optional[List[tuple]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Engagement-driven Gemini Viral Highlights Director with automatic NLP fallback:
     - Automatically determines clip count strictly from genuinely high-engagement viral moments,
     - Scans the ENTIRE timeline across parallel chunks for long videos (1-3+ hours),
+    - Skips already vector-allocated `exclude_intervals` so re-runs only produce new clips,
     - Snaps boundaries atomically to indexed sentence IDs (-0.08s / +0.25s acoustic cushions).
     """
     min_dur, max_dur = get_duration_range(duration_preference)
@@ -308,12 +310,14 @@ def analyze_highlights_with_gemini(
     # actual returned count depends strictly on how many high-engagement moments exist.
     max_cap = max(4, min(35, int(total_duration / 65.0))) if total_duration > 0 else 15
     intro_cutoff = 15.0 if total_duration > 180.0 else 0.0
+    reserved_ranges = [(float(r[0]), float(r[1])) for r in (exclude_intervals or [])]
 
     if not api_key or not transcript_segments:
         if progress_callback:
             progress_callback(80, "AI analyzing viral hooks with contextual NLP engine...")
         return extract_smart_nlp_highlights(
-            transcript_segments, total_duration, video_title, max_cap, min_dur, max_dur, intro_cutoff
+            transcript_segments, total_duration, video_title, max_cap, min_dur, max_dur, intro_cutoff,
+            exclude_intervals=reserved_ranges
         )
 
     if progress_callback:
@@ -418,7 +422,7 @@ def analyze_highlights_with_gemini(
                 progress_callback(85, f"AI found {len(all_raw_clips)} viral candidates. Snapping boundaries...")
 
             valid_clips: List[Dict[str, Any]] = []
-            used_ranges: List[tuple] = []
+            used_ranges: List[tuple] = list(reserved_ranges)
             used_texts: List[str] = []
 
             # Pre-sort candidates by reported viral score before overlap deduplication
@@ -499,7 +503,8 @@ def analyze_highlights_with_gemini(
         print(f"[analyze_highlights_with_gemini] API Note: {e}")
 
     return extract_smart_nlp_highlights(
-        transcript_segments, total_duration, video_title, max_cap, min_dur, max_dur, intro_cutoff
+        transcript_segments, total_duration, video_title, max_cap, min_dur, max_dur, intro_cutoff,
+        exclude_intervals=reserved_ranges
     )
 
 
@@ -558,7 +563,8 @@ def extract_smart_nlp_highlights(
     min_dur: float = 30.0,
     max_dur: float = 60.0,
     intro_cutoff: float = 25.0,
-    clipping_mode: str = 'viral_highlights'
+    clipping_mode: str = 'viral_highlights',
+    exclude_intervals: Optional[List[tuple]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Context-aware Viral Highlights semantic NLP engine:
@@ -674,7 +680,7 @@ def extract_smart_nlp_highlights(
     MIN_ENGAGING_SCORE = 78
     engaging_clips: List[Dict[str, Any]] = []
     backup_clips: List[Dict[str, Any]] = []
-    used_ranges: List[tuple] = []
+    used_ranges: List[tuple] = [(float(r[0]), float(r[1])) for r in (exclude_intervals or [])]
     selected_texts: List[str] = []
 
     for cand in candidate_queue:

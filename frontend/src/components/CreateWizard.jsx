@@ -8,7 +8,6 @@ import {
   Clock,
   ArrowRight,
   AlertCircle,
-  Loader2,
   CheckCircle2,
   Flame,
   HardDrive,
@@ -36,17 +35,9 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
   const [isCookieUploading, setIsCookieUploading] = useState(false);
   const [cookieSuccess, setCookieSuccess] = useState(false);
 
-  // Link confirmation & AI content analysis
-  const [isLinkConfirmed, setIsLinkConfirmed] = useState(false);
-  const [isInspecting, setIsInspecting] = useState(false);
-  const [videoInfo, setVideoInfo] = useState(null);
-  const [inspectError, setInspectError] = useState('');
-
   const handleUrlChange = (val) => {
     setYoutubeUrl(val);
-    setIsLinkConfirmed(false);
-    setVideoInfo(null);
-    setInspectError('');
+    setErrorMessage('');
   };
 
   const handleFileChange = (file) => {
@@ -77,51 +68,6 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
       setSelectedFile(file);
     };
     v.src = probeUrl;
-  };
-
-  const handleConfirmLink = async () => {
-    if (!youtubeUrl.trim()) return;
-    setIsInspecting(true);
-    setInspectError('');
-    try {
-      const res = await api.inspectUrl({
-        youtube_url: youtubeUrl.trim(),
-        gemini_api_key: userProfile?.gemini_api_key || '',
-      });
-      if (res && res.success) {
-        setVideoInfo(res);
-        setIsLinkConfirmed(true);
-        if (res.default_quality) {
-          setDownloadQuality(res.default_quality);
-        }
-        if (res.cached_video?.exists) {
-          setUseExistingCache(true);
-        } else {
-          setUseExistingCache(false);
-        }
-      } else {
-        setInspectError(res?.error || 'Failed to inspect video URL.');
-      }
-    } catch (err) {
-      console.warn('Inspect error', err);
-      const serverErr = err?.response?.data?.error;
-      if (serverErr) {
-        setInspectError(serverErr);
-        setIsLinkConfirmed(false);
-      } else {
-        setIsLinkConfirmed(true);
-        setVideoInfo({
-          platform: 'Video Stream',
-          title: 'Video Stream Ready',
-          duration_str: 'Ready',
-          content_type: 'Long-Form Creator Video',
-          recommended_mode: 'viral_highlights',
-          qualities: [{ id: '720p', label: '720p Fast (Recommended)', size_mb: 45 }],
-        });
-      }
-    } finally {
-      setIsInspecting(false);
-    }
   };
 
   // Pipeline loading state
@@ -183,10 +129,6 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
 
     if (sourceType === 'youtube' && !youtubeUrl) {
       setErrorMessage('Please enter a valid video URL (YouTube, Facebook, Vimeo, Twitch, X, etc.)');
-      return;
-    }
-    if (sourceType === 'youtube' && inspectError) {
-      setErrorMessage(inspectError);
       return;
     }
     if (sourceType === 'upload' && !selectedFile) {
@@ -504,137 +446,8 @@ export default function CreateWizard({ onProjectCreated, userProfile, onOpenKeyM
                   )}
                 </div>
                 <p className="text-[11px] text-slate-gray mt-2 ml-2">
-                  Supports long-form videos (3+ minutes) from YouTube, Facebook, Vimeo, Twitch, X, Instagram, Dailymotion & direct links.
+                  Supports long-form videos (3+ minutes) from YouTube, Facebook, Vimeo, Twitch, X, Instagram, Dailymotion & direct links. Re-imported videos resume automatically from cached clips.
                 </p>
-
-                {/* Confirmation Prompt when URL is entered */}
-                {youtubeUrl.trim().length > 10 && !isLinkConfirmed && (
-                  <div className="mt-4 p-5 rounded-[28px] bg-lifted-cream border border-border-cream shadow-sm">
-                    <div className="flex items-start gap-3.5">
-                      <div className="w-9 h-9 rounded-full bg-signal-orange/10 flex items-center justify-center text-signal-orange shrink-0 mt-0.5">
-                        <AlertCircle className="w-5 h-5" />
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="text-sm font-bold text-ink-black flex items-center gap-2">
-                          Confirm Video Source
-                          <span className="text-[9px] bg-canvas-cream text-slate-gray border border-border-cream font-bold px-2.5 py-0.5 rounded-full uppercase">
-                            Verification
-                          </span>
-                        </h4>
-                        <p className="text-xs text-slate-gray mt-1">
-                          Confirm link to pre-scan stream metadata, duration, and AI content categorization.
-                        </p>
-
-                        {inspectError && (
-                          <p className="text-xs text-signal-orange mt-2 font-medium">
-                            {inspectError}
-                          </p>
-                        )}
-
-                        <div className="flex items-center gap-2.5 mt-3.5">
-                          <button
-                            type="button"
-                            disabled={isInspecting}
-                            onClick={handleConfirmLink}
-                            className="px-5 py-2.5 rounded-full bg-ink-black hover:bg-black text-white font-bold text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                          >
-                            {isInspecting ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>Analyzing Media Stream...</span>
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="w-4 h-4" />
-                                <span>Confirm & Scan Video</span>
-                              </>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isInspecting}
-                            onClick={() => {
-                              setYoutubeUrl('');
-                              setIsLinkConfirmed(false);
-                              setVideoInfo(null);
-                            }}
-                            className="px-4 py-2.5 rounded-full bg-white hover:bg-canvas-cream text-slate-gray hover:text-ink-black text-xs font-semibold border border-border-cream transition cursor-pointer"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Confirmed Video Card with Satellite Micro-CTA */}
-                {isLinkConfirmed && videoInfo && (
-                  <div className="mt-4 p-5 rounded-[28px] bg-lifted-cream border border-border-cream shadow-sm relative overflow-hidden">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                      {videoInfo.thumbnail_url && (
-                        <div className="relative w-full sm:w-40 aspect-video rounded-2xl overflow-hidden bg-black shrink-0 shadow-sm">
-                          <img
-                            src={videoInfo.thumbnail_url}
-                            alt={videoInfo.title}
-                            className="w-full h-full object-cover"
-                          />
-                          {videoInfo.duration_str && (
-                            <span className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[9px] font-mono font-bold px-2 py-0.5 rounded-full">
-                              {videoInfo.duration_str}
-                            </span>
-                          )}
-                          {/* Attached Perimeter Satellite Micro-CTA */}
-                          <div className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-white text-ink-black shadow-satellite flex items-center justify-center">
-                            <ArrowRight className="w-3 h-3 text-signal-orange stroke-[2.5]" />
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <span className="text-[10px] font-bold text-signal-orange bg-white px-2.5 py-0.5 rounded-full border border-border-cream flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-signal-orange"></span>
-                            Verified {videoInfo.platform || 'Media'} Stream
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setIsLinkConfirmed(false)}
-                            className="text-[10px] text-slate-gray hover:text-ink-black underline cursor-pointer"
-                          >
-                            Change Link
-                          </button>
-                        </div>
-
-                        <h4 className="text-sm font-bold text-ink-black truncate" title={videoInfo.title}>
-                          {videoInfo.title}
-                        </h4>
-                        {videoInfo.author_name && (
-                          <p className="text-[11px] text-slate-gray mt-0.5">
-                            Channel: {videoInfo.author_name}
-                          </p>
-                        )}
-
-                        <div className="mt-2.5 pt-2 border-t border-border-cream flex flex-wrap items-center gap-2 text-xs">
-                          <div className="text-slate-gray flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 text-signal-orange" />
-                            <span>AI Detected:</span>
-                            <span className="text-ink-black font-bold bg-white px-2.5 py-0.5 rounded-full border border-border-cream text-[11px]">
-                              {videoInfo.content_type}
-                            </span>
-                          </div>
-
-                          <div className="text-ink-black font-semibold flex items-center gap-1">
-                            <span>➔ Engine:</span>
-                            <span className="font-extrabold uppercase bg-ink-black text-white px-2.5 py-0.5 rounded-full text-[10px]">
-                              Viral Highlights AI
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             ) : (
               <div className="border-2 border-dashed border-dust-taupe hover:border-signal-orange rounded-3xl p-8 text-center cursor-pointer transition bg-lifted-cream">

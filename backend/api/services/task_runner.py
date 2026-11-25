@@ -164,10 +164,28 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             project.save(update_fields=['status', 'status_message', 'error_message'])
             return
 
-        # Step 2: Instant Dialogue & Timeline Ingestion
+        # Step 2: Instant Dialogue & Timeline Ingestion + Vector Source Key
+        from .vector_cache import (
+            compute_source_key,
+            load_source_cache,
+            save_source_cache,
+            serialize_clip_snapshot,
+            TimelineVectorAllocator,
+        )
+
+        source_key = compute_source_key(
+            project.youtube_url if project.source_type == 'youtube' else '',
+            video_full_path,
+        )
+        source_cache = load_source_cache(settings.MEDIA_ROOT, source_key)
+
         transcript = []
         if project.transcript_raw and isinstance(project.transcript_raw, list) and len(project.transcript_raw) > 0:
             transcript = project.transcript_raw
+        elif source_cache.get('transcript'):
+            transcript = source_cache['transcript']
+            project.transcript_raw = transcript
+            project.save(update_fields=['transcript_raw'])
         elif project.source_type == 'youtube' and project.youtube_url:
             prev_proj = VideoProject.objects.filter(youtube_url=project.youtube_url).exclude(id=project.id).order_by('-created_at').first()
             if prev_proj and prev_proj.transcript_raw and isinstance(prev_proj.transcript_raw, list) and len(prev_proj.transcript_raw) > 0:
@@ -197,11 +215,10 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.progress = 40
         project.save(update_fields=['transcript_raw', 'progress'])
 
-        # Step 3: AI Highlight Detection & Viral Scoring (Engagement-Driven Count)
+        # Step 3: Vector Mapping Allocation + Incremental Cached Clip Hydration (0-cost reuse of cached 1..K clips)
         project.status = 'analyzing'
         project.progress = 55
-        mode_label = "AI Viral Highlights Engine"
-        project.status_message = f"Scanning video timeline with Gemini AI ({mode_label} • Engagement Auto-Count)..."
+        project.status_message = "Initializing timeline vector map & checking cached viral clips..."
         project.save(update_fields=['status', 'progress', 'status_message'])
 
         def update_ai_status(pct, msg):
@@ -209,31 +226,16 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             project.status_message = msg
             project.save(update_fields=['progress', 'status_message'])
 
-        # Sentence-Indexed Audio Transcription for atomic narrative boundary snapping
-        sentence_indexed_transcript = build_sentence_indexed_transcript(transcript)
-
-        highlights = analyze_highlights_with_gemini(
-            transcript_segments=sentence_indexed_transcript,
-            video_title=project.title,
-            total_duration=project.duration,
-            api_key=api_key,
-            target_count=0,
-            duration_preference=project.duration_preference,
-            clipping_mode='viral_highlights',
-            progress_callback=update_ai_status
-        )
-
-        # Step 5: Save generated clips with Smart Resume & Deduplication
-        total_clips = len(highlights)
-        update_ai_status(85, f"Validating {total_clips} viral highlight clips and checking system folder cache...")
-        existing_clips = list(project.clips.all().order_by('-score', 'start_time'))
-
-        # Check existing rendered files in system folder for all existing clips
         rendered_dir = os.path.join(settings.MEDIA_ROOT, 'rendered_clips')
         clean_rendered_dir = os.path.join(rendered_dir, 'clean')
         os.makedirs(rendered_dir, exist_ok=True)
         os.makedirs(clean_rendered_dir, exist_ok=True)
 
+        allocator = TimelineVectorAllocator(project.duration or 600.0)
+        cached_clip_objs: List[VideoClip] = []
+        existing_clips = list(project.clips.all().order_by('part_number', 'start_time'))
+
+        # Hydrate any clips already saved on this project OR saved in cross-upload vector cache
         for ec in existing_clips:
             r_name = f"clip_{ec.id}.mp4"
             r_path = os.path.join(rendered_dir, r_name)
@@ -251,9 +253,129 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 ec.clean_render_status = 'completed'
                 ec.save(update_fields=['rendered_clean_file', 'clean_render_status'])
 
-        # Pre-extract master words with global timestamps once
+            allocator.mark_allocated(ec.start_time, ec.end_time, f"{ec.title} {ec.hook}")
+            cached_clip_objs.append(ec)
+
+        # If this is a fresh re-import/re-upload of the same video, restore previously cached clips at zero compute cost
+        if not cached_clip_objs and source_cache.get('cached_clips'):
+            for snap in source_cache.get('cached_clips', []):
+                s_t = float(snap.get('start_time', 0.0))
+                e_t = float(snap.get('end_time', s_t + 30.0))
+                txt_sig = f"{snap.get('title', '')} {snap.get('hook', '')}"
+                if allocator.is_conflict(s_t, e_t, txt_sig):
+                    continue
+
+                restored = VideoClip.objects.create(
+                    project=project,
+                    title=snap.get('title', 'Viral Highlight'),
+                    parent_story_title='',
+                    story_id='',
+                    part_number=len(cached_clip_objs) + 1,
+                    total_parts=1,
+                    ending_type=snap.get('ending_type', 'punchline'),
+                    hook_title=snap.get('hook_title', snap.get('title', '')),
+                    start_time=s_t,
+                    end_time=e_t,
+                    duration=float(snap.get('duration', max(1.0, e_t - s_t))),
+                    score=int(snap.get('score', 88)),
+                    category=snap.get('category', 'Highlight'),
+                    hook=snap.get('hook', ''),
+                    reason=snap.get('reason', ''),
+                    aspect_ratio=snap.get('aspect_ratio', project.target_ratio),
+                    crop_mode=snap.get('crop_mode', 'custom_crop'),
+                    crop_x=float(snap.get('crop_x', 50.0)),
+                    crop_y=float(snap.get('crop_y', 35.0)),
+                    crop_zoom=float(snap.get('crop_zoom', 1.15)),
+                    crop_keyframes=snap.get('crop_keyframes') or [],
+                    is_speaker_centered=bool(snap.get('is_speaker_centered', True)),
+                    caption_style=snap.get('caption_style') or {},
+                    render_status='completed' if snap.get('rendered_file_name') and os.path.exists(os.path.join(settings.MEDIA_ROOT, snap.get('rendered_file_name'))) else 'not_started',
+                    render_progress=100 if snap.get('rendered_file_name') and os.path.exists(os.path.join(settings.MEDIA_ROOT, snap.get('rendered_file_name'))) else 0,
+                    clean_render_status='completed' if snap.get('rendered_clean_file_name') and os.path.exists(os.path.join(settings.MEDIA_ROOT, snap.get('rendered_clean_file_name'))) else 'not_started',
+                )
+                if snap.get('rendered_file_name') and os.path.exists(os.path.join(settings.MEDIA_ROOT, snap['rendered_file_name'])):
+                    restored.rendered_file.name = snap['rendered_file_name']
+                    restored.rendered_hash = snap.get('rendered_hash', '')
+                    restored.save(update_fields=['rendered_file', 'rendered_hash'])
+                if snap.get('rendered_clean_file_name') and os.path.exists(os.path.join(settings.MEDIA_ROOT, snap['rendered_clean_file_name'])):
+                    restored.rendered_clean_file.name = snap['rendered_clean_file_name']
+                    restored.rendered_clean_hash = snap.get('rendered_clean_hash', '')
+                    restored.save(update_fields=['rendered_clean_file', 'rendered_clean_hash'])
+
+                allocator.mark_allocated(s_t, e_t, txt_sig)
+                cached_clip_objs.append(restored)
+
+        already_cached_count = len(cached_clip_objs)
+        start_num = already_cached_count + 1
+
+        # Gather remaining unallocated viral pool candidates first (no AI call needed if queue already has #11..#30)
+        cached_pool = list(source_cache.get('viral_pool') or [])
+        pending_highlights: List[Dict[str, Any]] = []
+        for cand in cached_pool:
+            cs = float(cand.get('start', 0.0))
+            ce = float(cand.get('end', cs + 30.0))
+            ctxt = f"{cand.get('title', '')} {cand.get('hook', '')}"
+            if not allocator.is_conflict(cs, ce, ctxt):
+                pending_highlights.append(cand)
+                allocator.mark_allocated(cs, ce, ctxt)
+
+        # If pool has unallocated viral opportunities remaining or free timeline regions need fresh discovery
+        free_spans = allocator.free_intervals(min_duration=35.0)
+        if not cached_pool or (not pending_highlights and len(free_spans) > 0 and already_cached_count < 15):
+            if already_cached_count > 0:
+                update_ai_status(
+                    60,
+                    f"{already_cached_count} clips restored from vector cache. Scanning free slots starting from clip #{start_num}..."
+                )
+            else:
+                update_ai_status(60, "Scanning video timeline with Viral Highlights AI...")
+
+            sentence_indexed_transcript = build_sentence_indexed_transcript(transcript)
+            ai_discovered = analyze_highlights_with_gemini(
+                transcript_segments=sentence_indexed_transcript,
+                video_title=project.title,
+                total_duration=project.duration,
+                api_key=api_key,
+                target_count=0,
+                duration_preference=project.duration_preference,
+                clipping_mode='viral_highlights',
+                progress_callback=update_ai_status,
+                exclude_intervals=allocator.occupied_intervals(),
+            )
+            for cand in ai_discovered:
+                cs = float(cand.get('start', 0.0))
+                ce = float(cand.get('end', cs + 30.0))
+                ctxt = f"{cand.get('title', '')} {cand.get('hook', '')}"
+                if not allocator.is_conflict(cs, ce, ctxt):
+                    pending_highlights.append(cand)
+                    allocator.mark_allocated(cs, ce, ctxt)
+                    cached_pool.append(cand)
+
+        total_clips = already_cached_count + len(pending_highlights)
+        if already_cached_count > 0 and pending_highlights:
+            update_ai_status(
+                85,
+                f"Restored {already_cached_count} cached clips. Processing clips #{start_num}–#{total_clips}..."
+            )
+        elif already_cached_count > 0:
+            update_ai_status(90, f"All {already_cached_count} viral clips restored instantly from vector cache.")
+        else:
+            update_ai_status(85, f"Discovered {total_clips} high-engagement clips. Framing in parallel...")
+
+        # Checkpoint transcript & full viral pool immediately to vector cache
+        if source_key:
+            save_source_cache(settings.MEDIA_ROOT, source_key, {
+                "source_key": source_key,
+                "title": project.title,
+                "duration": float(project.duration or 0.0),
+                "transcript": transcript,
+                "viral_pool": cached_pool,
+                "cached_clips": [serialize_clip_snapshot(c) for c in cached_clip_objs],
+            })
+
+        # Pre-extract master words with global timestamps once (only needed if creating new clips)
         master_words = []
-        if transcript:
+        if pending_highlights and transcript:
             for seg in transcript:
                 for w in seg.get('words', []):
                     w_st = float(w.get('start', 0.0))
@@ -268,77 +390,41 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                             'needs_review': bool(w.get('needs_review', False))
                         })
 
-        matched_clip_ids = set()
+        already_created_count = already_cached_count
+        highlights = pending_highlights
         highlight_to_clip = {}
 
-        # Pass 1: Match existing clips by timestamp proximity
-        for h_idx, h in enumerate(highlights):
-            h_start = float(h['start'])
-            h_end = float(h['end'])
+        # Enhance any cached clips that still lack multi-speaker tracking keyframes
+        for c_existing in cached_clip_objs:
+            if (not c_existing.crop_keyframes or len(c_existing.crop_keyframes) <= 1 or c_existing.crop_x == 50.0) and getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
+                try:
+                    from .face_tracker import generate_camera_keyframes, analyze_clip_initial_framing
+                    computed_kfs = analyze_clip_initial_framing(video_full_path, c_existing.start_time, c_existing.duration) if total_clips > 6 else generate_camera_keyframes(video_full_path, c_existing.start_time, c_existing.duration)
+                    if computed_kfs:
+                        c_existing.crop_keyframes = computed_kfs
+                        c_existing.crop_x = computed_kfs[0]['x']
+                        c_existing.crop_y = computed_kfs[0]['y']
+                        c_existing.crop_zoom = computed_kfs[0].get('zoom', 1.15)
+                        c_existing.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom'])
+                except Exception as e:
+                    print(f"[task_runner] Re-tracking cached clip notice: {e}")
 
-            matched = None
-            for ec in existing_clips:
-                if ec.id in matched_clip_ids:
-                    continue
-                # Match by start and end timestamps (within 1.5s tolerance)
-                if abs(ec.start_time - h_start) <= 1.5 and abs(ec.end_time - h_end) <= 1.5:
-                    matched = ec
-                    break
-                # Fallback match by sequential order if timestamps are close
-                if h_idx < len(existing_clips) and existing_clips[h_idx].id not in matched_clip_ids and abs(existing_clips[h_idx].start_time - h_start) <= 3.0:
-                    matched = existing_clips[h_idx]
-                    break
-
-            if matched:
-                matched_clip_ids.add(matched.id)
-                highlight_to_clip[h_idx] = matched
-                matched.title = h['title']
-                matched.score = h.get('score', matched.score)
-                matched.ending_type = h.get('ending_type', matched.ending_type)
-                matched.hook_title = h.get('hook_title') or h.get('part_hook') or matched.title
-                matched.save(update_fields=['title', 'score', 'ending_type', 'hook_title'])
-
-                # Automatically enhance framing & multi-speaker keyframes for matched clips if missing or default
-                if (not matched.crop_keyframes or len(matched.crop_keyframes) <= 1 or matched.crop_x == 50.0) and video_full_path and os.path.exists(video_full_path):
-                    try:
-                        from .face_tracker import generate_camera_keyframes, analyze_clip_initial_framing
-                        if total_clips > 6:
-                            computed_kfs = analyze_clip_initial_framing(video_full_path, matched.start_time, matched.duration)
-                        else:
-                            computed_kfs = generate_camera_keyframes(video_full_path, matched.start_time, matched.duration)
-                        if computed_kfs:
-                            matched.crop_keyframes = computed_kfs
-                            matched.crop_x = computed_kfs[0]['x']
-                            matched.crop_y = computed_kfs[0]['y']
-                            matched.crop_zoom = computed_kfs[0].get('zoom', 1.15)
-                            matched.crop_mode = 'custom_crop'
-                            matched.is_speaker_centered = True
-                            matched.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom', 'crop_mode', 'is_speaker_centered'])
-                    except Exception as e:
-                        print(f"[task_runner] Re-tracking matched clip notice: {e}")
-
-        already_created_count = len(highlight_to_clip)
-        if already_created_count > 0:
-            resume_part = already_created_count + 1
-            project.status_message = f"{already_created_count}/{total_clips} clips already created. Resuming from clip {resume_part}/{total_clips}..."
-            project.progress = 80 + int((already_created_count / max(1, total_clips)) * 18)
-            project.save(update_fields=['status_message', 'progress'])
-
-        missing_indices = [i for i in range(len(highlights)) if i not in highlight_to_clip]
+        missing_indices = list(range(len(highlights)))
         precomputed_kfs = {}
-        used_fast_initial_framing = False
+        used_fast_initial_framing = any(len(c.crop_keyframes or []) <= 1 or any(isinstance(k, dict) and k.get('initial') for k in (c.crop_keyframes or [])) for c in cached_clip_objs)
 
         if missing_indices and getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
             from concurrent.futures import ThreadPoolExecutor, as_completed
             from .face_tracker import generate_camera_keyframes, analyze_clip_initial_framing
 
             use_fast_initial = len(missing_indices) > 6
-            used_fast_initial_framing = use_fast_initial
+            if use_fast_initial:
+                used_fast_initial_framing = True
             worker_count = min(8 if use_fast_initial else 6, len(missing_indices))
 
             update_ai_status(
                 85,
-                f"Framing {len(missing_indices)} clips in parallel ({worker_count} workers)..."
+                f"Framing clips #{start_num}–#{total_clips} in parallel ({worker_count} workers)..."
             )
 
             def _track_one(item_idx: int):
@@ -362,30 +448,28 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                         if ret_kfs:
                             precomputed_kfs[ret_idx] = ret_kfs
                     except Exception as track_err:
-                        print(f"[_run_video_pipeline] Parallel tracking notice for clip {m_idx + 1}: {track_err}")
+                        print(f"[_run_video_pipeline] Parallel tracking notice for clip #{start_num + m_idx}: {track_err}")
                     completed_tracks += 1
                     if completed_tracks % 8 == 0 or completed_tracks == len(missing_indices):
                         pct_track = 85 + int((completed_tracks / max(1, len(missing_indices))) * 10)
                         update_ai_status(
                             pct_track,
-                            f"Framed {completed_tracks}/{len(missing_indices)} clips..."
+                            f"Framed {already_cached_count + completed_tracks}/{total_clips} clips..."
                         )
 
         created_count = 0
-        # Pass 2: Create only the remaining clips that are missing
+        # Pass 2: Create ONLY new unallocated clips starting cleanly at clip #(already_cached_count + 1)
         for idx, h in enumerate(highlights):
-            if idx in highlight_to_clip:
-                continue
-
+            seq_num = start_num + idx
             c_start = float(h['start'])
             c_end = float(h['end'])
             c_dur = max(1.0, c_end - c_start)
 
-            pct = 95 + int(((idx + 1) / max(1, total_clips)) * 4)
-            clip_title = h.get('title', f"Clip {idx + 1}")
-            if idx == 0 or (idx + 1) % 8 == 0 or (idx + 1) == total_clips:
+            pct = 95 + int(((seq_num) / max(1, total_clips)) * 4)
+            clip_title = h.get('title', f"Clip {seq_num}")
+            if idx == 0 or (idx + 1) % 8 == 0 or (idx + 1) == len(highlights):
                 project.progress = pct
-                project.status_message = f"Assembling Shorts Package ({idx + 1}/{total_clips}): '{clip_title[:28]}' ({c_dur:.0f}s)..."
+                project.status_message = f"Assembling Viral Clip ({seq_num}/{total_clips}): '{clip_title[:28]}' ({c_dur:.0f}s)..."
                 project.save(update_fields=['progress', 'status_message'])
 
             # Fast In-Memory Transcript Word Slicing (Instant array slice & 0.0s rebase)
@@ -467,7 +551,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
                 title=h['title'],
                 parent_story_title='',
                 story_id='',
-                part_number=idx + 1,
+                part_number=seq_num,
                 total_parts=1,
                 ending_type=h.get('ending_type', 'punchline'),
                 hook_title=h.get('hook_title') or h.get('part_hook') or h.get('title', ''),
@@ -489,10 +573,30 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             )
             highlight_to_clip[idx] = new_clip
             created_count += 1
+            if source_key and (created_count % 5 == 0 or (idx + 1) == len(highlights)):
+                save_source_cache(settings.MEDIA_ROOT, source_key, {
+                    "source_key": source_key,
+                    "title": project.title,
+                    "duration": float(project.duration or 0.0),
+                    "transcript": transcript,
+                    "viral_pool": cached_pool,
+                    "cached_clips": [serialize_clip_snapshot(c) for c in (cached_clip_objs + list(highlight_to_clip.values()))],
+                })
 
-        # Delete only orphan clips that were not matched to any highlight
-        all_retained_ids = [c.id for c in highlight_to_clip.values() if hasattr(c, 'id')]
+        # Keep both restored cached clips AND newly created clips
+        all_retained_ids = [c.id for c in (cached_clip_objs + list(highlight_to_clip.values())) if hasattr(c, 'id')]
         project.clips.exclude(id__in=all_retained_ids).delete()
+
+        # Persist complete vector cache snapshot for instant future re-imports
+        if source_key:
+            save_source_cache(settings.MEDIA_ROOT, source_key, {
+                "source_key": source_key,
+                "title": project.title,
+                "duration": float(project.duration or 0.0),
+                "transcript": transcript,
+                "viral_pool": cached_pool,
+                "cached_clips": [serialize_clip_snapshot(c) for c in project.clips.all().order_by('part_number', 'start_time')],
+            })
 
         # Step 5: Finalize and prepare Studio
         project.progress = 100
@@ -502,9 +606,9 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.status = 'ready'
         project.progress = 100
         if already_created_count > 0:
-            project.status_message = f'Ready! {total_clips}/{total_clips} clips ready ({already_created_count} retained from cache, {created_count} newly generated).'
+            project.status_message = f'Ready! {total_clips}/{total_clips} clips ready ({already_created_count} retained from vector cache, {created_count} newly generated).'
         else:
-            project.status_message = f'Ready! Generated {total_clips} clips.'
+            project.status_message = f'Ready! Generated {total_clips} engaging clips.'
         project.save(update_fields=['status', 'progress', 'status_message'])
 
         # Non-blocking background enrichment: fill continuous second-by-second camera keyframes
@@ -512,7 +616,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         if used_fast_initial_framing and video_full_path and os.path.exists(video_full_path):
             threading.Thread(
                 target=_enrich_project_keyframes_async,
-                args=(str(project.id), video_full_path),
+                args=(str(project.id), video_full_path, source_key),
                 daemon=True,
             ).start()
 
@@ -530,14 +634,15 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
         project.save(update_fields=['status', 'error_message', 'status_message'])
 
 
-def _enrich_project_keyframes_async(project_id: str, video_full_path: str):
+def _enrich_project_keyframes_async(project_id: str, video_full_path: str, source_key: str = ""):
     """
-    Background worker that upgrades single-frame initial clip framing into full continuous
-    multi-speaker camera keyframes without blocking Studio availability.
+    Background worker that upgrades single-frame/initial clip framing into full continuous
+    multi-speaker camera keyframes without blocking Studio availability, and refreshes vector cache.
     """
     try:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from .face_tracker import generate_camera_keyframes
+        from .vector_cache import load_source_cache, save_source_cache, serialize_clip_snapshot
 
         clips = list(
             VideoClip.objects.filter(project_id=project_id).order_by('part_number', 'start_time')
@@ -557,6 +662,7 @@ def _enrich_project_keyframes_async(project_id: str, video_full_path: str):
         def _compute_for_clip(clip_obj):
             return str(clip_obj.id), generate_camera_keyframes(video_full_path, clip_obj.start_time, clip_obj.duration)
 
+        updated_any = False
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = [pool.submit(_compute_for_clip, c) for c in pending]
             for fut in as_completed(futures):
@@ -579,8 +685,18 @@ def _enrich_project_keyframes_async(project_id: str, video_full_path: str):
                     fresh.crop_y = computed_kfs[0]['y']
                     fresh.crop_zoom = fresh.crop_zoom or computed_kfs[0].get('zoom', 1.15)
                     fresh.save(update_fields=['crop_keyframes', 'crop_x', 'crop_y', 'crop_zoom'])
+                    updated_any = True
                 except Exception as ce:
                     print(f"[_enrich_project_keyframes_async] Clip keyframe enrichment notice: {ce}")
+
+        if updated_any and source_key:
+            cur_cache = load_source_cache(settings.MEDIA_ROOT, source_key)
+            if cur_cache:
+                cur_cache["cached_clips"] = [
+                    serialize_clip_snapshot(c)
+                    for c in VideoClip.objects.filter(project_id=project_id).order_by('part_number', 'start_time')
+                ]
+                save_source_cache(settings.MEDIA_ROOT, source_key, cur_cache)
     except Exception as e:
         print(f"[_enrich_project_keyframes_async] Enrichment notice: {e}")
 
