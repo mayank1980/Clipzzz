@@ -70,6 +70,7 @@ class VideoClipSerializer(serializers.ModelSerializer):
             'crop_keyframes',
             'is_speaker_centered',
             'caption_style',
+            'editor_data',
             'rendered_file',
             'rendered_hash',
             'render_status',
@@ -201,4 +202,5 @@ class ClipUpdateSerializer(serializers.ModelSerializer):
             'crop_zoom',
             'crop_keyframes',
             'caption_style',
+            'editor_data',
         ]

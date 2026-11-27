@@ -150,6 +150,8 @@ class VideoClip(models.Model):
 
     # Subtitle / Caption Customization
     caption_style = models.JSONField(default=dict, blank=True)
+    # Pro CapCut Studio Editor Timeline & Effects State
+    editor_data = models.JSONField(default=dict, blank=True)
 
     # Rendered video (with captions)
     rendered_file = models.FileField(upload_to='rendered_clips/%Y/%m/%d/', blank=True, null=True)

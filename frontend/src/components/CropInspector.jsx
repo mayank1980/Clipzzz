@@ -23,6 +23,7 @@ export default function CropInspector({
   currentTime,
   videoSrc,
   onAutoTrack,
+  onOpenStudioEditor,
 }) {
   if (!isOpen) return null;
 
@@ -58,7 +59,47 @@ export default function CropInspector({
   const keyframeCount = Array.isArray(cropSettings?.keyframes) ? cropSettings.keyframes.length : 1;
   const xVal = typeof cropSettings?.x === 'number' ? cropSettings.x : 50;
   const yVal = typeof cropSettings?.y === 'number' ? cropSettings.y : 45;
-  const zoomVal = typeof cropSettings?.zoom === 'number' ? cropSettings.zoom : 1.0;
+  const zoomVal = typeof cropSettings?.zoom === 'number' ? cropSettings.zoom : 1.15;
+  const clipRelTime = Math.max(0, (currentTime || 0) - (selectedClip?.start_time || 0));
+  const previewBoxRef = useRef(null);
+
+  const handleMiniBoxDrag = (e) => {
+    e.preventDefault();
+    const box = previewBoxRef.current;
+    if (!box) return;
+    const rect = box.getBoundingClientRect();
+    const updateFromEvt = (evt) => {
+      const cx = evt.clientX ?? evt.touches?.[0]?.clientX;
+      const cy = evt.clientY ?? evt.touches?.[0]?.clientY;
+      if (cx === undefined || cy === undefined) return;
+      const effZ = Math.max(1.08, zoomVal);
+      const wPct = (100 / effZ) * (9 / 16) * (9 / 16);
+      const hPct = 100 / effZ;
+      const rawX = ((cx - rect.left) / rect.width) * 100;
+      const rawY = ((cy - rect.top) / rect.height) * 100;
+      const nextX = Math.max(0, Math.min(100, ((rawX - wPct / 2) / Math.max(1, 100 - wPct)) * 100));
+      const nextY = Math.max(0, Math.min(100, ((rawY - hPct / 2) / Math.max(1, 100 - hPct)) * 100));
+      onChangeCrop({
+        x: Math.round(nextX),
+        y: Math.round(nextY),
+        zoom: zoomVal,
+        mode: 'custom_crop',
+        atTime: clipRelTime,
+        updateSegmentOnly: true,
+      });
+    };
+    updateFromEvt(e);
+    const onUp = () => {
+      window.removeEventListener('mousemove', updateFromEvt);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', updateFromEvt);
+      window.removeEventListener('touchend', onUp);
+    };
+    window.addEventListener('mousemove', updateFromEvt);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', updateFromEvt);
+    window.addEventListener('touchend', onUp);
+  };
 
   const handleRunAutoTrack = async () => {
     if (!onAutoTrack) return;
@@ -143,14 +184,19 @@ export default function CropInspector({
           </button>
         </div>
 
-        {/* VISUAL PREVIEW OF CURRENT FOCAL BOX */}
+        {/* VISUAL PREVIEW OF CURRENT FOCAL BOX (Draggable in 2D!) */}
         <div>
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-gray mb-1.5 flex items-center justify-between">
-            <span>Framing Preview</span>
+            <span>Framing Preview (Drag Box)</span>
             <span className="text-signal-orange text-[9px] font-mono font-bold">9:16 Crop</span>
           </div>
 
-          <div className="relative w-full h-28 bg-black rounded-2xl overflow-hidden border border-border-cream flex items-center justify-center shadow-inner">
+          <div
+            ref={previewBoxRef}
+            onMouseDown={handleMiniBoxDrag}
+            onTouchStart={handleMiniBoxDrag}
+            className="relative w-full h-28 bg-black rounded-2xl overflow-hidden border border-border-cream flex items-center justify-center shadow-inner cursor-move"
+          >
             {videoSrc && (
               <video
                 ref={previewVideoRef}
@@ -165,12 +211,12 @@ export default function CropInspector({
 
             {/* AI 9:16 Focus Box */}
             <div
-              className="absolute border-2 border-signal-orange rounded-lg shadow-sm pointer-events-none flex items-center justify-center"
+              className="absolute border-2 border-signal-orange bg-signal-orange/15 rounded-lg shadow-sm pointer-events-none flex items-center justify-center"
               style={{
-                width: `${(100 / zoomVal) * (9 / 16)}%`,
-                height: `${100 / zoomVal}%`,
-                left: `${Math.max(0, Math.min(100 - (100 / zoomVal) * (9 / 16), xVal - ((100 / zoomVal) * (9 / 16)) / 2))}%`,
-                top: `${Math.max(0, Math.min(100 - 100 / zoomVal, yVal - (100 / zoomVal) / 2))}%`,
+                width: `${(100 / Math.max(1.08, zoomVal)) * (9 / 16)}%`,
+                height: `${100 / Math.max(1.08, zoomVal)}%`,
+                left: `${Math.max(0, Math.min(100 - (100 / Math.max(1.08, zoomVal)) * (9 / 16), ((100 - (100 / Math.max(1.08, zoomVal)) * (9 / 16)) * (xVal / 100))))}%`,
+                top: `${Math.max(0, Math.min(100 - 100 / Math.max(1.08, zoomVal), ((100 - 100 / Math.max(1.08, zoomVal)) * (yVal / 100))))}%`,
               }}
             >
               <div className="w-2.5 h-2.5 rounded-full bg-signal-orange border border-white shadow flex items-center justify-center">
@@ -178,6 +224,20 @@ export default function CropInspector({
               </div>
             </div>
           </div>
+
+          {onOpenStudioEditor && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose?.();
+                onOpenStudioEditor();
+              }}
+              className="w-full mt-2 py-2 px-3 bg-canvas-cream hover:bg-lifted-cream text-ink-black border border-border-cream rounded-full font-extrabold text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer shadow-sm"
+            >
+              <Video className="w-3.5 h-3.5 text-signal-orange" />
+              <span>Open Pro Keyframe & Cut Studio</span>
+            </button>
+          )}
         </div>
 
         {/* MANUAL FRAMING CONTROLS */}

@@ -386,17 +386,26 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def normalize_crop_coord(val: float, key: str = 'x', zoom: float = 1.08) -> float:
     """
-    Direct linear normalization [0.0 to 1.0] matching VideoPlayer.jsx CSS viewport coordinates.
+    Direct linear normalization [0.0 to 100.0] -> [0.0 to 1.0] (or clamped zoom [1.08 to 2.5]).
     Zero artificial warping ensures 100% pixel-perfect match between preview and exported Short.
     """
+    if key == 'zoom':
+        return round(max(1.08, min(2.5, float(val))), 4)
     pct = max(0.0, min(100.0, float(val))) / 100.0
     return round(pct, 4)
 
 
-def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', default_val: float = 50.0, pan_dur: float = 0.0, zoom: float = 1.08) -> str:
+def build_piecewise_crop_expr(
+    keyframes: List[Dict[str, Any]],
+    key: str = 'x',
+    default_val: float = 50.0,
+    pan_dur: float = 0.0,
+    zoom: float = 1.08,
+) -> str:
     """
-    Constructs an FFmpeg piecewise step expression for clean, broadcast-grade camera cuts.
-    Holds rock-solid on each speaker without shaky panning across background walls.
+    Constructs an FFmpeg piecewise expression for camera cuts AND smooth keyframe transitions.
+    Supports per-keyframe easing ('linear'/'smooth' glides from prev keyframe to curr keyframe;
+    'cut' snaps crisply; omitted easing uses pan_dur if > 0).
     """
     if not keyframes:
         return f"{normalize_crop_coord(default_val, key, zoom)}"
@@ -411,12 +420,19 @@ def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', d
     for i in range(len(kfs) - 1, 0, -1):
         prev_k = kfs[i - 1]
         curr_k = kfs[i]
-        t_switch = round(float(curr_k.get('time', 0.0)), 2)
+        t_prev = round(float(prev_k.get('time', 0.0)), 3)
+        t_switch = round(float(curr_k.get('time', 0.0)), 3)
         v_prev = normalize_crop_coord(prev_k.get(key, default_val), key, zoom)
         v_curr = normalize_crop_coord(curr_k.get(key, default_val), key, zoom)
+        kf_easing = str(curr_k.get('easing', '') or '').lower()
 
-        if pan_dur > 0.0:
-            t_end = round(t_switch + pan_dur, 2)
+        if kf_easing in ('linear', 'smooth') and t_switch > t_prev + 0.04 and abs(v_curr - v_prev) > 0.0005:
+            span = round(t_switch - t_prev, 3)
+            diff = round(v_curr - v_prev, 4)
+            lerp_expr = f"{v_prev}+({diff})*max(0,min(1,(t-{t_prev})/{span}))"
+            expr = f"if(lt(t,{t_switch}),{lerp_expr},{expr})"
+        elif kf_easing != 'cut' and pan_dur > 0.0 and abs(v_curr - v_prev) > 0.0005:
+            t_end = round(t_switch + pan_dur, 3)
             diff = round(v_curr - v_prev, 4)
             lerp_expr = f"{v_prev}+({diff})*(t-{t_switch})/{pan_dur}"
             expr = f"if(lt(t,{t_switch}),{v_prev},if(lt(t,{t_end}),{lerp_expr},{expr}))"
@@ -425,12 +441,74 @@ def build_piecewise_crop_expr(keyframes: List[Dict[str, Any]], key: str = 'x', d
 
     return expr
 
+
+def _probe_has_audio(video_path: str) -> bool:
+    """Checks via ffprobe whether source video contains an audio stream."""
+    try:
+        out = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=index', '-of', 'csv=p=0', video_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return bool(out.stdout.strip())
+    except Exception:
+        return True
+
+
+def _build_atempo_filters(speed: float) -> List[str]:
+    """Builds chained FFmpeg atempo filters supporting speeds from 0.25x to 4.0x."""
+    spd = max(0.25, min(4.0, float(speed or 1.0)))
+    if abs(spd - 1.0) < 0.01:
+        return []
+    filters = []
+    while spd > 2.0:
+        filters.append("atempo=2.0")
+        spd /= 2.0
+    while spd < 0.5:
+        filters.append("atempo=0.5")
+        spd /= 0.5
+    if abs(spd - 1.0) >= 0.005:
+        filters.append(f"atempo={spd:.4f}")
+    return filters
+
+
+def _build_visual_adjustments_chain(adjustments: Dict[str, Any]) -> str:
+    """Builds FFmpeg visual transforms and color grading chain (flip, rotate, eq, unsharp)."""
+    if not adjustments:
+        return ""
+    parts = []
+    if adjustments.get('flipH'):
+        parts.append("hflip")
+    rot = int(adjustments.get('rotate', 0) or 0) % 360
+    if rot == 90:
+        parts.append("transpose=1")
+    elif rot == 180:
+        parts.append("transpose=1,transpose=1")
+    elif rot == 270:
+        parts.append("transpose=2")
+
+    brightness = max(-0.5, min(0.5, float(adjustments.get('brightness', 0.0) or 0.0)))
+    contrast = max(0.4, min(2.0, float(adjustments.get('contrast', 1.0) or 1.0)))
+    saturation = max(0.0, min(2.2, float(adjustments.get('saturation', 1.0) or 1.0)))
+    if abs(brightness) > 0.01 or abs(contrast - 1.0) > 0.01 or abs(saturation - 1.0) > 0.01:
+        parts.append(f"eq=brightness={brightness:.3f}:contrast={contrast:.3f}:saturation={saturation:.3f}")
+
+    sharpen = max(0.0, min(2.0, float(adjustments.get('sharpen', 0.0) or 0.0)))
+    if sharpen > 0.02:
+        amount = round(sharpen * 1.25, 2)
+        parts.append(f"unsharp=5:5:{amount:.2f}:5:5:0.0")
+
+    return ("," + ",".join(parts)) if parts else ""
+
+
 def compute_clip_render_hash(clip, mode: str = 'captioned') -> str:
     """
     Computes a deterministic SHA-256 signature representing all visual, timing,
-    framing, captioning, and credit parameters that affect the rendered output.
+    framing, captioning, studio editor edits, and credit parameters.
     Used for instant zero-latency caching: avoids re-rendering if nothing changed.
     """
+    editor_data = getattr(clip, 'editor_data', None) or {}
     components = [
         str(round(float(clip.start_time), 3)),
         str(round(float(clip.end_time), 3)),
@@ -439,6 +517,7 @@ def compute_clip_render_hash(clip, mode: str = 'captioned') -> str:
         str(round(float(clip.crop_y), 2)),
         str(round(float(clip.crop_zoom), 2)),
         json.dumps(clip.crop_keyframes or [], sort_keys=True),
+        json.dumps(editor_data, sort_keys=True),
         str(getattr(clip.project, 'channel_name', '') or ''),
         mode,
     ]
@@ -481,16 +560,59 @@ def render_shorts_clip(
     caption_style: Dict[str, Any] = None,
     segments: List[Dict[str, Any]] = None,
     progress_callback = None,
-    channel_name: str = ""
+    channel_name: str = "",
+    editor_data: Dict[str, Any] = None,
 ) -> str:
     """
     Renders a vertical 9:16 (1080x1920) YouTube Short using FFmpeg with:
-    1. Smart blur-fill or custom cropped 9:16 framing (100% 1:1 match to web preview)
-    2. Professional ASS subtitle burn-in
-    3. Broadcast audio normalization (loudnorm)
+    1. Multi-segment timeline cuts/splits/speeds from CapCut Studio (editor_data.segments)
+    2. Keyframed 9:16 smart framing including per-keyframe zoom, smooth easing & drag coordinates
+    3. Visual adjustments (flip, rotate, brightness/contrast/saturation, sharpen) & audio fades
+    4. Professional ASS subtitle burn-in and broadcast loudnorm audio
     """
     os.makedirs(os.path.dirname(output_mp4_path), exist_ok=True)
-    duration = max(1.0, clip_end - clip_start)
+    ed = editor_data if isinstance(editor_data, dict) else {}
+
+    # Normalize custom timeline segments (from CapCut Studio split/delete/speed) if present
+    raw_ed_segments = ed.get('segments') if isinstance(ed.get('segments'), list) else []
+    timeline_segs = []
+    for seg in raw_ed_segments:
+        if not isinstance(seg, dict):
+            continue
+        s_val = float(seg.get('start', clip_start))
+        e_val = float(seg.get('end', clip_end))
+        if e_val - s_val >= 0.15:
+            timeline_segs.append({
+                'start': s_val,
+                'end': e_val,
+                'speed': max(0.25, min(3.0, float(seg.get('speed', 1.0) or 1.0))),
+                'volume': max(0.0, min(2.0, float(seg.get('volume', 1.0) if seg.get('volume') is not None else 1.0))),
+                'muted': bool(seg.get('muted', False)),
+            })
+
+    if not timeline_segs:
+        timeline_segs = [{
+            'start': float(clip_start),
+            'end': float(clip_end),
+            'speed': max(0.25, min(3.0, float(ed.get('globalSpeed', 1.0) or 1.0))),
+            'volume': max(0.0, min(2.0, float(ed.get('globalVolume', 1.0) if ed.get('globalVolume') is not None else 1.0))),
+            'muted': bool(ed.get('globalMuted', False)),
+        }]
+
+    has_custom_segments = (
+        len(timeline_segs) > 1
+        or abs(timeline_segs[0]['speed'] - 1.0) > 0.01
+        or timeline_segs[0]['muted']
+        or abs(timeline_segs[0]['volume'] - 1.0) > 0.02
+        or abs(timeline_segs[0]['start'] - float(clip_start)) > 0.05
+        or abs(timeline_segs[0]['end'] - float(clip_end)) > 0.05
+    )
+
+    seek_start = min(s['start'] for s in timeline_segs)
+    seek_end = max(s['end'] for s in timeline_segs)
+    seek_span = max(0.5, seek_end - seek_start)
+    edited_duration = sum((s['end'] - s['start']) / s['speed'] for s in timeline_segs)
+    duration = max(0.5, edited_duration)
 
     # Subtitle and Top-Right Credit Watermark preparation
     ass_path = output_mp4_path.replace('.mp4', '.ass')
@@ -503,77 +625,132 @@ def render_shorts_clip(
     rel_ass = ""
 
     if has_overlay_text:
-        generate_ass_subtitle_file(active_segments, clip_start, clip_end, ass_path, caption_style or {}, channel_name=channel_name)
+        generate_ass_subtitle_file(active_segments, seek_start, seek_start + duration, ass_path, caption_style or {}, channel_name=channel_name)
         try:
             rel_ass = os.path.relpath(ass_path, os.getcwd()).replace(chr(92), '/')
         except Exception:
             rel_ass = ass_path.replace(chr(92), '/')
         subtitles_filter = f",subtitles=filename='{rel_ass}'"
 
-    use_filter_complex = False
+    # Build framing expression (uniform zoom fast path vs dynamic per-keyframe zoom path)
+    effective_zoom = max(1.08, min(2.5, float(crop_zoom or 1.15)))
+    kfs_clean = [dict(k) for k in (crop_keyframes or []) if isinstance(k, dict)]
 
-    # Construct video filter graph: Dedicated 9:16 Portrait Shorts (1080x1920) matching main player
-    if crop_mode == 'center_crop' or crop_mode == 'custom_crop':
-        effective_zoom = max(1.08, min(2.5, float(crop_zoom)))
-        if crop_keyframes and len(crop_keyframes) > 0:
-            for kf in crop_keyframes:
-                kf['zoom'] = effective_zoom
-            is_split, split_vf = build_ffmpeg_split_filter(
-                crop_keyframes, crop_x, crop_y, effective_zoom, duration, subtitles_filter=subtitles_filter
-            )
-            if is_split:
-                use_filter_complex = True
-                vf = split_vf
+    if crop_mode in ('center_crop', 'custom_crop', 'manual_crop'):
+        if kfs_clean:
+            smooth_pan_default = 0.24 if (ed.get('smoothPan', len(kfs_clean) <= 14)) else 0.0
+            expr_x = build_piecewise_crop_expr(kfs_clean, key='x', default_val=crop_x, pan_dur=smooth_pan_default, zoom=effective_zoom)
+            expr_y = build_piecewise_crop_expr(kfs_clean, key='y', default_val=crop_y, pan_dur=smooth_pan_default, zoom=effective_zoom)
+            z_vals = [normalize_crop_coord(k.get('zoom', effective_zoom), 'zoom', effective_zoom) for k in kfs_clean]
+            has_dynamic_zoom = (max(z_vals) - min(z_vals)) > 0.02
+            if has_dynamic_zoom:
+                expr_z = build_piecewise_crop_expr(kfs_clean, key='zoom', default_val=effective_zoom, pan_dur=smooth_pan_default, zoom=effective_zoom)
+                framing_chain = (
+                    f"scale=w='trunc(iw*(1920/ih)*({expr_z})/2)*2':h='trunc(1920*({expr_z})/2)*2':eval=frame,"
+                    f"crop=w=1080:h=1920:x='(iw-1080)*({expr_x})':y='(ih-1920)*({expr_y})',setsar=1"
+                )
             else:
-                smooth_pan = 0.24 if len(crop_keyframes) <= 14 else 0.0
-                expr_x = build_piecewise_crop_expr(crop_keyframes, key='x', default_val=crop_x, pan_dur=smooth_pan, zoom=effective_zoom)
-                expr_y = build_piecewise_crop_expr(crop_keyframes, key='y', default_val=crop_y, pan_dur=smooth_pan, zoom=effective_zoom)
-                vf = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920{subtitles_filter}"
+                z_const = z_vals[0]
+                framing_chain = (
+                    f"crop=w='ih*(9/16)/{z_const:.4f}':h='ih/{z_const:.4f}':"
+                    f"x='(iw-ow)*({expr_x})':y='(ih-oh)*({expr_y})',scale=1080:1920,setsar=1"
+                )
         else:
             cx = max(0.0, min(100.0, float(crop_x))) / 100.0
             cy = max(0.0, min(100.0, float(crop_y))) / 100.0
-            vf = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*{cx:.4f}':y='(ih-oh)*{cy:.4f}',scale=1080:1920{subtitles_filter}"
+            framing_chain = f"crop=w='ih*(9/16)/{effective_zoom:.4f}':h='ih/{effective_zoom:.4f}':x='(iw-ow)*{cx:.4f}':y='(ih-oh)*{cy:.4f}',scale=1080:1920,setsar=1"
     else:
-        # Blurred Background Fill mode
-        vf = (
-            f"[0:v]split=2[bg][fg];"
-            f"[bg]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=12:1,scale=1080:1920[blurred];"
-            f"[fg]scale=1080:-1[scaled_fg];"
-            f"[blurred][scaled_fg]overlay=(W-w)/2:(H-h)/2{subtitles_filter}[outv]"
-        )
+        framing_chain = None
 
-    # Audio filter: audio loudness normalization
-    af = "loudnorm=I=-14:LRA=7:tp=-1.5"
+    adjustments_chain = _build_visual_adjustments_chain(ed.get('adjustments') or {})
+    has_audio = _probe_has_audio(source_video_path)
 
-    # Ultra-Fast Seeking: -ss and -t before -i for instantaneous 10ms keyframe seek with make_zero ts
+    # Audio post-processing: fade in/out + broadcast loudness normalization (or silence if all muted)
+    fade_in = max(0.0, min(3.0, float(ed.get('fadeIn', 0.0) or 0.0)))
+    fade_out = max(0.0, min(3.0, float(ed.get('fadeOut', 0.0) or 0.0)))
+    af_parts = []
+    if fade_in > 0.02:
+        af_parts.append(f"afade=t=in:st=0:d={fade_in:.2f}")
+    if fade_out > 0.02 and duration > fade_out + 0.1:
+        af_parts.append(f"afade=t=out:st={max(0.0, duration - fade_out):.2f}:d={fade_out:.2f}")
+    af_parts.append("loudnorm=I=-14:LRA=7:tp=-1.5")
+    af = ",".join(af_parts)
+
     cmd = [
         'ffmpeg',
         '-y',
-        '-ss', f"{clip_start:.3f}",
-        '-t', f"{duration:.3f}",
+        '-ss', f"{seek_start:.3f}",
+        '-t', f"{seek_span:.3f}",
         '-avoid_negative_ts', 'make_zero',
         '-i', source_video_path,
     ]
 
-    if (crop_mode == 'center_crop' or crop_mode == 'custom_crop') and not use_filter_complex:
-        cmd += ['-vf', vf]
+    if has_custom_segments:
+        fc_parts = []
+        concat_inputs = []
+        for idx, seg in enumerate(timeline_segs):
+            rs = max(0.0, seg['start'] - seek_start)
+            re_t = max(rs + 0.1, seg['end'] - seek_start)
+            spd = seg['speed']
+            fc_parts.append(f"[0:v]trim=start={rs:.3f}:end={re_t:.3f},setpts=(PTS-STARTPTS)/{spd:.4f}[sv{idx}]")
+            concat_inputs.append(f"[sv{idx}]")
+            if has_audio:
+                vol = 0.0 if seg['muted'] else seg['volume']
+                a_chain = [f"atrim=start={rs:.3f}:end={re_t:.3f}", "asetpts=PTS-STARTPTS"]
+                a_chain.extend(_build_atempo_filters(spd))
+                if abs(vol - 1.0) > 0.01:
+                    a_chain.append(f"volume={vol:.3f}")
+                fc_parts.append(f"[0:a]{','.join(a_chain)}[sa{idx}]")
+                concat_inputs.append(f"[sa{idx}]")
+
+        a_flag = 1 if has_audio else 0
+        concat_out = "[basev][basea]" if has_audio else "[basev]"
+        fc_parts.append(f"{''.join(concat_inputs)}concat=n={len(timeline_segs)}:v=1:a={a_flag}{concat_out}")
+
+        if framing_chain is not None:
+            fc_parts.append(f"[basev]{framing_chain}{adjustments_chain}{subtitles_filter}[outv]")
+        else:
+            fc_parts.append(
+                f"[basev]split=2[bg][fg];"
+                f"[bg]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=12:1,scale=1080:1920[blurred];"
+                f"[fg]scale=1080:-1[scaled_fg];"
+                f"[blurred][scaled_fg]overlay=(W-w)/2:(H-h)/2{adjustments_chain}{subtitles_filter}[outv]"
+            )
+
+        if has_audio:
+            fc_parts.append(f"[basea]{af}[outa]")
+            cmd += ['-filter_complex', ';'.join(fc_parts), '-map', '[outv]', '-map', '[outa]']
+        else:
+            cmd += ['-filter_complex', ';'.join(fc_parts), '-map', '[outv]']
     else:
-        cmd += ['-filter_complex', vf, '-map', '[outv]', '-map', '0:a?']
+        if framing_chain is not None:
+            vf = f"{framing_chain}{adjustments_chain}{subtitles_filter}"
+            cmd += ['-vf', vf]
+        else:
+            vf = (
+                f"[0:v]split=2[bg][fg];"
+                f"[bg]scale=360:640:force_original_aspect_ratio=increase,crop=360:640,boxblur=12:1,scale=1080:1920[blurred];"
+                f"[fg]scale=1080:-1[scaled_fg];"
+                f"[blurred][scaled_fg]overlay=(W-w)/2:(H-h)/2{adjustments_chain}{subtitles_filter}[outv]"
+            )
+            cmd += ['-filter_complex', vf, '-map', '[outv]']
+            if has_audio:
+                cmd += ['-map', '0:a?']
+        if has_audio:
+            cmd += ['-af', af]
 
     # Hardware Acceleration: Multi-Platform (NVIDIA NVENC, Intel QSV, Apple VideoToolbox, or CPU libx264)
     enc_name, v_codec_args = get_hardware_encoder()
 
     # Output parameters with Constant Frame Rate (CFR 30fps) to eliminate playback stutter
     cmd += [
-        '-af', af,
         *v_codec_args,
         '-r', '30',
         '-vsync', 'cfr',
-        '-c:a', 'aac',
-        '-b:a', '192k',
-        '-movflags', '+faststart',
-        output_mp4_path
     ]
+    if has_audio:
+        cmd += ['-c:a', 'aac', '-b:a', '192k']
+    cmd += ['-movflags', '+faststart', output_mp4_path]
 
     safe_cmd = ' '.join(str(c) for c in cmd).encode('ascii', errors='replace').decode('ascii')
     print(f"[render_shorts_clip] Executing FFmpeg ({enc_name}): {safe_cmd}")
@@ -616,6 +793,6 @@ def render_shorts_clip(
             pass
 
     import gc
-    del cmd, vf
+    del cmd
     gc.collect()
     return output_mp4_path

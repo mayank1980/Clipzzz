@@ -53,6 +53,7 @@ export default function VideoPlayer({
   onToggleCropInspector,
   onAutoTrack,
   onUpdateChannelName,
+  onOpenStudioEditor,
   playbackRate: externalPlaybackRate,
   onChangePlaybackRate,
 }) {
@@ -157,6 +158,9 @@ export default function VideoPlayer({
   const [isAutoTracking, setIsAutoTracking] = useState(false);
   const [isVideoError, setIsVideoError] = useState(false);
   const [srcAspect, setSrcAspect] = useState(16 / 9);
+  const [isDraggingFrame, setIsDraggingFrame] = useState(false);
+  const [dragFrameCoords, setDragFrameCoords] = useState(null);
+  const suppressNextClickRef = useRef(false);
 
   useEffect(() => {
     setIsVideoError(false);
@@ -616,7 +620,7 @@ export default function VideoPlayer({
     } else {
       let curIdx = 0;
       for (let i = 0; i < keyframes.length; i++) {
-        if (keyframes[i].time <= clipCurrentTime) {
+        if ((keyframes[i].time || 0) <= clipCurrentTime) {
           curIdx = i;
         } else {
           break;
@@ -624,10 +628,25 @@ export default function VideoPlayer({
       }
 
       activeKf = keyframes[curIdx];
-      // Clean, instantaneous broadcast cuts on speaker turns & multi-person splits
-      activeCropX = activeKf.x;
-      activeCropY = activeKf.y;
-      activeCropZoom = activeKf.zoom || 1.0;
+      const nextKf = keyframes[curIdx + 1];
+      if (
+        nextKf &&
+        (nextKf.easing === 'linear' || nextKf.easing === 'smooth') &&
+        (nextKf.time || 0) > (activeKf.time || 0) + 0.04
+      ) {
+        const t0 = activeKf.time || 0;
+        const t1 = nextKf.time || t0 + 0.1;
+        const frac = Math.max(0, Math.min(1, (clipCurrentTime - t0) / (t1 - t0)));
+        activeCropX = Number(activeKf.x ?? 50) + (Number(nextKf.x ?? 50) - Number(activeKf.x ?? 50)) * frac;
+        activeCropY = Number(activeKf.y ?? 45) + (Number(nextKf.y ?? 45) - Number(activeKf.y ?? 45)) * frac;
+        const z0 = Number(activeKf.zoom ?? activeCropZoom ?? 1.15);
+        const z1 = Number(nextKf.zoom ?? z0);
+        activeCropZoom = z0 + (z1 - z0) * frac;
+      } else {
+        activeCropX = activeKf.x;
+        activeCropY = activeKf.y;
+        activeCropZoom = activeKf.zoom || 1.0;
+      }
       activeSpeakerLabel = activeKf.speaker || 'Speaker Focus';
     }
   } else {
@@ -638,7 +657,6 @@ export default function VideoPlayer({
   }
 
   const cropMode = cropSettings?.mode || 'custom_crop';
-  // Allow automated letterbox-removal zoom from keyframes to override default 1.15 unless manually customized
   const settingZoom = Number(cropSettings?.zoom ?? activeCropZoom) || 1.15;
   const kfZoom = Number(activeCropZoom || 1.15);
   const zoom = Math.max(
@@ -646,12 +664,83 @@ export default function VideoPlayer({
     Math.min(2.5, cropMode === 'manual_crop' ? settingZoom : Math.max(settingZoom, kfZoom))
   );
   const effectiveZoom = Math.max(1.08, zoom);
-  const cropX = Math.max(0.0, Math.min(100.0, activeCropX));
-  const cropY = Math.max(0.0, Math.min(100.0, activeCropY));
+  const cropX = Math.max(0.0, Math.min(100.0, dragFrameCoords ? dragFrameCoords.x : activeCropX));
+  const cropY = Math.max(0.0, Math.min(100.0, dragFrameCoords ? dragFrameCoords.y : activeCropY));
   const widthRatio = Math.max(1.0, (srcAspect || (16 / 9)) / (9 / 16));
   if (activeSpeakerLabel && /split|grid/i.test(activeSpeakerLabel)) {
     activeSpeakerLabel = 'Active Speaker';
   }
+
+  // Live Studio CSS visual adjustments (flipH, rotate, brightness/contrast/saturate) matched 1:1 to FFmpeg
+  const edAdj = selectedClip?.editor_data?.adjustments || {};
+  const previewFilterStr = `brightness(${(1 + Number(edAdj.brightness || 0)).toFixed(2)}) contrast(${Number(edAdj.contrast ?? 1).toFixed(2)}) saturate(${Number(edAdj.saturation ?? 1).toFixed(2)})`;
+  const previewTransformStr = `${edAdj.flipH ? 'scaleX(-1)' : ''} ${edAdj.rotate ? `rotate(${Number(edAdj.rotate)}deg)` : ''}`.trim() || undefined;
+
+  const startFramePanDrag = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    if (!phoneContainerRef.current || !selectedClip) return;
+
+    const startClientX = e.clientX ?? e.touches?.[0]?.clientX;
+    const startClientY = e.clientY ?? e.touches?.[0]?.clientY;
+    if (startClientX === undefined || startClientY === undefined) return;
+
+    const rect = phoneContainerRef.current.getBoundingClientRect();
+    const startCropX = cropX;
+    const startCropY = cropY;
+    const overflowX = Math.max(40, rect.width * Math.max(0.15, widthRatio * effectiveZoom - 1));
+    const overflowY = Math.max(28, rect.height * Math.max(0.08, effectiveZoom - 1));
+    let hasMoved = false;
+    let latestX = startCropX;
+    let latestY = startCropY;
+
+    const onMove = (moveEvt) => {
+      const cx = moveEvt.clientX ?? moveEvt.touches?.[0]?.clientX;
+      const cy = moveEvt.clientY ?? moveEvt.touches?.[0]?.clientY;
+      if (cx === undefined || cy === undefined) return;
+      const dx = cx - startClientX;
+      const dy = cy - startClientY;
+      if (!hasMoved && Math.hypot(dx, dy) < 5) return;
+
+      if (!hasMoved) {
+        hasMoved = true;
+        suppressNextClickRef.current = true;
+        setIsDraggingFrame(true);
+      }
+
+      const rawNextX = startCropX - (dx / overflowX) * 100;
+      const rawNextY = startCropY - (dy / overflowY) * 100;
+      latestX = Math.max(0, Math.min(100, Math.round(rawNextX * 10) / 10));
+      latestY = Math.max(0, Math.min(100, Math.round(rawNextY * 10) / 10));
+      setDragFrameCoords({ x: latestX, y: latestY });
+    };
+
+    const onEnd = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
+      setIsDraggingFrame(false);
+      setDragFrameCoords(null);
+      if (hasMoved) {
+        onChangeCrop?.({
+          x: latestX,
+          y: latestY,
+          zoom: effectiveZoom,
+          mode: 'custom_crop',
+          atTime: clipCurrentTime,
+          updateSegmentOnly: true,
+        });
+        setTimeout(() => {
+          suppressNextClickRef.current = false;
+        }, 60);
+      }
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onMove, { passive: true });
+    window.addEventListener('touchend', onEnd);
+  };
 
   // Format words with all 26 captions.js animations and seamless highlight transitions
   const renderSubtitleWords = () => {
@@ -988,11 +1077,17 @@ export default function VideoPlayer({
   return (
     <div className="flex flex-col items-center w-full h-full px-4 py-4 overflow-y-auto min-h-0">
       {/* 9:16 PORTRAIT SHORTS LAYOUT: PHONE ON LEFT, TIMELINE DECK ON RIGHT */}
-      <div className="flex flex-row items-center justify-center gap-5 w-full max-w-4xl py-2 my-auto">
-          {/* Phone Frame Container: Clean bezels, proportional height */}
+        <div className="flex flex-row items-center justify-center gap-5 w-full max-w-4xl py-2 my-auto">
+          {/* Phone Frame Container: Drag anywhere directly to reframe L/R/U/D; click toggles play */}
+          <div className="flex flex-col items-center gap-2 shrink-0">
           <div
             ref={phoneContainerRef}
-            className="relative aspect-[9/16] h-[450px] sm:h-[480px] max-h-[68vh] bg-black rounded-[36px] overflow-hidden shadow-card-elevated border-4 border-charcoal flex items-center justify-center shrink-0"
+            onMouseDown={startFramePanDrag}
+            onTouchStart={startFramePanDrag}
+            className={`relative aspect-[9/16] h-[450px] sm:h-[480px] max-h-[68vh] bg-black rounded-[36px] overflow-hidden shadow-card-elevated border-4 flex items-center justify-center shrink-0 select-none ${
+              isDraggingFrame ? 'border-signal-orange cursor-grabbing' : 'border-charcoal cursor-grab'
+            }`}
+            title="Drag left/right/up/down to reposition video frame • Click to Play/Pause"
           >
             {/* Blurred Background Mode */}
             {cropMode === 'blur_fill' && (
@@ -1023,7 +1118,10 @@ export default function VideoPlayer({
                   ref={videoRef}
                   src={videoSrc}
                   preload="auto"
-                  onClick={togglePlay}
+                  onClick={() => {
+                    if (suppressNextClickRef.current) return;
+                    togglePlay();
+                  }}
                   onError={() => setIsVideoError(true)}
                   onPlay={() => {
                     setIsPlaying(true);
@@ -1037,7 +1135,7 @@ export default function VideoPlayer({
                   }}
                   onTimeUpdate={handleTimeUpdate}
                   onLoadedMetadata={handleLoadedMetadata}
-                  className={`cursor-pointer ${
+                  className={` ${
                     cropMode === 'blur_fill'
                       ? 'relative z-10 w-full object-contain'
                       : 'absolute z-10 max-w-none max-h-none pointer-events-auto'
@@ -1050,14 +1148,34 @@ export default function VideoPlayer({
                           left: `${(-((widthRatio * effectiveZoom - 1) * (cropX / 100)) * 100).toFixed(2)}%`,
                           top: `${(-((effectiveZoom - 1) * (cropY / 100)) * 100).toFixed(2)}%`,
                           objectFit: 'fill',
-                          transition: 'left 300ms cubic-bezier(0.22, 1, 0.36, 1), top 300ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms cubic-bezier(0.22, 1, 0.36, 1), height 260ms cubic-bezier(0.22, 1, 0.36, 1)',
+                          filter: previewFilterStr,
+                          transform: previewTransformStr,
+                          transition: isDraggingFrame
+                            ? 'none'
+                            : 'left 300ms cubic-bezier(0.22, 1, 0.36, 1), top 300ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms cubic-bezier(0.22, 1, 0.36, 1), height 260ms cubic-bezier(0.22, 1, 0.36, 1)',
                         }
-                      : {}
+                      : { filter: previewFilterStr, transform: previewTransformStr }
                   }
                   playsInline
                 />
               </div>
             </div>
+
+            {/* Live Rule-of-Thirds & Coordinates HUD while dragging frame */}
+            {isDraggingFrame && (
+              <div className="absolute inset-0 z-30 pointer-events-none flex items-center justify-center">
+                <div className="absolute inset-x-0 top-1/3 border-t border-white/40" />
+                <div className="absolute inset-x-0 top-2/3 border-t border-white/40" />
+                <div className="absolute inset-y-0 left-1/3 border-l border-white/40" />
+                <div className="absolute inset-y-0 left-2/3 border-l border-white/40" />
+                <div className="bg-ink-black/90 text-white border border-signal-orange px-3 py-1.5 rounded-full font-mono text-[11px] font-bold shadow-lg flex items-center gap-2">
+                  <Move className="w-3.5 h-3.5 text-signal-orange" />
+                  <span>X: {cropX.toFixed(0)}%</span>
+                  <span className="text-white/40">|</span>
+                  <span>Y: {cropY.toFixed(0)}%</span>
+                </div>
+              </div>
+            )}
 
             {/* Video Load Error / Connecting Fallback */}
             {isVideoError && (
@@ -1085,6 +1203,61 @@ export default function VideoPlayer({
                 </div>
               )}
             </div>
+
+            {/* Bottom Subtle Drag Hint + Position Pill inside Preview */}
+            <div className="absolute bottom-3 left-3 right-3 z-20 pointer-events-none flex items-center justify-between text-[9px] font-bold">
+              <div className="bg-black/65 backdrop-blur-sm text-white/90 px-2.5 py-1 rounded-full flex items-center gap-1 border border-white/15">
+                <Move className="w-3 h-3 text-light-orange" />
+                <span>Drag L/R/U/D to Reframe</span>
+              </div>
+              <div className="bg-black/65 backdrop-blur-sm text-white/85 font-mono px-2 py-1 rounded-full border border-white/15">
+                {Math.round(cropX)}%,{Math.round(cropY)}%
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Preview Reframe Micro-Bar + Open Full CapCut Studio CTA */}
+          {selectedClip && (
+            <div className="flex items-center justify-between gap-1.5 w-full max-w-[280px] bg-white border border-border-cream rounded-full px-2.5 py-1.5 shadow-sm">
+              <div className="flex items-center gap-0.5 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => onChangeCrop?.({ x: Math.max(0, cropX - 5), y: cropY, zoom: effectiveZoom, mode: 'custom_crop', atTime: clipCurrentTime, updateSegmentOnly: true })}
+                  className="px-1.5 py-1 rounded-full hover:bg-canvas-cream text-charcoal font-bold cursor-pointer"
+                  title="Move frame left"
+                >←</button>
+                <button
+                  type="button"
+                  onClick={() => onChangeCrop?.({ x: cropX, y: Math.max(0, cropY - 8), zoom: effectiveZoom, mode: 'custom_crop', atTime: clipCurrentTime, updateSegmentOnly: true })}
+                  className="px-1.5 py-1 rounded-full hover:bg-canvas-cream text-charcoal font-bold cursor-pointer"
+                  title="Move frame up"
+                >↑</button>
+                <button
+                  type="button"
+                  onClick={() => onChangeCrop?.({ x: cropX, y: Math.min(100, cropY + 8), zoom: effectiveZoom, mode: 'custom_crop', atTime: clipCurrentTime, updateSegmentOnly: true })}
+                  className="px-1.5 py-1 rounded-full hover:bg-canvas-cream text-charcoal font-bold cursor-pointer"
+                  title="Move frame down"
+                >↓</button>
+                <button
+                  type="button"
+                  onClick={() => onChangeCrop?.({ x: Math.min(100, cropX + 5), y: cropY, zoom: effectiveZoom, mode: 'custom_crop', atTime: clipCurrentTime, updateSegmentOnly: true })}
+                  className="px-1.5 py-1 rounded-full hover:bg-canvas-cream text-charcoal font-bold cursor-pointer"
+                  title="Move frame right"
+                >→</button>
+              </div>
+              {onOpenStudioEditor && (
+                <button
+                  type="button"
+                  onClick={onOpenStudioEditor}
+                  className="px-3 py-1 bg-ink-black hover:bg-black text-white text-[10px] font-extrabold rounded-full flex items-center gap-1 transition hover:scale-[1.02] cursor-pointer shadow-sm"
+                  title="Open Full Pro Studio Editor (Keyframes, Cuts, Timeline & Effects)"
+                >
+                  <Film className="w-3 h-3 text-light-orange" />
+                  <span>Pro Studio</span>
+                </button>
+              )}
+            </div>
+          )}
           </div>
 
           {/* DOCKED TIMELINE & CONTROL DECK: Warm Lifted Editorial Style */}

@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { Flame, Clock, Sparkles, Check, Trash2, Plus, ArrowUpDown, ArrowRight } from 'lucide-react';
+import { Flame, Clock, Sparkles, Check, Trash2, Plus, ArrowUpDown, ArrowRight, Scissors } from 'lucide-react';
 
 export default function ClipsList({
   clips,
   selectedClip,
   onSelectClip,
   onRenderClip,
+  onOpenStudio,
   onDeleteClip,
   onDeleteProject,
   onCreateNew,
@@ -122,6 +123,21 @@ export default function ClipsList({
             {formatTime(clip.start_time)} – {formatTime(clip.end_time)}
           </span>
           <div className="flex items-center gap-2">
+            {onOpenStudio && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectClip(clip);
+                  onOpenStudio(clip);
+                }}
+                className="px-2 py-0.5 rounded-full bg-canvas-cream hover:bg-ink-black text-ink-black hover:text-white border border-border-cream font-bold cursor-pointer flex items-center gap-1 transition"
+                title="Open CapCut-style Pro Studio Editor"
+              >
+                <Scissors className="w-2.5 h-2.5 text-signal-orange" />
+                <span>Studio</span>
+              </button>
+            )}
             {isRendered ? (
               <span className="text-ink-black font-bold flex items-center gap-1">
                 <Check className="w-3 h-3 text-signal-orange stroke-[2.5]" /> Ready

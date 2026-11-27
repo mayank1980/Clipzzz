@@ -12,6 +12,7 @@ import CaptionEditDrawer from './components/captions/CaptionEditDrawer';
 import ExportModal from './components/ExportModal';
 import ShortsKitModal from './components/ShortsKitModal';
 import ProjectsModal from './components/ProjectsModal';
+import CapCutStudioEditor from './components/CapCutStudioEditor';
 import { api, API_BASE_URL } from './services/api';
 
 export default function App() {
@@ -24,6 +25,7 @@ export default function App() {
   const [selectedClip, setSelectedClip] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const cropSaveTimerRef = useRef(null);
+  const pendingCropPayloadRef = useRef(null);
   const boundsSaveTimerRef = useRef(null);
   const [aspectRatio, setAspectRatio] = useState('9:16');
   const [isCropInspectorOpen, setIsCropInspectorOpen] = useState(false);
@@ -39,9 +41,14 @@ export default function App() {
   const [editingSegment, setEditingSegment] = useState(null);
   const saveTimeoutRef = useRef(null);
 
-  // Check existing session on mount
+  // Check existing session on mount & listen for same-tab browser Back from Studio page
   useEffect(() => {
     checkAuthSession();
+    const onPopState = () => {
+      setViewMode((prev) => (prev === 'studio' ? 'editor' : prev));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   // If activeProject is loaded in memory without channel_name, auto-fetch from backend
@@ -220,23 +227,43 @@ export default function App() {
 
     // Synchronize manual coordinates into keyframes so both live player and FFmpeg export stay locked
     let newKeyframes;
+    const existingKfs = Array.isArray(selectedClip.crop_keyframes) ? selectedClip.crop_keyframes : [];
     if (partial.keyframes !== undefined) {
       newKeyframes = partial.keyframes;
+    } else if (partial.updateSegmentOnly && existingKfs.length > 0 && (partial.x !== undefined || partial.y !== undefined)) {
+      const targetT = Math.max(0, Number(partial.atTime ?? 0));
+      const sorted = [...existingKfs].sort((a, b) => (a.time || 0) - (b.time || 0));
+      let activeIdx = 0;
+      for (let i = 0; i < sorted.length; i++) {
+        if ((sorted[i].time || 0) <= targetT + 0.05) activeIdx = i;
+        else break;
+      }
+      newKeyframes = sorted.map((kf, idx) =>
+        idx === activeIdx
+          ? { ...kf, x: newX, y: newY, zoom: newZoom, speaker: 'Manual Reframe' }
+          : kf
+      );
     } else if (partial.x !== undefined || partial.y !== undefined) {
       newKeyframes = [{ time: 0, x: newX, y: newY, zoom: newZoom, speaker: 'Manual Focus' }];
-    } else if (partial.zoom !== undefined && Array.isArray(selectedClip.crop_keyframes) && selectedClip.crop_keyframes.length > 0) {
-      newKeyframes = selectedClip.crop_keyframes.map((kf) => ({ ...kf, zoom: newZoom }));
+    } else if (partial.zoom !== undefined && existingKfs.length > 0) {
+      newKeyframes = existingKfs.map((kf) => ({ ...kf, zoom: newZoom }));
     } else {
-      newKeyframes = selectedClip.crop_keyframes || [];
+      newKeyframes = existingKfs;
     }
+
+    const firstKf = Array.isArray(newKeyframes) && newKeyframes.length > 0 ? newKeyframes[0] : null;
+    const rootX = firstKf && partial.updateSegmentOnly ? Number(firstKf.x ?? newX) : newX;
+    const rootY = firstKf && partial.updateSegmentOnly ? Number(firstKf.y ?? newY) : newY;
 
     const updated = {
       ...selectedClip,
-      crop_x: newX,
-      crop_y: newY,
+      crop_x: rootX,
+      crop_y: rootY,
       crop_zoom: newZoom,
       crop_mode: newMode,
       crop_keyframes: newKeyframes,
+      render_status: 'pending',
+      clean_render_status: 'pending',
     };
 
     // 1. Instant optimistic state update for 60 FPS real-time video preview
@@ -246,23 +273,69 @@ export default function App() {
       clips: prev.clips.map((c) => (c.id === updated.id ? updated : c)),
     }));
 
-    // 2. Debounce database persist so rapid slider dragging is fluid and doesn't flood HTTP requests
+    const payload = {
+      crop_x: updated.crop_x,
+      crop_y: updated.crop_y,
+      crop_zoom: updated.crop_zoom,
+      crop_mode: updated.crop_mode,
+      crop_keyframes: updated.crop_keyframes,
+    };
+    pendingCropPayloadRef.current = { clipId: updated.id, payload };
+
+    // 2. Debounce database persist so rapid dragging is fluid and doesn't flood HTTP requests
     if (cropSaveTimerRef.current) {
       clearTimeout(cropSaveTimerRef.current);
     }
     cropSaveTimerRef.current = setTimeout(async () => {
+      const pending = pendingCropPayloadRef.current;
+      pendingCropPayloadRef.current = null;
+      if (!pending) return;
       try {
-        await api.updateClip(updated.id, {
-          crop_x: updated.crop_x,
-          crop_y: updated.crop_y,
-          crop_zoom: updated.crop_zoom,
-          crop_mode: updated.crop_mode,
-          crop_keyframes: updated.crop_keyframes,
-        });
+        await api.updateClip(pending.clipId, pending.payload);
       } catch (err) {
         console.error('Failed to persist crop settings to database', err);
       }
-    }, 300);
+    }, 280);
+  };
+
+  const handleOpenStudio = (clipToOpen) => {
+    const target = clipToOpen || selectedClip;
+    if (!target) return;
+    setSelectedClip(target);
+    setCurrentTime(target.start_time || 0);
+    setIsCropInspectorOpen(false);
+    setViewMode('studio');
+    try {
+      window.history.pushState({ viewMode: 'studio', clipId: target.id }, '', `?studio=${target.id}`);
+    } catch (_) {}
+  };
+
+  const handleCloseStudio = () => {
+    setViewMode('editor');
+    try {
+      if (window.location.search.includes('studio=')) {
+        window.history.replaceState({ viewMode: 'editor' }, '', window.location.pathname);
+      }
+    } catch (_) {}
+  };
+
+  const handleSaveStudioClip = async (clipId, payload) => {
+    if (cropSaveTimerRef.current) {
+      clearTimeout(cropSaveTimerRef.current);
+      cropSaveTimerRef.current = null;
+    }
+    pendingCropPayloadRef.current = null;
+    const saved = await api.updateClip(clipId, payload);
+    setSelectedClip((prev) => (prev?.id === clipId ? saved : prev));
+    setActiveProject((prev) =>
+      prev
+        ? {
+            ...prev,
+            clips: prev.clips.map((c) => (c.id === clipId ? saved : c)),
+          }
+        : prev
+    );
+    return saved;
   };
 
   const handleUpdateChannelName = async (newChannelName) => {
@@ -425,6 +498,21 @@ export default function App() {
   };
 
   const handleOpenExport = async (mode = 'clean', force = false) => {
+    // Flush any pending preview drag / crop updates before triggering backend FFmpeg render
+    if (cropSaveTimerRef.current) {
+      clearTimeout(cropSaveTimerRef.current);
+      cropSaveTimerRef.current = null;
+    }
+    if (pendingCropPayloadRef.current) {
+      const pending = pendingCropPayloadRef.current;
+      pendingCropPayloadRef.current = null;
+      try {
+        await api.updateClip(pending.clipId, pending.payload);
+      } catch (err) {
+        console.warn('[App] Pre-export crop save note:', err);
+      }
+    }
+
     // Immediately persist latest transcript & clip caption styling before starting render
     if (activeProject?.id && activeProject.transcript_raw) {
       try {
@@ -486,6 +574,33 @@ export default function App() {
     return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
 
+  if (viewMode === 'studio' && activeProject && selectedClip) {
+    return (
+      <>
+        <CapCutStudioEditor
+          project={activeProject}
+          clip={selectedClip}
+          videoSrc={videoSrc}
+          onBack={handleCloseStudio}
+          onSaveClip={handleSaveStudioClip}
+          onAutoTrack={handleAutoTrackClip}
+          onOpenExport={(mode = 'clean', force = true) => handleOpenExport(mode, force)}
+        />
+        <ExportModal
+          isOpen={isExportOpen}
+          onClose={() => {
+            setIsExportOpen(false);
+            setExportForce(false);
+          }}
+          clip={selectedClip}
+          initialMode={exportMode}
+          forceRender={exportForce}
+          onRenderComplete={handleRenderComplete}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-canvas-cream text-ink-black overflow-hidden font-sans">
       {/* Top Header */}
@@ -519,6 +634,7 @@ export default function App() {
             selectedClip={selectedClip}
             onSelectClip={handleSelectClip}
             onRenderClip={(clip, mode = 'clean') => handleOpenExport(mode, false)}
+            onOpenStudio={handleOpenStudio}
             onDeleteClip={handleDeleteClip}
             onDeleteProject={handleDeleteCurrentProject}
             onCreateNew={() => setViewMode('wizard')}
@@ -553,6 +669,7 @@ export default function App() {
                 onToggleCropInspector={() => setIsCropInspectorOpen(!isCropInspectorOpen)}
                 onAutoTrack={handleAutoTrackClip}
                 onUpdateChannelName={handleUpdateChannelName}
+                onOpenStudioEditor={() => handleOpenStudio(selectedClip)}
                 playbackRate={playbackRate}
                 onChangePlaybackRate={setPlaybackRate}
               />
@@ -576,6 +693,7 @@ export default function App() {
                     onSeek={handleSeek}
                     videoSrc={videoSrc}
                     onAutoTrack={handleAutoTrackClip}
+                    onOpenStudioEditor={() => handleOpenStudio(selectedClip)}
                   />
                 </div>
               )}

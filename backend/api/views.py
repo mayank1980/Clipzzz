@@ -354,10 +354,14 @@ class VideoClipViewSet(viewsets.ModelViewSet):
         clip = self.get_object()
         prev_start = clip.start_time
         prev_end = clip.end_time
+        invalidate_render = any(
+            k in request.data
+            for k in ('start_time', 'end_time', 'crop_mode', 'crop_x', 'crop_y', 'crop_zoom', 'crop_keyframes', 'editor_data', 'caption_style')
+        )
         serializer = ClipUpdateSerializer(clip, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            if clip.start_time != prev_start or clip.end_time != prev_end:
+            if clip.start_time != prev_start or clip.end_time != prev_end or invalidate_render:
                 clip.duration = max(1.0, round(float(clip.end_time) - float(clip.start_time), 1))
                 clip.render_status = 'pending'
                 clip.clean_render_status = 'pending'
@@ -524,6 +528,7 @@ class VideoClipViewSet(viewsets.ModelViewSet):
 
                     from .services.upload_kit import extract_channel_credit
                     channel_name = getattr(clip.project, 'channel_name', '') or extract_channel_credit(clip.project.title)
+                    editor_data = getattr(clip, 'editor_data', None) or {}
                     render_shorts_clip(
                         source_video_path=clip.project.video_file.path,
                         clip_start=clip.start_time,
@@ -536,7 +541,8 @@ class VideoClipViewSet(viewsets.ModelViewSet):
                         crop_keyframes=crop_kfs,
                         caption_style=clip.caption_style,
                         segments=clip.project.transcript_raw,
-                        channel_name=channel_name
+                        channel_name=(channel_name if editor_data.get('showCredit', True) else ""),
+                        editor_data=editor_data,
                     )
                     clip.rendered_file.name = f"rendered_clips/{out_name}"
                     clip.render_status = 'completed'
@@ -656,7 +662,8 @@ class VideoClipViewSet(viewsets.ModelViewSet):
                         crop_keyframes=clip.crop_keyframes,
                         caption_style=clean_style,
                         segments=None,
-                        channel_name=""
+                        channel_name="",
+                        editor_data=getattr(clip, 'editor_data', None) or {},
                     )
                     rel_name = f"rendered_clips/clean/{out_name}"
                     clip.rendered_clean_file.name = rel_name

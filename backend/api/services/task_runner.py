@@ -772,12 +772,15 @@ def _run_clip_render(clip_id: str, clean: bool = False):
             except Exception as fe:
                 print(f"[_run_clip_render] On-demand neural tracking notice: {fe}")
 
-        # Ensure all keyframes respect the user's selected zoom/resizing
+        # Preserve per-keyframe zoom when present; default missing values to user_zoom
         for kf in crop_kfs:
-            kf['zoom'] = user_zoom
+            if isinstance(kf, dict) and (kf.get('zoom') is None or not is_user_customized):
+                kf['zoom'] = user_zoom if not is_user_customized else kf.get('zoom', user_zoom)
 
         from .upload_kit import extract_channel_credit
         channel_name = getattr(project, 'channel_name', '') or extract_channel_credit(project.title)
+        editor_data = getattr(clip, 'editor_data', None) or {}
+        show_credit = editor_data.get('showCredit', True)
         render_shorts_clip(
             source_video_path=source_video_path,
             clip_start=clip.start_time,
@@ -790,7 +793,8 @@ def _run_clip_render(clip_id: str, clean: bool = False):
             crop_keyframes=crop_kfs,
             caption_style=active_caption_style,
             segments=project.transcript_raw if not clean else None,
-            channel_name=channel_name if not clean else ""
+            channel_name=(channel_name if (not clean and show_credit) else ""),
+            editor_data=editor_data,
         )
 
         rel_path = f"rendered_clips/{'clean/' if clean else ''}{output_filename}"
