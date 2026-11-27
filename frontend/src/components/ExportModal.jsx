@@ -137,6 +137,8 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
         crop_x: activeClip.crop_x,
         crop_y: activeClip.crop_y,
         crop_zoom: activeClip.crop_zoom,
+        crop_keyframes: activeClip.crop_keyframes,
+        editor_data: activeClip.editor_data,
         start_time: activeClip.start_time,
         end_time: activeClip.end_time,
         caption_style: activeClip.caption_style,
@@ -278,7 +280,7 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
-      <div className="bg-white border border-border-cream w-full max-w-lg rounded-stadium shadow-card-elevated overflow-hidden max-h-[92vh] flex flex-col">
+      <div className="bg-white border border-border-cream w-full max-w-3xl rounded-stadium shadow-card-elevated overflow-hidden max-h-[94vh] flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-border-cream flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
@@ -354,14 +356,14 @@ export default function ExportModal({ isOpen, onClose, clip, initialMode = 'clea
           )}
 
           {status === 'completed' && (
-            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5">
-              {/* Left Column: Compact 9:16 Video Player Preview */}
-              <div className="w-36 sm:w-40 aspect-[9/16] shrink-0 bg-black rounded-2xl overflow-hidden border-2 border-border-cream shadow-sm flex items-center justify-center">
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+              {/* Left Column: Large 9:16 Rendered Video Player Preview */}
+              <div className="w-64 sm:w-[300px] md:w-[320px] max-h-[70vh] aspect-[9/16] shrink-0 bg-black rounded-[28px] overflow-hidden border-4 border-charcoal shadow-card-elevated flex items-center justify-center">
                 <video
                   src={renderedUrl}
                   controls
                   autoPlay
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain bg-black"
                 />
               </div>
 

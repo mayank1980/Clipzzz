@@ -162,7 +162,7 @@ export default function ClipsList({
   };
 
   return (
-    <div className="w-80 xl:w-[340px] shrink-0 bg-lifted-cream border-r border-border-cream flex flex-col min-h-0 select-none">
+    <div className="w-64 xl:w-72 shrink-0 bg-lifted-cream border-r border-border-cream flex flex-col min-h-0 select-none">
       {/* Sidebar Header */}
       <div className="p-3.5 border-b border-border-cream bg-white space-y-2.5">
         <div className="flex items-center justify-between">

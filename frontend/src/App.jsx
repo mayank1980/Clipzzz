@@ -702,7 +702,7 @@ export default function App() {
           </div>
 
           {/* RIGHT COLUMN: Dialogue Transcript (Captions customizer paused) */}
-          <div className="w-80 lg:w-96 flex flex-col shrink-0 bg-lifted-cream border-l border-border-cream overflow-hidden relative">
+          <div className="w-64 xl:w-72 flex flex-col shrink-0 bg-lifted-cream border-l border-border-cream overflow-hidden relative">
             {/* 
             CAPTIONS & SUBTITLE CUSTOMIZER TEMPORARILY DISABLED PER USER REQUEST
             <SubtitleCustomizer

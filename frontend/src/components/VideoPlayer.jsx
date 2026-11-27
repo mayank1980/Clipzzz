@@ -1075,16 +1075,16 @@ export default function VideoPlayer({
   );
 
   return (
-    <div className="flex flex-col items-center w-full h-full px-4 py-4 overflow-y-auto min-h-0">
-      {/* 9:16 PORTRAIT SHORTS LAYOUT: PHONE ON LEFT, TIMELINE DECK ON RIGHT */}
-        <div className="flex flex-row items-center justify-center gap-5 w-full max-w-4xl py-2 my-auto">
+    <div className="flex flex-col items-center w-full h-full px-3 py-3 overflow-y-auto min-h-0">
+      {/* 9:16 PORTRAIT SHORTS LAYOUT: LARGE PHONE PREVIEW ON LEFT, TIMELINE DECK ON RIGHT */}
+        <div className="flex flex-row items-center justify-center gap-4 xl:gap-6 w-full max-w-5xl py-1 my-auto">
           {/* Phone Frame Container: Drag anywhere directly to reframe L/R/U/D; click toggles play */}
           <div className="flex flex-col items-center gap-2 shrink-0">
           <div
             ref={phoneContainerRef}
             onMouseDown={startFramePanDrag}
             onTouchStart={startFramePanDrag}
-            className={`relative aspect-[9/16] h-[450px] sm:h-[480px] max-h-[68vh] bg-black rounded-[36px] overflow-hidden shadow-card-elevated border-4 flex items-center justify-center shrink-0 select-none ${
+            className={`relative aspect-[9/16] h-[520px] sm:h-[580px] xl:h-[640px] max-h-[78vh] bg-black rounded-[36px] overflow-hidden shadow-card-elevated border-4 flex items-center justify-center shrink-0 select-none ${
               isDraggingFrame ? 'border-signal-orange cursor-grabbing' : 'border-charcoal cursor-grab'
             }`}
             title="Drag left/right/up/down to reposition video frame • Click to Play/Pause"
@@ -1218,7 +1218,7 @@ export default function VideoPlayer({
 
           {/* Quick Preview Reframe Micro-Bar + Open Full CapCut Studio CTA */}
           {selectedClip && (
-            <div className="flex items-center justify-between gap-1.5 w-full max-w-[280px] bg-white border border-border-cream rounded-full px-2.5 py-1.5 shadow-sm">
+            <div className="flex items-center justify-between gap-1.5 w-full max-w-[360px] bg-white border border-border-cream rounded-full px-3 py-1.5 shadow-sm">
               <div className="flex items-center gap-0.5 text-[10px]">
                 <button
                   type="button"
@@ -1261,7 +1261,7 @@ export default function VideoPlayer({
           </div>
 
           {/* DOCKED TIMELINE & CONTROL DECK: Warm Lifted Editorial Style */}
-          <div className="w-full sm:w-[350px] lg:w-[370px] flex flex-col gap-2.5 bg-white border border-border-cream rounded-stadium p-4 sm:p-5 shadow-card-soft shrink-0 max-h-[min(620px,calc(100vh-165px))] overflow-y-auto">
+          <div className="w-full sm:w-[325px] lg:w-[345px] flex flex-col gap-2.5 bg-white border border-border-cream rounded-stadium p-4 sm:p-5 shadow-card-soft shrink-0 max-h-[min(660px,calc(100vh-140px))] overflow-y-auto">
             {/* Header: Scene Badge & Aspect Ratio */}
             <div className="flex items-center justify-between pb-2 border-b border-border-cream">
               <div className="flex items-center gap-1.5">

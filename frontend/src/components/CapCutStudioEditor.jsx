@@ -1014,7 +1014,7 @@ export default function CapCutStudioEditor({
       {/* 2. MIDDLE WORKSPACE: LEFT INSPECTOR + CENTER DUAL MONITOR */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* LEFT INSPECTOR DOCK */}
-        <aside className="w-80 lg:w-[340px] shrink-0 bg-[#18181B] border-r border-white/10 flex flex-col min-h-0">
+        <aside className="w-72 lg:w-[300px] shrink-0 bg-[#18181B] border-r border-white/10 flex flex-col min-h-0">
           {/* Inspector Tabs */}
           <div className="grid grid-cols-3 p-1.5 gap-1 bg-[#121215] border-b border-white/10 text-[11px] font-bold">
             {[
@@ -1566,12 +1566,12 @@ export default function CapCutStudioEditor({
         <main className="flex-1 flex flex-col items-center justify-center bg-[#0D0D0F] relative min-w-0 min-h-0 p-3 gap-3 overflow-hidden">
           <div className="flex-1 flex items-center justify-center gap-6 w-full min-h-0">
             {/* PRIMARY 9:16 OUTPUT MONITOR */}
-            <div className="flex flex-col items-center gap-1.5 h-full max-h-[460px] justify-center">
+            <div className="flex flex-col items-center gap-1.5 h-full justify-center">
               <div
                 ref={canvasStageRef}
                 onMouseDown={startCanvasDrag}
                 onTouchStart={startCanvasDrag}
-                className={`relative aspect-[9/16] h-full max-h-[430px] bg-black rounded-[24px] overflow-hidden border-2 shadow-2xl ${
+                className={`relative aspect-[9/16] h-full max-h-[680px] min-h-[360px] bg-black rounded-[28px] overflow-hidden border-2 shadow-2xl ${
                   isDraggingCanvas ? 'border-signal-orange cursor-grabbing' : 'border-white/20 cursor-grab'
                 }`}
                 title="Drag video left/right/up/down to set framing at playhead"
@@ -1646,7 +1646,7 @@ export default function CapCutStudioEditor({
 
             {/* OPTIONAL 16:9 FULL SOURCE MINIMAP WITH DRAGGABLE 9:16 VIEWPORT */}
             {showSourceMinimap && (
-              <div className="hidden xl:flex flex-col gap-2 w-72 bg-[#18181B] border border-white/10 rounded-2xl p-3 shrink-0">
+              <div className="hidden xl:flex flex-col gap-2 w-80 xl:w-96 bg-[#18181B] border border-white/10 rounded-2xl p-3.5 shrink-0">
                 <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-white/70">
                   <span>Full 16:9 Scene (Drag Crop)</span>
                   <button
@@ -1784,7 +1784,7 @@ export default function CapCutStudioEditor({
       </div>
 
       {/* 3. BOTTOM CAPCUT-STYLE MULTI-TRACK TIMELINE */}
-      <section className="h-56 shrink-0 bg-[#151518] border-t border-white/10 flex flex-col select-none z-20">
+      <section className="h-48 shrink-0 bg-[#151518] border-t border-white/10 flex flex-col select-none z-20">
         {/* Timeline Toolbar */}
         <div className="h-9 px-4 bg-[#1B1B1F] border-b border-white/10 flex items-center justify-between text-[11px]">
           <div className="flex items-center gap-2">
