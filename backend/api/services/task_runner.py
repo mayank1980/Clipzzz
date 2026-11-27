@@ -399,7 +399,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             if (not c_existing.crop_keyframes or len(c_existing.crop_keyframes) <= 1 or c_existing.crop_x == 50.0) and getattr(project, 'auto_speaker_tracking', True) and video_full_path and os.path.exists(video_full_path):
                 try:
                     from .face_tracker import generate_camera_keyframes, analyze_clip_initial_framing
-                    computed_kfs = analyze_clip_initial_framing(video_full_path, c_existing.start_time, c_existing.duration) if total_clips > 6 else generate_camera_keyframes(video_full_path, c_existing.start_time, c_existing.duration)
+                    computed_kfs = analyze_clip_initial_framing(video_full_path, c_existing.start_time, c_existing.duration) if total_clips > 12 else generate_camera_keyframes(video_full_path, c_existing.start_time, c_existing.duration)
                     if computed_kfs:
                         c_existing.crop_keyframes = computed_kfs
                         c_existing.crop_x = computed_kfs[0]['x']
@@ -417,7 +417,7 @@ def _run_video_pipeline(project_id: str, gemini_api_key: str = ''):
             from concurrent.futures import ThreadPoolExecutor, as_completed
             from .face_tracker import generate_camera_keyframes, analyze_clip_initial_framing
 
-            use_fast_initial = len(missing_indices) > 6
+            use_fast_initial = len(missing_indices) > 12
             if use_fast_initial:
                 used_fast_initial_framing = True
             worker_count = min(8 if use_fast_initial else 6, len(missing_indices))

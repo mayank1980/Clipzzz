@@ -185,7 +185,7 @@ def dedupe_frame_people(faces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for f in ranked:
         if f.get('area', 0) < max_area * 0.28:
             continue
-        if f.get('confidence', 0.5) < 0.45:
+        if f.get('confidence', 0.5) < 0.36:
             continue
         f_w_pct = float(f.get('w_pct', 10.0))
         is_dup = False
@@ -224,15 +224,30 @@ def select_smart_focus_face(
             "x": to_916_crop_x(prev_raw_cx, zoom=zoom),
             "y": 35.0,
             "raw_cx": prev_raw_cx,
+            "raw_cy": 35.0,
             "speaker": "Speaker Focus",
         }
 
-    max_area = max((f.get('area', 0) for f in distinct_people), default=1)
-    # Ignore distant background extras (<40% of main speaker face size) when choosing primary focus
-    fg_people = [
+    # Prefer verified frontal YuNet faces over side/back-of-head over-the-shoulder listeners
+    # (in OTS dialogue shots, a silent foreground ear often has larger bbox area than the speaker).
+    frontal_pool = [
         p for p in distinct_people
-        if p.get('area', 0) >= max_area * 0.40 and float(p.get('confidence', 0.0)) >= 0.45
-    ] or distinct_people
+        if (p.get('is_frontal') or float(p.get('confidence', 0.0)) >= 0.85)
+        and float(p.get('confidence', 0.0)) >= 0.36
+    ]
+    if frontal_pool:
+        max_frontal_area = max((f.get('area', 0) for f in frontal_pool), default=1)
+        fg_people = [
+            p for p in frontal_pool
+            if p.get('area', 0) >= max_frontal_area * 0.35
+        ] or frontal_pool
+    else:
+        max_area = max((f.get('area', 0) for f in distinct_people), default=1)
+        # Ignore distant background extras (<40% of main speaker face size) when choosing primary focus
+        fg_people = [
+            p for p in distinct_people
+            if p.get('area', 0) >= max_area * 0.40 and float(p.get('confidence', 0.0)) >= 0.36
+        ] or distinct_people
 
     if len(fg_people) == 1:
         p = fg_people[0]
@@ -241,6 +256,7 @@ def select_smart_focus_face(
             "x": to_916_crop_x(p['cx'], zoom=zoom),
             "y": to_916_crop_y(p['cy'], zoom=zoom),
             "raw_cx": float(p['cx']),
+            "raw_cy": float(p['cy']),
             "speaker": "Speaker Focus",
         }
 
@@ -256,16 +272,19 @@ def select_smart_focus_face(
             "x": to_916_crop_x(mid_cx, zoom=zoom),
             "y": to_916_crop_y(mid_cy, zoom=zoom),
             "raw_cx": float(mid_cx),
+            "raw_cy": float(mid_cy),
             "speaker": "Speakers Together",
         }
 
-    # Score foreground subjects: lip activity + prominence + continuity hysteresis
+    # Score foreground subjects: aligned lip activity + frontal pose + prominence + continuity
     def _focus_score(p: Dict[str, Any]) -> float:
         lip = float(p.get('lip_motion', 0.0))
         area_pct = float(p.get('area_pct', 1.0))
         conf = float(p.get('confidence', 0.6))
-        continuity = 6.0 if abs(float(p['cx']) - prev_raw_cx) <= 14.0 else 0.0
-        return (lip * 3.0) + (area_pct * 3.5) + (conf * 12.0) + continuity
+        frontal_bonus = 18.0 if p.get('is_frontal') else 0.0
+        eye_bonus = float(p.get('eye_span_ratio', 0.0)) * 10.0
+        continuity = 5.0 if abs(float(p['cx']) - prev_raw_cx) <= 14.0 else 0.0
+        return (lip * 3.2) + frontal_bonus + eye_bonus + (area_pct * 3.0) + (conf * 10.0) + continuity
 
     target_f = max(fg_people, key=_focus_score)
     if target_f['cx'] < 45.0:
@@ -280,6 +299,7 @@ def select_smart_focus_face(
         "x": to_916_crop_x(target_f['cx'], zoom=zoom),
         "y": to_916_crop_y(target_f['cy'], zoom=zoom),
         "raw_cx": float(target_f['cx']),
+        "raw_cy": float(target_f['cy']),
         "speaker": label,
     }
 
@@ -387,8 +407,8 @@ class AutoCameraEngine:
         new_h = max(1, int(orig_h * scale))
         small = cv2.resize(frame, (target_w, new_h), interpolation=cv2.INTER_LINEAR)
         frame_area = float(target_w * new_h)
-        min_face_dim = max(16, int(target_w * 0.032))
-        min_face_area = max(320, int(frame_area * 0.0028))
+        min_face_dim = max(9, int(target_w * 0.016))
+        min_face_area = max(96, int(frame_area * 0.0006))
 
         results = []
 
@@ -406,8 +426,10 @@ class AutoCameraEngine:
                         fh = min(new_h - y1, int(f[3]))
                         score = float(f[14]) if len(f) > 14 else 0.8
 
-                        # Reject noise/speckles on walls & scenery
-                        if score < 0.40 or fw < min_face_dim or fh < min_face_dim or (fw * fh) < min_face_area:
+                        # Reject noise/speckles on walls & scenery while allowing confident distant wide-shot speakers
+                        if score < 0.36 or fw < min_face_dim or fh < min_face_dim or (fw * fh) < min_face_area:
+                            continue
+                        if (fw < 14 or fh < 14 or (fw * fh) < 220) and score < 0.58:
                             continue
 
                         cx_pct = ((x1 + fw / 2.0) / float(target_w)) * 100.0
@@ -419,8 +441,28 @@ class AutoCameraEngine:
 
                         # Skin tone validation on marginal detections to eliminate non-face textures
                         crop = small[y1:y1+fh, x1:x1+fw]
-                        if score < 0.66 and not self._has_valid_face_skin(crop):
+                        if score < 0.70 and not self._has_valid_face_skin(crop):
                             continue
+
+                        eye_span_ratio = 0.0
+                        mouth_span_ratio = 0.0
+                        is_frontal = False
+                        mouth_cx = x1 + fw * 0.5
+                        mouth_cy = y1 + fh * 0.72
+                        mouth_w = max(8, int(fw * 0.45))
+                        mouth_h = max(6, int(fh * 0.25))
+
+                        if len(f) >= 14:
+                            eye_span_ratio = abs(float(f[6]) - float(f[4])) / max(1.0, float(fw))
+                            mouth_span_ratio = abs(float(f[12]) - float(f[10])) / max(1.0, float(fw))
+                            mx = (float(f[10]) + float(f[12])) * 0.5
+                            my = (float(f[11]) + float(f[13])) * 0.5
+                            if 0 <= mx <= target_w and 0 <= my <= new_h:
+                                mouth_cx = mx
+                                mouth_cy = my
+                                mouth_w = max(8, int(abs(float(f[12]) - float(f[10])) * 1.45), int(fw * 0.42))
+                                mouth_h = max(6, int(fh * 0.26))
+                            is_frontal = (eye_span_ratio >= 0.22 and mouth_span_ratio >= 0.16 and score >= 0.55)
 
                         results.append({
                             'x': x1,
@@ -433,6 +475,13 @@ class AutoCameraEngine:
                             'cy': float(cy_pct),
                             'area': int(fw * fh),
                             'confidence': score,
+                            'eye_span_ratio': float(eye_span_ratio),
+                            'mouth_span_ratio': float(mouth_span_ratio),
+                            'is_frontal': bool(is_frontal),
+                            'mouth_cx': float(mouth_cx),
+                            'mouth_cy': float(mouth_cy),
+                            'mouth_w': int(mouth_w),
+                            'mouth_h': int(mouth_h),
                         })
 
                     # Fast path: only skip cascades if YuNet already found 2+ distinct prominent faces
@@ -775,8 +824,8 @@ class AutoCameraEngine:
         if not os.path.exists(video_path):
             return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
 
-        frame_w = 480
-        frame_h = 270
+        frame_w = 576
+        frame_h = 324
         frame_sz = frame_w * frame_h * 3
         fps = 1.0 / max(0.25, sample_interval)
 
@@ -803,6 +852,7 @@ class AutoCameraEngine:
             total_frames = len(raw_bytes) // frame_sz
 
             prev_gray = None
+            prev_faces: List[Dict[str, Any]] = []
             for i in range(total_frames):
                 rel_t = round(i * sample_interval, 2)
                 buf = raw_bytes[i * frame_sz : (i + 1) * frame_sz]
@@ -811,20 +861,45 @@ class AutoCameraEngine:
                 if len(letterbox_grays) < 5 and (i % max(1, total_frames // 5) == 0):
                     letterbox_grays.append(gray)
 
-                faces = self.detect_faces_in_frame(frame, target_w=frame_w, check_profile=(i % 4 == 0))
+                faces = self.detect_faces_in_frame(frame, target_w=frame_w, check_profile=(i % 2 == 0))
 
-                # Measure lip motion dynamics in lower mouth region
+                # Measure face-aligned internal mouth motion against matched previous face
                 for fc in faces:
                     lip_motion = 0.0
-                    if prev_gray is not None:
-                        my1 = int(fc['y'] + 0.60 * fc['h'])
-                        my2 = int(fc['y'] + fc['h'])
-                        mx1 = int(fc['x'] + 0.15 * fc['w'])
-                        mx2 = int(fc['x'] + 0.85 * fc['w'])
-                        m1 = prev_gray[my1:my2, mx1:mx2]
-                        m2 = gray[my1:my2, mx1:mx2]
-                        if m1.size > 0 and m1.shape == m2.shape:
-                            lip_motion = float(np.mean(cv2.absdiff(m1, m2)))
+                    if prev_gray is not None and prev_faces:
+                        best_prev = None
+                        best_dist = 1e9
+                        for pfc in prev_faces:
+                            d = abs(pfc['cx'] - fc['cx']) + abs(pfc['cy'] - fc['cy'])
+                            if d < best_dist and abs(pfc['cx'] - fc['cx']) <= 12.0 and abs(pfc['cy'] - fc['cy']) <= 12.0:
+                                best_dist = d
+                                best_prev = pfc
+                        if best_prev is not None:
+                            mcx = float(fc.get('mouth_cx', fc['x'] + fc['w'] * 0.5))
+                            mcy = float(fc.get('mouth_cy', fc['y'] + fc['h'] * 0.72))
+                            mw = max(8, int(fc.get('mouth_w', fc['w'] * 0.45)))
+                            mh = max(6, int(fc.get('mouth_h', fc['h'] * 0.25)))
+                            pmcx = float(best_prev.get('mouth_cx', best_prev['x'] + best_prev['w'] * 0.5))
+                            pmcy = float(best_prev.get('mouth_cy', best_prev['y'] + best_prev['h'] * 0.72))
+                            pmw = max(8, int(best_prev.get('mouth_w', best_prev['w'] * 0.45)))
+                            pmh = max(6, int(best_prev.get('mouth_h', best_prev['h'] * 0.25)))
+
+                            x1 = max(0, int(round(mcx - mw * 0.5)))
+                            y1 = max(0, int(round(mcy - mh * 0.5)))
+                            x2 = min(frame_w, x1 + mw)
+                            y2 = min(frame_h, y1 + mh)
+
+                            px1 = max(0, int(round(pmcx - pmw * 0.5)))
+                            py1 = max(0, int(round(pmcy - pmh * 0.5)))
+                            px2 = min(frame_w, px1 + pmw)
+                            py2 = min(frame_h, py1 + pmh)
+
+                            if (x2 - x1) >= 4 and (y2 - y1) >= 4 and (px2 - px1) >= 4 and (py2 - py1) >= 4:
+                                p1 = cv2.resize(prev_gray[py1:py2, px1:px2], (20, 14), interpolation=cv2.INTER_AREA).astype(np.float32)
+                                p2 = cv2.resize(gray[y1:y2, x1:x2], (20, 14), interpolation=cv2.INTER_AREA).astype(np.float32)
+                                p1 -= float(np.mean(p1))
+                                p2 -= float(np.mean(p2))
+                                lip_motion = float(np.mean(np.abs(p1 - p2)))
                     fc['lip_motion'] = lip_motion
 
                 sampled_timeline.append({
@@ -832,6 +907,7 @@ class AutoCameraEngine:
                     "faces": faces
                 })
                 prev_gray = gray
+                prev_faces = faces
 
         except Exception as e:
             cap = cv2.VideoCapture(video_path)
@@ -857,9 +933,8 @@ class AutoCameraEngine:
             return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": safe_fb_y, "zoom": safe_fb_zoom, "speaker": "Speaker Focus"}]
 
         # 1. Shot-Aware Dynamic Framing:
-        # Every frame is evaluated for the active speaker (solo shot or multi-speaker debate).
-        # We compute exact 9:16 portrait coordinates and apply deadband hysteresis to ensure
-        # rock-solid shots with zero shaking and zero edge cutoff.
+        # Every frame is evaluated for the active speaker using aligned mouth motion & pose.
+        # Project raw coordinates using the true active zoom (e.g. 1.28 when cinema-cropped).
         speaker_seats = self.cluster_speaker_seats(all_faces, max_spread=14.0)
 
         raw_track = []
@@ -878,6 +953,7 @@ class AutoCameraEngine:
                     "mode": "solo",
                     "x": last_solo_x,
                     "y": last_solo_y,
+                    "raw_cx": last_raw_cx,
                     "panels": None,
                     "speaker": last_label,
                     "has_face": False
@@ -888,7 +964,7 @@ class AutoCameraEngine:
             if not distinct_people:
                 distinct_people = [max(faces, key=lambda f: f.get('area', 0))]
 
-            focus = select_smart_focus_face(distinct_people, prev_raw_cx=last_raw_cx, zoom=1.15)
+            focus = select_smart_focus_face(distinct_people, prev_raw_cx=last_raw_cx, zoom=safe_fb_zoom)
             px = focus["x"]
             py = focus["y"]
             label = focus["speaker"]
@@ -902,24 +978,39 @@ class AutoCameraEngine:
                 "mode": "solo",
                 "x": px,
                 "y": py,
+                "raw_cx": last_raw_cx,
                 "panels": None,
                 "speaker": label,
                 "has_face": True
             })
 
         if not raw_track:
-            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": self.current_focal_y, "zoom": 1.15, "speaker": "Speaker Focus"}]
+            return [{"time": 0.0, "mode": "solo", "x": self.current_focal_x, "y": safe_fb_y, "zoom": safe_fb_zoom, "speaker": "Speaker Focus"}]
 
-        # Solo speaker throughout entire clip: lock unconditionally
+        # Retroactively anchor opening has_face=False frames to first detected speaker
+        first_face_pt = next((pt for pt in raw_track if pt.get("has_face")), None)
+        if first_face_pt is not None:
+            for pt in raw_track:
+                if pt.get("has_face"):
+                    break
+                pt["x"] = first_face_pt["x"]
+                pt["y"] = first_face_pt["y"]
+                pt["raw_cx"] = first_face_pt["raw_cx"]
+                pt["speaker"] = first_face_pt["speaker"]
+
+        # Solo speaker throughout entire clip: lock unconditionally with effective zoom
         if len(speaker_seats) == 1:
             solo = speaker_seats[0]
             clamped_y, eff_zoom = clamp_crop_to_active_content(solo["y"], 1.15, top_frac, bot_frac)
-            self.current_focal_x = solo["x"]
+            face_raw_cxs = sorted(pt["raw_cx"] for pt in raw_track if pt.get("has_face"))
+            solo_raw_cx = face_raw_cxs[len(face_raw_cxs) // 2] if face_raw_cxs else None
+            solo_x = to_916_crop_x(solo_raw_cx, zoom=eff_zoom) if solo_raw_cx is not None else solo["x"]
+            self.current_focal_x = solo_x
             self.current_focal_y = clamped_y
             return [{
                 "time": 0.0,
                 "mode": "solo",
-                "x": solo["x"],
+                "x": solo_x,
                 "y": clamped_y,
                 "zoom": eff_zoom,
                 "speaker": solo["label"]
@@ -937,12 +1028,13 @@ class AutoCameraEngine:
         pending_switch = None
         pending_count = 0
 
-        def _make_kf(t_val, x_val, y_val, lbl_val):
+        def _make_kf(t_val, x_val, y_val, lbl_val, raw_cx_val=None):
             clamped_y, eff_zoom = clamp_crop_to_active_content(y_val, 1.15, top_frac, bot_frac)
+            proj_x = to_916_crop_x(raw_cx_val, zoom=eff_zoom) if raw_cx_val is not None else x_val
             return {
                 "time": round(t_val, 2),
                 "mode": "solo",
-                "x": x_val,
+                "x": proj_x,
                 "y": clamped_y,
                 "zoom": eff_zoom,
                 "speaker": lbl_val,
@@ -952,13 +1044,15 @@ class AutoCameraEngine:
             t = pt["time"]
             px = pt["x"]
             py = pt["y"]
+            raw_cx_pt = pt.get("raw_cx")
             label = pt["speaker"]
 
             if current_shot_x is None:
-                current_shot_x = px
-                current_shot_y = py
+                kf0 = _make_kf(0.0, px, py, label, raw_cx_val=raw_cx_pt)
+                current_shot_x = kf0["x"]
+                current_shot_y = kf0["y"]
                 current_label = label
-                keyframes.append(_make_kf(0.0, px, py, label))
+                keyframes.append(kf0)
                 last_cut_time = 0.0
                 continue
 
@@ -977,14 +1071,21 @@ class AutoCameraEngine:
                 ):
                     pending_count += 1
                 else:
-                    pending_switch = {"x": px, "y": py, "label": label}
+                    pending_switch = {"x": px, "raw_cx": raw_cx_pt, "y": py, "label": label}
                     pending_count = 1
 
-                if pending_count >= 2 or dist >= 22.0:
-                    current_shot_x = pending_switch["x"]
-                    current_shot_y = pending_switch["y"]
+                if pending_count >= 2:
+                    kf_cut = _make_kf(
+                        t,
+                        pending_switch["x"],
+                        pending_switch["y"],
+                        pending_switch["label"],
+                        raw_cx_val=pending_switch.get("raw_cx"),
+                    )
+                    current_shot_x = kf_cut["x"]
+                    current_shot_y = kf_cut["y"]
                     current_label = pending_switch["label"]
-                    keyframes.append(_make_kf(t, current_shot_x, current_shot_y, current_label))
+                    keyframes.append(kf_cut)
                     last_cut_time = t
                     pending_switch = None
                     pending_count = 0
@@ -1038,10 +1139,18 @@ def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: fl
         return [{"time": 0.0, "mode": "solo", "x": 50.0, "y": 35.0, "zoom": 1.15, "speaker": "Speaker Focus", "initial": True}]
 
     safe_dur = max(1.0, float(duration or 1.0))
-    offsets = sorted({
-        round(min(safe_dur * 0.12, 0.4), 2),
-        round(safe_dur * 0.50, 2),
-    })
+    if safe_dur > 40.0:
+        offsets = sorted({
+            round(min(safe_dur * 0.08, 0.5), 2),
+            round(safe_dur * 0.28, 2),
+            round(safe_dur * 0.55, 2),
+            round(safe_dur * 0.80, 2),
+        })
+    else:
+        offsets = sorted({
+            round(min(safe_dur * 0.12, 0.4), 2),
+            round(safe_dur * 0.50, 2),
+        })
 
     cap = _get_thread_video_capture(video_path)
     sampled_kfs = []
@@ -1053,7 +1162,7 @@ def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: fl
         if not ret or frame is None:
             continue
         letterbox_grays.append(cv2.cvtColor(cv2.resize(frame, (320, 180)), cv2.COLOR_BGR2GRAY))
-        faces = engine.detect_faces_in_frame(frame, target_w=480, check_profile=True)
+        faces = engine.detect_faces_in_frame(frame, target_w=576, check_profile=True)
         if not faces:
             continue
         distinct_people = dedupe_frame_people(faces)
@@ -1068,6 +1177,7 @@ def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: fl
             "mode": "solo",
             "x": focus["x"],
             "y": focus["y"],
+            "raw_cx": focus["raw_cx"],
             "zoom": 1.15,
             "speaker": focus["speaker"],
             "initial": True,
@@ -1085,6 +1195,9 @@ def analyze_clip_initial_framing(video_path: str, start_sec: float, duration: fl
             cy, ez = clamp_crop_to_active_content(kf["y"], kf["zoom"], top_frac, bot_frac)
             kf["y"] = cy
             kf["zoom"] = ez
+            rcx = kf.pop("raw_cx", None)
+            if rcx is not None:
+                kf["x"] = to_916_crop_x(rcx, zoom=ez)
         return sampled_kfs
 
     cy_fb, ez_fb = clamp_crop_to_active_content(35.0, 1.15, top_frac, bot_frac)
